@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 const WINDSOR_API_KEY = process.env.WINDSOR_API_KEY
 const GA4_ACCOUNT = '521779420'
 
-async function windsorFetch(fields, datePreset, filters) {
+async function w(fields, datePreset, filters) {
   const params = new URLSearchParams({
     api_key: WINDSOR_API_KEY || '',
     date_preset: datePreset,
@@ -11,106 +11,111 @@ async function windsorFetch(fields, datePreset, filters) {
     accounts: GA4_ACCOUNT,
   })
   if (filters) params.set('filters', JSON.stringify(filters))
-
-  const url = `https://connectors.windsor.ai/googleanalytics4?${params}`
-  const res = await fetch(url, { next: { revalidate: 3600 } })
-  if (!res.ok) throw new Error(`Windsor error: ${res.status}`)
-  const data = await res.json()
-  return Array.isArray(data) ? data : (data.data || data.result || [])
+  const res = await fetch(`https://connectors.windsor.ai/googleanalytics4?${params}`, { next: { revalidate: 3600 } })
+  if (!res.ok) throw new Error(`Windsor ${res.status}`)
+  const d = await res.json()
+  return Array.isArray(d) ? d : (d.data || d.result || [])
 }
 
 export async function GET() {
   try {
     const [
-      currTrafficRes,
-      prevTrafficRes,
-      currPagesRes,
-      prevPagesRes,
-      currConvRes,
-      currGSCRes,
-      prevGSCRes,
-      gscQueriesRes,
-      gscPagesRes,
+      r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11
     ] = await Promise.allSettled([
-      windsorFetch(
-        ['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'],
-        'last_7dT'
-      ),
-      windsorFetch(
-        ['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'],
-        'last_14dT'
-      ),
-      windsorFetch(
-        ['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'],
-        'last_7dT',
-        [['page_path','ncontains','/admin']]
-      ),
-      windsorFetch(
-        ['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'],
-        'last_14dT',
-        [['page_path','ncontains','/admin']]
-      ),
-      windsorFetch(
-        ['session_default_channel_group','sessions','conversions_signup','conversions_offer_accepted','conversions_bravo_cerere_noua','conversions_bun_venit_agent','conversions_bun_venit_cumparator','conversions_bun_venit_proprietar'],
-        'last_7dT'
-      ),
-      windsorFetch(
-        ['date','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'],
-        'last_7dT'
-      ),
-      windsorFetch(
-        ['date','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'],
-        'last_14dT'
-      ),
-      windsorFetch(
-        ['organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'],
-        'last_7dT'
-      ),
-      windsorFetch(
-        ['page_path','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'],
-        'last_7dT',
-        [['page_path','ncontains','/admin']]
-      ),
+      // 1. Traffic current 30d by channel
+      w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], 'last_30dT'),
+      // 2. Traffic prev 60d (subtract 30d to get prev period)
+      w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], 'last_60dT'),
+      // 3. Pages current 30d
+      w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'], 'last_30dT', [['page_path','ncontains','/admin']]),
+      // 4. Pages prev 60d
+      w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'], 'last_60dT', [['page_path','ncontains','/admin']]),
+      // 5. Custom conversions by channel 30d
+      w(['session_default_channel_group','sessions','conversions_signup','conversions_offer_accepted','conversions_bravo_cerere_noua','conversions_bun_venit_agent','conversions_bun_venit_cumparator','conversions_bun_venit_proprietar'], 'last_30dT'),
+      // 6. Daily timeseries 30d (for charts)
+      w(['date','sessions','newusers','conversions','engagement_rate','average_session_duration'], 'last_30dT'),
+      // 7. Daily timeseries 60d (for prev period charts)
+      w(['date','sessions','newusers','conversions','engagement_rate','average_session_duration'], 'last_60dT'),
+      // 8. GSC daily current
+      w(['date','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], 'last_30dT'),
+      // 9. GSC daily prev
+      w(['date','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], 'last_60dT'),
+      // 10. GSC queries
+      w(['organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], 'last_30dT'),
+      // 11. GSC pages
+      w(['page_path','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], 'last_30dT', [['page_path','ncontains','/admin']]),
     ])
 
-    const extract = r => r.status === 'fulfilled' ? (r.value || []) : []
+    const x = r => r.status === 'fulfilled' ? (r.value || []) : []
 
-    const cTraffic = extract(currTrafficRes)
-    const p14Traffic = extract(prevTrafficRes)
+    const curr30 = x(r1)
+    const all60  = x(r2)
 
-    // Compute prev week = 14d totals minus current 7d
+    // Compute prev 30d = 60d totals - current 30d
     const prevMap = {}
-    for (const row of p14Traffic) {
-      const key = row.session_default_channel_group
-      if (!prevMap[key]) prevMap[key] = { ...row }
-      else Object.keys(row).forEach(k => {
-        if (k !== 'session_default_channel_group' && typeof row[k] === 'number')
-          prevMap[key][k] = (prevMap[key][k] || 0) + row[k]
+    for (const row of all60) {
+      const k = row.session_default_channel_group
+      if (!prevMap[k]) prevMap[k] = { ...row }
+      else Object.keys(row).forEach(f => {
+        if (f !== 'session_default_channel_group' && typeof row[f] === 'number')
+          prevMap[k][f] = (prevMap[k][f]||0) + row[f]
       })
     }
-    for (const row of cTraffic) {
-      const key = row.session_default_channel_group
-      if (prevMap[key]) Object.keys(row).forEach(k => {
-        if (k !== 'session_default_channel_group' && typeof row[k] === 'number')
-          prevMap[key][k] = Math.max(0, (prevMap[key][k] || 0) - row[k])
+    for (const row of curr30) {
+      const k = row.session_default_channel_group
+      if (prevMap[k]) Object.keys(row).forEach(f => {
+        if (f !== 'session_default_channel_group' && typeof row[f] === 'number')
+          prevMap[k][f] = Math.max(0, (prevMap[k][f]||0) - row[f])
       })
     }
+
+    // Pages prev
+    const pages30  = x(r3)
+    const pagesAll = x(r4)
+    const pagesPrevMap = {}
+    for (const row of pagesAll) {
+      const k = row.page_path
+      if (!pagesPrevMap[k]) pagesPrevMap[k] = { ...row }
+      else Object.keys(row).forEach(f => {
+        if (f !== 'page_path' && typeof row[f] === 'number')
+          pagesPrevMap[k][f] = (pagesPrevMap[k][f]||0) + row[f]
+      })
+    }
+    for (const row of pages30) {
+      const k = row.page_path
+      if (pagesPrevMap[k]) Object.keys(row).forEach(f => {
+        if (f !== 'page_path' && typeof row[f] === 'number')
+          pagesPrevMap[k][f] = Math.max(0, (pagesPrevMap[k][f]||0) - row[f])
+      })
+    }
+
+    // Daily series: split 60d into curr (last 30) and prev (first 30)
+    const daily60 = x(r7).sort((a,b) => a.date.localeCompare(b.date))
+    const midpoint = daily60.length > 0 ? daily60[Math.floor(daily60.length/2)]?.date : null
+    const dailyCurr = x(r6).sort((a,b) => a.date.localeCompare(b.date))
+    const dailyPrev = midpoint ? daily60.filter(d => d.date < midpoint) : []
+
+    // GSC series
+    const gscDaily60 = x(r9).sort((a,b) => a.date.localeCompare(b.date))
+    const gscCurr = x(r8).sort((a,b) => a.date.localeCompare(b.date))
+    const gscPrev = midpoint ? gscDaily60.filter(d => d.date < midpoint) : []
 
     const now = new Date()
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-    const weekLabel = `${weekAgo.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short' })} – ${now.toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })}`
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const label = `${monthAgo.toLocaleDateString('ro-RO',{day:'numeric',month:'short'})} – ${now.toLocaleDateString('ro-RO',{day:'numeric',month:'short',year:'numeric'})}`
 
     return NextResponse.json({
       generatedAt: now.toISOString(),
-      weekLabel,
-      traffic: { current: cTraffic, previous: Object.values(prevMap) },
-      pages: { current: extract(currPagesRes), previous: extract(prevPagesRes) },
-      conversions: extract(currConvRes),
+      periodLabel: label,
+      traffic: { current: curr30, previous: Object.values(prevMap) },
+      pages:   { current: pages30, previous: Object.values(pagesPrevMap) },
+      conversions: x(r5),
+      daily: { current: dailyCurr, previous: dailyPrev },
       gsc: {
-        current: extract(currGSCRes),
-        previous: extract(prevGSCRes),
-        queries: extract(gscQueriesRes),
-        pages: extract(gscPagesRes),
+        current: gscCurr,
+        previous: gscPrev,
+        queries: x(r10),
+        pages: x(r11),
       },
     })
   } catch (err) {
