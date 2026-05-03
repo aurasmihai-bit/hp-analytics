@@ -6,25 +6,110 @@ import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
-  {label:'7 zile',  days:7},
-  {label:'14 zile', days:14},
-  {label:'30 zile', days:30},
-  {label:'60 zile', days:60},
-  {label:'90 zile', days:90},
+  {label:'7Z',   days:7},
+  {label:'14Z',  days:14},
+  {label:'30Z',  days:30},
+  {label:'60Z',  days:60},
+  {label:'90Z',  days:90},
 ]
 
-function PeriodBar({ days, onChange }) {
+function PeriodBar({ days, customFrom, customTo, onDays, onCustom }) {
+  const [showPicker, setShowPicker] = useState(false)
+  const [from, setFrom] = useState(customFrom || '')
+  const [to,   setTo]   = useState(customTo   || '')
+  const isCustom = !!customFrom
+
+  function applyCustom() {
+    if (!from || !to || from > to) return
+    setShowPicker(false)
+    onCustom(from, to)
+  }
+
+  // Compute today and sensible max
+  const today = new Date().toISOString().slice(0,10)
+  const minDate = '2024-01-01'
+
   return (
-    <div style={{display:'flex',gap:4,alignItems:'center',marginLeft:'auto'}}>
-      <span style={{fontSize:11,color:C.hint,marginRight:4}}>Interval:</span>
+    <div style={{position:'relative',display:'flex',alignItems:'center',gap:4}}>
+      <span style={{fontSize:11,color:C.hint,marginRight:2}}>Interval:</span>
+
+      {/* Preset buttons */}
       {PERIODS.map(p=>(
-        <button key={p.days} onClick={()=>onChange(p.days)} style={{
-          padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',fontWeight:days===p.days?500:400,
-          border:`0.5px solid ${days===p.days?C.navy:C.border}`,
-          background:days===p.days?C.navy:'transparent',
-          color:days===p.days?'#fff':C.muted
+        <button key={p.days} onClick={()=>{setShowPicker(false);onDays(p.days)}} style={{
+          padding:'4px 9px',fontSize:11,borderRadius:6,cursor:'pointer',fontWeight:!isCustom&&days===p.days?500:400,
+          border:`0.5px solid ${!isCustom&&days===p.days?C.navy:C.border}`,
+          background:!isCustom&&days===p.days?C.navy:'transparent',
+          color:!isCustom&&days===p.days?'#fff':C.muted,transition:'all .15s'
         }}>{p.label}</button>
       ))}
+
+      {/* Custom button */}
+      <button onClick={()=>setShowPicker(v=>!v)} style={{
+        padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',fontWeight:isCustom?500:400,
+        border:`0.5px solid ${isCustom||showPicker?C.blue:C.border}`,
+        background:isCustom?'#EBF4FC':showPicker?'#F0F7FF':'transparent',
+        color:isCustom||showPicker?C.blue:C.muted,display:'flex',alignItems:'center',gap:5,
+        transition:'all .15s'
+      }}>
+        <span>📅</span>
+        {isCustom ? `${customFrom} → ${customTo}` : 'Personalizat'}
+      </button>
+
+      {/* Dropdown picker */}
+      {showPicker && (
+        <div style={{
+          position:'absolute',top:'calc(100% + 8px)',right:0,zIndex:100,
+          background:C.card,border:`0.5px solid ${C.border}`,borderRadius:12,
+          padding:'16px',boxShadow:'0 8px 32px rgba(0,0,0,.12)',minWidth:280
+        }}>
+          <p style={{fontSize:12,fontWeight:500,color:C.text,margin:'0 0 12px'}}>Interval personalizat</p>
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+            <div>
+              <label style={{fontSize:11,color:C.hint,display:'block',marginBottom:4}}>De la</label>
+              <input type="date" value={from} min={minDate} max={to||today}
+                onChange={e=>setFrom(e.target.value)}
+                style={{width:'100%',padding:'7px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.bg,outline:'none',boxSizing:'border-box'}}
+              />
+            </div>
+            <div>
+              <label style={{fontSize:11,color:C.hint,display:'block',marginBottom:4}}>Pana la</label>
+              <input type="date" value={to} min={from||minDate} max={today}
+                onChange={e=>setTo(e.target.value)}
+                style={{width:'100%',padding:'7px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.bg,outline:'none',boxSizing:'border-box'}}
+              />
+            </div>
+          </div>
+
+          {/* Quick shortcuts */}
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+            {[
+              {l:'Luna asta',    f:()=>{ const n=new Date(); return [new Date(n.getFullYear(),n.getMonth(),1).toISOString().slice(0,10), today] }},
+              {l:'Luna trecuta', f:()=>{ const n=new Date(); const f=new Date(n.getFullYear(),n.getMonth()-1,1); const t=new Date(n.getFullYear(),n.getMonth(),0); return [f.toISOString().slice(0,10),t.toISOString().slice(0,10)] }},
+              {l:'T1 2026',      f:()=>['2026-01-01','2026-03-31']},
+              {l:'T2 2026',      f:()=>['2026-04-01','2026-06-30']},
+              {l:'Toata data',   f:()=>['2024-01-01',today]},
+            ].map(s=>(
+              <button key={s.l} onClick={()=>{ const [f,t]=s.f(); setFrom(f); setTo(t) }} style={{
+                padding:'3px 9px',fontSize:11,borderRadius:5,cursor:'pointer',
+                border:`0.5px solid ${C.border}`,background:'transparent',color:C.muted
+              }}>{s.l}</button>
+            ))}
+          </div>
+
+          {from && to && from > to && (
+            <p style={{fontSize:11,color:C.red,margin:'0 0 8px'}}>'De la' trebuie sa fie inainte de 'Pana la'</p>
+          )}
+
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <button onClick={()=>setShowPicker(false)} style={{padding:'6px 14px',fontSize:12,borderRadius:7,cursor:'pointer',border:`0.5px solid ${C.border}`,background:'transparent',color:C.muted}}>Anuleaza</button>
+            <button onClick={applyCustom} disabled={!from||!to||from>to} style={{
+              padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:7,cursor:'pointer',border:'none',
+              background:from&&to&&from<=to?C.navy:'#ccc',color:'#fff'
+            }}>Aplica</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -966,11 +1051,19 @@ export default function Dashboard() {
   const [error,setError]=useState('')
   const [tab,setTab]=useState('semnale')
   const [days,setDays]=useState(30)
+  const [customFrom,setCustomFrom]=useState(null)
+  const [customTo,setCustomTo]=useState(null)
 
-  const load=useCallback(async(d)=>{
+  const load=useCallback(async(d, from, to)=>{
     setLoading(true);setError('')
     try{
-      const res=await fetch(`/api/report?days=${d||days}`)
+      let url
+      if (from && to) {
+        url = `/api/report?from=${from}&to=${to}`
+      } else {
+        url = `/api/report?days=${d||days}`
+      }
+      const res=await fetch(url)
       if(!res.ok) throw new Error(`${res.status}`)
       const j=await res.json()
       if(j.error) throw new Error(j.error)
@@ -979,9 +1072,21 @@ export default function Dashboard() {
     finally{setLoading(false)}
   },[days])
 
-  const changeDays=useCallback(d=>{setDays(d);load(d)},[load])
+  const onDays=useCallback(d=>{
+    setDays(d)
+    setCustomFrom(null)
+    setCustomTo(null)
+    load(d, null, null)
+  },[load])
 
-  useEffect(()=>{load()},[])
+  const onCustom=useCallback((from,to)=>{
+    setCustomFrom(from)
+    setCustomTo(to)
+    setDays(null)
+    load(null, from, to)
+  },[load])
+
+  useEffect(()=>{load(30)},[])
 
   async function logout(){
     await fetch('/api/auth/logout',{method:'POST'})
@@ -997,8 +1102,8 @@ export default function Dashboard() {
           {data&&<span style={{fontSize:11,color:C.hint}}>· {data.periodLabel}</span>}
         </div>
         <div style={{flex:1}}/>
-        {data&&<PeriodBar days={days} onChange={changeDays}/>}
-        <button onClick={()=>load()} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>↻</button>
+        {data&&<PeriodBar days={days} customFrom={customFrom} customTo={customTo} onDays={onDays} onCustom={onCustom}/>}
+        <button onClick={()=>customFrom?load(null,customFrom,customTo):load(days)} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>↻</button>
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
       </div>
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',gap:0,overflowX:'auto'}}>

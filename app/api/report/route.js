@@ -39,12 +39,29 @@ function subtractPeriods(all, curr, key) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
-  const days  = parseInt(searchParams.get('days') || '30')
   const now   = new Date()
-  const currTo   = now.toISOString().slice(0,10)
-  const currFrom = new Date(now - days * 864e5).toISOString().slice(0,10)
-  const prevFrom = new Date(now - days * 2 * 864e5).toISOString().slice(0,10)
-  const prevTo   = new Date(now - days * 864e5 - 864e5).toISOString().slice(0,10)
+  let currFrom, currTo, prevFrom, prevTo, days
+
+  const fromParam = searchParams.get('from')
+  const toParam   = searchParams.get('to')
+
+  if (fromParam && toParam) {
+    // Custom date range
+    currFrom = fromParam
+    currTo   = toParam
+    const diffMs = new Date(toParam) - new Date(fromParam)
+    days = Math.round(diffMs / 864e5) + 1
+    const prevToDate = new Date(new Date(fromParam) - 864e5)
+    const prevFromDate = new Date(prevToDate - diffMs)
+    prevFrom = prevFromDate.toISOString().slice(0,10)
+    prevTo   = prevToDate.toISOString().slice(0,10)
+  } else {
+    days = parseInt(searchParams.get('days') || '30')
+    currTo   = now.toISOString().slice(0,10)
+    currFrom = new Date(now - days * 864e5).toISOString().slice(0,10)
+    prevFrom = new Date(now - days * 2 * 864e5).toISOString().slice(0,10)
+    prevTo   = new Date(now - days * 864e5 - 864e5).toISOString().slice(0,10)
+  }
 
   try {
     const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,r14,r15,r16,r17] = await Promise.allSettled([
