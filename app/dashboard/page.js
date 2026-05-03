@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback } from 'react'
 import { C, COLORS, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Action, Sec, Grid, Card, LineChart, BarChart, PageLink, BASE_URL } from './components'
-import { CONV_DEFINITIONS, CATEGORIES } from './conversions_config'
+import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -503,6 +503,229 @@ function TabRecomandari({ data }) {
   )
 }
 
+/* ─── CERERE NOUA — COMPARATIE ─────────────────────────────────────── */
+function TabCerereNoua({ data }) {
+  const pages = data.pages.current
+  const cp = data.cererePages || {}
+  const daily = cp.daily || {}
+  const byCh  = cp.byChannel || {}
+
+  // Aggregate totals for each path
+  const paths = CERERE_PAGES.map(p => {
+    const pg = pages.find(x => x.page_path === p.path)
+    const d  = {
+      cerereNoua: daily.cerereNoua || [],
+      cereriNou:  daily.cereriNou  || [],
+      vreau:      daily.vreau      || [],
+    }[p.path === '/cerere-noua' ? 'cerereNoua' : p.path === '/cereri/nou' ? 'cereriNou' : 'vreau']
+    const ch = {
+      cerereNoua: byCh.cerereNoua || [],
+      cereriNou:  byCh.cereriNou  || [],
+      vreau:      byCh.vreau      || [],
+    }[p.path === '/cerere-noua' ? 'cerereNoua' : p.path === '/cereri/nou' ? 'cereriNou' : 'vreau']
+    const views = pg?.screen_page_views || sum(d,'screen_page_views')
+    const conv  = pg?.conversions       || sum(d,'conversions')
+    const eng   = pg?.engagement_rate   || 0
+    const dur   = pg?.average_session_duration || 0
+    const users = pg?.active_users || 0
+    const convRate = views > 0 ? conv/views*100 : 0
+    return { ...p, views, conv, eng, dur, users, convRate, daily: d, byChannel: ch }
+  })
+
+  const maxViews = Math.max(...paths.map(p=>p.views), 1)
+  const totalViews = paths.reduce((s,p)=>s+p.views, 0)
+  const totalConv  = paths.reduce((s,p)=>s+p.conv, 0)
+
+  // Build unified daily chart — align dates
+  const allDates = [...new Set([
+    ...paths[0].daily.map(d=>d.date),
+    ...paths[1].daily.map(d=>d.date),
+    ...paths[2].daily.map(d=>d.date),
+  ])].sort()
+
+  const chartData = allDates.map(date => {
+    const row = { date }
+    paths.forEach((p,i) => {
+      const key = ['cerereNoua','cereriNou','vreau'][i]
+      const found = p.daily.find(d=>d.date===date)
+      row[`views_${i}`]  = found?.screen_page_views || 0
+      row[`conv_${i}`]   = found?.conversions       || 0
+    })
+    return row
+  })
+
+  const [chartMode, setChartMode] = useState('views')
+
+  return (
+    <div>
+      {/* Intro */}
+      <div style={{background:'linear-gradient(135deg,#1A2B4A,#2d4a7a)',borderRadius:12,padding:'16px 20px',marginBottom:20,color:'#fff'}}>
+        <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.5)',margin:'0 0 4px'}}>Analiza comparativa</p>
+        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>3 rute pentru cerere noua</h2>
+        <p style={{fontSize:13,color:'rgba(255,255,255,.65)',margin:0}}>
+          {fmtN(totalViews)} vizite totale · {fmtN(totalConv)} conversii GA4 · conv rate combinat {totalViews>0?(totalConv/totalViews*100).toFixed(1):0}%
+        </p>
+      </div>
+
+      {/* KPI cards per path */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:20}}>
+        {paths.map((p,i) => (
+          <div key={p.path} style={{
+            background:C.card,border:`2px solid ${p.color}22`,borderRadius:12,
+            padding:'14px 16px',position:'relative',overflow:'hidden'
+          }}>
+            <div style={{position:'absolute',top:0,left:0,right:0,height:3,background:p.color,borderRadius:'12px 12px 0 0'}}/>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+              <PageLink path={p.path} style={{fontFamily:'monospace',fontSize:13,fontWeight:600,color:p.color}}>
+                /{p.label}
+              </PageLink>
+              {p.convRate === Math.max(...paths.map(x=>x.convRate)) && p.convRate > 0 && (
+                <span style={{fontSize:10,fontWeight:500,padding:'1px 6px',borderRadius:99,background:'#F0FDF4',color:C.green}}>best</span>
+              )}
+            </div>
+            <p style={{fontSize:11,color:C.hint,margin:'0 0 10px',lineHeight:1.4}}>{p.description}</p>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+              {[
+                {l:'Views',v:fmtN(p.views)},
+                {l:'Useri unici',v:fmtN(p.users)},
+                {l:'Conversii GA4',v:fmtN(p.conv),bold:true,col:p.conv>0?C.green:C.hint},
+                {l:'Conv rate',v:p.convRate.toFixed(2)+'%',bold:true,col:p.convRate>2?C.green:p.convRate>0?C.amber:C.red},
+                {l:'Engagement',v:Math.round(p.eng*100)+'%',col:p.eng>0.9?C.green:p.eng>0.7?C.amber:C.red},
+                {l:'Durata medie',v:Math.round(p.dur)+'s'},
+              ].map(m=>(
+                <div key={m.l}>
+                  <p style={{fontSize:10,color:C.hint,margin:'0 0 1px',textTransform:'uppercase',letterSpacing:'.04em'}}>{m.l}</p>
+                  <p style={{fontSize:14,fontWeight:m.bold?600:400,color:m.col||C.text,margin:0}}>{m.v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Visual comparison bar */}
+      <Sec title="Comparatie vizuala — volum si eficienta">
+        <Card style={{padding:'16px 20px'}}>
+          {paths.map((p,i) => {
+            const pct = p.views/maxViews*100
+            const share = totalViews > 0 ? p.views/totalViews*100 : 0
+            return (
+              <div key={p.path} style={{marginBottom:16}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:5}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',background:p.color,flexShrink:0}}/>
+                  <PageLink path={p.path} style={{fontSize:12,fontFamily:'monospace',fontWeight:500,color:p.color}}>/{p.label}</PageLink>
+                  <span style={{fontSize:11,color:C.hint}}>{share.toFixed(0)}% din trafic</span>
+                  <div style={{flex:1}}/>
+                  <span style={{fontSize:12,fontWeight:500,color:p.convRate>2?C.green:p.convRate>0?C.amber:C.red}}>
+                    {p.convRate.toFixed(2)}% conv rate
+                  </span>
+                </div>
+                {/* Views bar */}
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                  <span style={{fontSize:10,color:C.hint,width:56,flexShrink:0}}>Views</span>
+                  <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:8,overflow:'hidden'}}>
+                    <div style={{width:`${pct}%`,height:8,background:p.color,borderRadius:99,opacity:.7}}/>
+                  </div>
+                  <span style={{fontSize:11,color:C.muted,width:36,textAlign:'right'}}>{fmtN(p.views)}</span>
+                </div>
+                {/* Conv bar (scaled to 10% max) */}
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span style={{fontSize:10,color:C.hint,width:56,flexShrink:0}}>Conv GA4</span>
+                  <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:8,overflow:'hidden'}}>
+                    <div style={{width:`${Math.min(p.convRate*5,100)}%`,height:8,background:p.conv>0?C.green:C.border,borderRadius:99}}/>
+                  </div>
+                  <span style={{fontSize:11,color:p.conv>0?C.green:C.hint,width:36,textAlign:'right',fontWeight:p.conv>0?500:400}}>{p.conv}</span>
+                </div>
+              </div>
+            )
+          })}
+        </Card>
+      </Sec>
+
+      {/* Daily chart */}
+      <Sec title="Evolutie zilnica"
+        right={
+          <div style={{display:'flex',gap:4}}>
+            {[['views','Views'],['conv','Conversii']].map(([v,l])=>(
+              <button key={v} onClick={()=>setChartMode(v)} style={{
+                padding:'3px 10px',fontSize:11,borderRadius:6,cursor:'pointer',
+                border:`0.5px solid ${chartMode===v?C.blue:C.border}`,
+                background:chartMode===v?'#EBF4FC':'transparent',
+                color:chartMode===v?C.blue:C.muted,fontWeight:chartMode===v?500:400
+              }}>{l}</button>
+            ))}
+          </div>
+        }>
+        <Card>
+          <LineChart
+            data={chartData}
+            metrics={paths.map((p,i)=>({
+              field: `${chartMode}_${i}`,
+              label: '/'+p.label,
+              color: p.color,
+            }))}
+            height={200}
+          />
+        </Card>
+      </Sec>
+
+      {/* By channel */}
+      <Sec title="Trafic per canal — de unde vin userii pe fiecare pagina">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+          {paths.map((p,i) => (
+            <div key={p.path}>
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:p.color}}/>
+                <PageLink path={p.path} style={{fontSize:12,fontFamily:'monospace',fontWeight:500,color:p.color}}>/{p.label}</PageLink>
+              </div>
+              {p.byChannel.length === 0 ? (
+                <p style={{fontSize:12,color:C.hint}}>Nu exista date</p>
+              ) : (
+                [...p.byChannel].sort((a,b)=>(b.screen_page_views||0)-(a.screen_page_views||0)).map(ch=>{
+                  const pct = p.views>0?ch.screen_page_views/p.views*100:0
+                  const chConvRate = ch.screen_page_views>0?ch.conversions/ch.screen_page_views*100:0
+                  return (
+                    <div key={ch.session_default_channel_group} style={{marginBottom:8}}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}>
+                        <span style={{fontSize:11,color:C.text}}>{ch.session_default_channel_group}</span>
+                        <span style={{fontSize:11,color:C.muted}}>{fmtN(ch.screen_page_views)} ({pct.toFixed(0)}%)</span>
+                      </div>
+                      <div style={{background:'#ebebE4',borderRadius:99,height:5,overflow:'hidden',marginBottom:2}}>
+                        <div style={{width:`${pct}%`,height:5,background:p.color,borderRadius:99,opacity:.7}}/>
+                      </div>
+                      {ch.conversions > 0 && (
+                        <p style={{fontSize:10,color:C.green,margin:0,fontWeight:500}}>{ch.conversions} conv · {chConvRate.toFixed(1)}% rate</p>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          ))}
+        </div>
+      </Sec>
+
+      {/* Insights */}
+      <Sec title="Observatii si recomandari">
+        <Signal type={paths[2].convRate > paths[0].convRate ? 'positive' : 'neutral'}
+          title={`/vreau are ${paths[2].convRate.toFixed(2)}% conv rate — ${paths[2].convRate > paths[0].convRate ? 'cel mai eficient' : 'sub asteptari'}`}
+          body={`Cu ${fmtN(paths[2].views)} views si ${paths[2].conv} conversii, /vreau are cel mai bun raport. Dar volumul e mic — ${fmtN(paths[0].views)} views pe /cerere-noua vs ${fmtN(paths[2].views)} pe /vreau. Redirectand mai mult trafic spre /vreau ai putea creste conv rate combinat.`}
+        />
+        {paths[1].conv === 0 && (
+          <Signal type="negative"
+            title={`/cereri/nou — ${fmtN(paths[1].views)} views, 0 conversii GA4`}
+            body="Aceasta pagina primeste trafic dar nu genereaza conversii trackate. Fie Key Event-ul nu e configurat pentru aceasta ruta, fie formularul are o problema tehnica. Verifica in GA4 daca evenimentul bravo_cerere_noua se triggereaza si de pe /cereri/nou."
+          />
+        )}
+        <Signal type="info"
+          title="Traficul combinat: 3 rute diferite pentru acelasi flux"
+          body={`${fmtN(totalViews)} vizite totale pe cele 3 rute de cerere noua. Consolidarea intr-o singura ruta cu redirect 301 de pe /cerere-noua si /cereri/nou catre /vreau (cel mai eficient) ar putea imbunatati conv rate general si simplifica tracking-ul.`}
+        />
+      </Sec>
+    </div>
+  )
+}
+
 /* ─── CONVERSII CONFIG ─────────────────────────────────────────────── */
 function TabConversii({ data }) {
   const pages = data.pages.current
@@ -731,6 +954,7 @@ const TABS=[
   {id:'seo',     label:'SEO'},
   {id:'pagini',  label:'Pagini'},
   {id:'funnel',  label:'Funnel'},
+  {id:'cerere',  label:'Cerere noua'},
   {id:'conversii',label:'Conversii'},
   {id:'recomandari',label:'Recomandari'},
   {id:'actiuni', label:'Actiuni'},
@@ -797,6 +1021,7 @@ export default function Dashboard() {
           {tab==='seo'         &&<TabSEO         data={data}/>}
           {tab==='pagini'      &&<TabPagini      data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}
+          {tab==='cerere'      &&<TabCerereNoua  data={data}/>}
           {tab==='conversii'   &&<TabConversii   data={data}/>}
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}

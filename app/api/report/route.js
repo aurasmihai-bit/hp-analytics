@@ -47,7 +47,7 @@ export async function GET(request) {
   const prevTo   = new Date(now - days * 864e5 - 864e5).toISOString().slice(0,10)
 
   try {
-    const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11] = await Promise.allSettled([
+    const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,r14,r15,r16,r17] = await Promise.allSettled([
       w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], currFrom, currTo),
       w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], prevFrom, prevTo),
       w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'], currFrom, currTo, [['page_path','ncontains','/admin']]),
@@ -59,6 +59,14 @@ export async function GET(request) {
       w(['organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], currFrom, currTo),
       w(['page_path','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], currFrom, currTo, [['page_path','ncontains','/admin']]),
       w(['date','session_default_channel_group','sessions','conversions'], currFrom, currTo),
+      // Cerere pages daily
+      w(['date','page_path','screen_page_views','conversions'], currFrom, currTo, [['page_path','contains','cerere-noua']]),
+      w(['date','page_path','screen_page_views','conversions'], currFrom, currTo, [['page_path','contains','/cereri/nou']]),
+      w(['date','page_path','screen_page_views','conversions'], currFrom, currTo, [['page_path','contains','/vreau']]),
+      // Cerere pages by channel
+      w(['session_default_channel_group','page_path','screen_page_views','active_users','conversions'], currFrom, currTo, [['page_path','contains','cerere-noua']]),
+      w(['session_default_channel_group','page_path','screen_page_views','active_users','conversions'], currFrom, currTo, [['page_path','contains','/cereri/nou']]),
+      w(['session_default_channel_group','page_path','screen_page_views','active_users','conversions'], currFrom, currTo, [['page_path','contains','/vreau']]),
     ])
 
     const x = r => r.status === 'fulfilled' ? (r.value||[]) : []
@@ -69,6 +77,11 @@ export async function GET(request) {
     const gscCurr = x(r7).sort((a,b)=>a.date.localeCompare(b.date))
     const gscPrev = x(r8)
     const dailyCh = x(r11)
+
+    // Cerere pages daily — merge into unified daily arrays
+    const ceNouDaily = x(r12).filter(d=>d.page_path==='/cerere-noua').sort((a,b)=>a.date.localeCompare(b.date))
+    const cereriNouDaily = x(r13).filter(d=>d.page_path==='/cereri/nou').sort((a,b)=>a.date.localeCompare(b.date))
+    const vreauDaily = x(r14).filter(d=>d.page_path==='/vreau').sort((a,b)=>a.date.localeCompare(b.date))
 
     const label = `${new Date(currFrom).toLocaleDateString('ro-RO',{day:'numeric',month:'short'})} – ${new Date(currTo).toLocaleDateString('ro-RO',{day:'numeric',month:'short',year:'numeric'})}`
 
@@ -81,6 +94,18 @@ export async function GET(request) {
       conversions: x(r5),
       daily:    { current: dailyCurr, byChannel: dailyCh },
       gsc:      { current: gscCurr, previous: gscPrev, queries: x(r9), pages: x(r10) },
+      cererePages: {
+        daily: {
+          cerereNoua: ceNouDaily,
+          cereriNou:  cereriNouDaily,
+          vreau:      vreauDaily,
+        },
+        byChannel: {
+          cerereNoua: x(r15),
+          cereriNou:  x(r16),
+          vreau:      x(r17),
+        },
+      },
     })
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 })
