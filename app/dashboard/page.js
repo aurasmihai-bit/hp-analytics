@@ -646,7 +646,7 @@ function TabCerereNoua({ data }) {
       {/* Intro */}
       <div style={{background:'linear-gradient(135deg,#1A2B4A,#2d4a7a)',borderRadius:12,padding:'16px 20px',marginBottom:20,color:'#fff'}}>
         <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.5)',margin:'0 0 4px'}}>Analiza comparativa</p>
-        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>3 rute pentru cerere noua</h2>
+        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>Analiza LP cereri — 3 rute pentru cerere noua</h2>
         <p style={{fontSize:13,color:'rgba(255,255,255,.65)',margin:0}}>
           {fmtN(totalViews)} vizite totale · {fmtN(totalConv)} conversii GA4 · conv rate combinat {totalViews>0?(totalConv/totalViews*100).toFixed(1):0}%
         </p>
@@ -1039,7 +1039,7 @@ const TABS=[
   {id:'seo',     label:'SEO'},
   {id:'pagini',  label:'Pagini'},
   {id:'funnel',  label:'Funnel'},
-  {id:'cerere',  label:'Cerere noua'},
+  {id:'cerere',  label:'Analiza LP cereri'},
   {id:'conversii',label:'Conversii'},
   {id:'recomandari',label:'Recomandari'},
   {id:'actiuni', label:'Actiuni'},
