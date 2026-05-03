@@ -151,6 +151,7 @@ export function LineChart({ data, metrics, height=200, showLegend=true }) {
 export function BarChart({ data, labelField, valueField, color='#3B82C4', maxBars=8, sub }) {
   const top=[...data].sort((a,b)=>(b[valueField]||0)-(a[valueField]||0)).slice(0,maxBars)
   const maxV=Math.max(...top.map(d=>d[valueField]||0),1)
+  const isPath = labelField==='page_path'||labelField==='page'
   return (
     <div>
       {top.map((d,i)=>{
@@ -159,7 +160,9 @@ export function BarChart({ data, labelField, valueField, color='#3B82C4', maxBar
         const subVal = sub ? d[sub] : null
         return (
           <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-            <span style={{fontSize:11,fontFamily:label.startsWith('/')?'monospace':'inherit',color:C.text,width:164,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={label}>{label}</span>
+            <span style={{fontSize:11,fontFamily:label.startsWith('/')?'monospace':'inherit',color:C.text,width:164,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={label}>
+              {isPath&&label.startsWith('/')?<PageLink path={label}>{label}</PageLink>:label}
+            </span>
             <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:6,overflow:'hidden'}}>
               <div style={{width:`${pct}%`,height:6,borderRadius:99,background:color}}/>
             </div>
@@ -169,5 +172,20 @@ export function BarChart({ data, labelField, valueField, color='#3B82C4', maxBar
         )
       })}
     </div>
+  )
+}
+
+export const BASE_URL = 'https://homepitch.ro'
+
+export function PageLink({ path, children, style }) {
+  if (!path) return <span style={style}>{children || path}</span>
+  const href = path.startsWith('http') ? path : BASE_URL + path
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer"
+      style={{color:'inherit',textDecoration:'none',borderBottom:'0.5px dashed #ccc',...style}}
+      onMouseEnter={e=>e.target.style.borderBottomColor=C.blue}
+      onMouseLeave={e=>e.target.style.borderBottomColor='#ccc'}>
+      {children || path}
+    </a>
   )
 }

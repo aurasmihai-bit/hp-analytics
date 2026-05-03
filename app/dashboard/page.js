@@ -1,7 +1,8 @@
 'use client'
 export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback } from 'react'
-import { C, COLORS, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Action, Sec, Grid, Card, LineChart, BarChart } from './components'
+import { C, COLORS, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Action, Sec, Grid, Card, LineChart, BarChart, PageLink, BASE_URL } from './components'
+import { CONV_DEFINITIONS, CATEGORIES } from './conversions_config'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -293,7 +294,9 @@ function TabPagini({ data }) {
                 const isHL=HL.includes(p.page_path)
                 const pp=prevMap[p.page_path]
                 return <tr key={p.page_path} style={{borderBottom:`0.5px solid ${C.border}`,background:isHL?'#F0F9FF':'transparent'}}>
-                  <td style={{padding:'7px 8px',color:isHL?C.blue:C.text,fontFamily:'monospace',fontSize:11}}>{isHL?'* ':''}{p.page_path}</td>
+                  <td style={{padding:'7px 8px',color:isHL?C.blue:C.text,fontFamily:'monospace',fontSize:11}}>
+                    {isHL?'* ':''}<PageLink path={p.page_path}>{p.page_path}</PageLink>
+                  </td>
                   <td style={{padding:'7px 8px',color:C.muted}}>{fmtN(p.screen_page_views)}</td>
                   <td style={{padding:'7px 8px'}}>{pp?<Delta c={p.screen_page_views} p={pp.screen_page_views} size={11}/>:'—'}</td>
                   <td style={{padding:'7px 8px',color:(p.engagement_rate||0)<0.8?C.red:C.muted,fontWeight:(p.engagement_rate||0)<0.8?500:400}}>{Math.round((p.engagement_rate||0)*100)}%</td>
@@ -305,7 +308,7 @@ function TabPagini({ data }) {
           </table>
         </div>
       </Sec>
-      {lowEng.length>0&&<Sec title="Pagini cu engagement scazut"><div>{lowEng.map(p=><div key={p.page_path} style={{display:'flex',gap:12,padding:'8px 12px',background:'#FEF2F2',borderRadius:8,marginBottom:6,fontSize:13}}><span style={{fontFamily:'monospace',fontSize:11,flex:1}}>{p.page_path}</span><span style={{color:C.red,fontWeight:500}}>{Math.round((p.engagement_rate||0)*100)}%</span><span style={{color:C.muted}}>{p.screen_page_views} views</span></div>)}</div></Sec>}
+      {lowEng.length>0&&<Sec title="Pagini cu engagement scazut"><div>{lowEng.map(p=><div key={p.page_path} style={{display:'flex',gap:12,padding:'8px 12px',background:'#FEF2F2',borderRadius:8,marginBottom:6,fontSize:13}}><span style={{fontFamily:'monospace',fontSize:11,flex:1}}><PageLink path={p.page_path}/></span><span style={{color:C.red,fontWeight:500}}>{Math.round((p.engagement_rate||0)*100)}%</span><span style={{color:C.muted}}>{p.screen_page_views} views</span></div>)}</div></Sec>}
       <Sec title="Top pagini dupa conversii"><Card style={{padding:'12px 16px'}}><BarChart data={curr.filter(p=>(p.conversions||0)>0)} labelField="page_path" valueField="conversions" color={C.amber} maxBars={10}/></Card></Sec>
     </div>
   )
@@ -329,19 +332,21 @@ function TabFunnel({ data }) {
   const loginViews=login?.screen_page_views||0
   const funnelDrop=cereriViews>0?(ceNouViews/cereriViews*100):null
   const steps=[
-    {label:'Sesiuni totale',v:totalSess,pct:100,col:'#3B82C4'},
-    {label:'Landing vizitat (/, /home3, /simplu)',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
-    {label:'/cereri — lista cereri',v:cereriViews,pct:totalSess>0?cereriViews/totalSess*100:0,col:'#7C3AED'},
-    {label:'/cerere-noua — formular',v:ceNouViews,pct:totalSess>0?ceNouViews/totalSess*100:0,col:'#D97706'},
-    {label:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
-    {label:'Conversii GA4 totale',v:totalConv,pct:totalSess>0?totalConv/totalSess*100:0,col:'#16A34A'},
+    {label:'Sesiuni totale',path:null,v:totalSess,pct:100,col:'#3B82C4'},
+    {label:'Landing vizitat (/, /home3, /simplu)',path:'/',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
+    {label:'/cereri — lista cereri',path:'/cereri',v:cereriViews,pct:totalSess>0?cereriViews/totalSess*100:0,col:'#7C3AED'},
+    {label:'/cerere-noua — formular',path:'/cerere-noua',v:ceNouViews,pct:totalSess>0?ceNouViews/totalSess*100:0,col:'#D97706'},
+    {label:'/login',path:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
+    {label:'Conversii GA4 totale',path:null,v:totalConv,pct:totalSess>0?totalConv/totalSess*100:0,col:'#16A34A'},
   ]
   return (
     <div>
       <Sec title="Funnel principal">
         {steps.map((s,i)=>(
           <div key={i} style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
-            <span style={{fontSize:12,color:C.muted,width:260,flexShrink:0}}>{s.label}</span>
+            <span style={{fontSize:12,color:C.muted,width:260,flexShrink:0}}>
+              {s.path ? <PageLink path={s.path}>{s.label}</PageLink> : s.label}
+            </span>
             <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:8,overflow:'hidden'}}>
               <div style={{width:`${Math.min(100,s.pct)}%`,height:8,borderRadius:99,background:s.col}}/>
             </div>
@@ -358,10 +363,10 @@ function TabFunnel({ data }) {
       </Sec>
       <Sec title="Conv rate landing pages">
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-          {[{label:'/home3',r:h3r,views:h3?.screen_page_views||0,hl:true},{label:'/simplu',r:simpr,views:simp?.screen_page_views||0,hl:true},{label:'/ homepage',r:hpr,views:hp?.screen_page_views||0,hl:false}].map(p=>(
+          {[{label:'/home3',r:h3r,views:h3?.screen_page_views||0,hl:true,path:'/home3'},{label:'/simplu',r:simpr,views:simp?.screen_page_views||0,hl:true,path:'/simplu'},{label:'/ homepage',r:hpr,views:hp?.screen_page_views||0,hl:false,path:'/'}].map(p=>(
             <div key={p.label} style={{background:p.hl&&p.r>hpr?'#F0FDF4':C.card,border:`0.5px solid ${p.hl&&p.r>hpr?'#86EFAC':C.border}`,borderRadius:10,padding:'14px 16px',textAlign:'center'}}>
               <p style={{fontSize:24,fontWeight:500,color:p.r>5?C.green:C.text,margin:'0 0 4px'}}>{p.r.toFixed(1)}%</p>
-              <p style={{fontSize:11,color:C.hint,margin:0}}>{p.label}</p>
+              <p style={{fontSize:11,color:C.hint,margin:0}}><PageLink path={p.path}>{p.label}</PageLink></p>
               <p style={{fontSize:11,color:C.hint,margin:'2px 0 0'}}>{fmtN(p.views)} views</p>
             </div>
           ))}
@@ -498,6 +503,185 @@ function TabRecomandari({ data }) {
   )
 }
 
+/* ─── CONVERSII CONFIG ─────────────────────────────────────────────── */
+function TabConversii({ data }) {
+  const pages = data.pages.current
+  const traffic = data.traffic.current
+
+  // State: which conversions are active
+  const initActive = () => {
+    const s = {}
+    CONV_DEFINITIONS.forEach(c => { s[c.id] = c.defaultOn })
+    return s
+  }
+  const [active, setActive] = useState(initActive)
+  const [catFilter, setCatFilter] = useState('Toate')
+
+  const toggle = id => setActive(prev => ({ ...prev, [id]: !prev[id] }))
+  const toggleAll = on => { const s = {}; CONV_DEFINITIONS.forEach(c => { s[c.id] = on }); setActive(s) }
+
+  // Compute totals for each conversion
+  const getVal = conv => {
+    if (conv.isPageView) {
+      const p = pages.find(pg => pg.page_path === conv.page)
+      return p ? Math.round(p.screen_page_views || 0) : 0
+    }
+    const field = conv.id
+    return Math.round(data.conversions.reduce((s,r) => s+(r[field]||0), 0))
+  }
+
+  // Weighted conversion score (active only)
+  const totalScore = CONV_DEFINITIONS
+    .filter(c => active[c.id])
+    .reduce((s, c) => s + getVal(c) * c.value, 0)
+
+  const activeConvs = CONV_DEFINITIONS.filter(c => active[c.id])
+  const totalConvCount = activeConvs.reduce((s,c) => s + getVal(c), 0)
+
+  const totalSess = sum(traffic, 'sessions')
+  const weightedRate = totalSess > 0 ? totalScore / totalSess : 0
+
+  const filtered = CONV_DEFINITIONS.filter(c => catFilter === 'Toate' || c.category === catFilter)
+
+  const catColors = {
+    'Inregistrare': C.blue, 'Cereri': C.amber, 'Oferte': C.green,
+    'Proprietati': C.purple, 'Engagement': C.teal, 'CRM': C.gray, 'Monetizare': C.red
+  }
+
+  return (
+    <div>
+      {/* Header stats */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8,marginBottom:20}}>
+        <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+          <p style={{fontSize:11,color:C.hint,margin:'0 0 4px',textTransform:'uppercase',letterSpacing:'.05em'}}>Conversii active</p>
+          <p style={{fontSize:22,fontWeight:500,color:C.text,margin:0}}>{totalConvCount.toLocaleString('ro')}</p>
+          <p style={{fontSize:11,color:C.hint,margin:'3px 0 0'}}>{activeConvs.length} tipuri activate</p>
+        </div>
+        <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+          <p style={{fontSize:11,color:C.hint,margin:'0 0 4px',textTransform:'uppercase',letterSpacing:'.05em'}}>Scor ponderat</p>
+          <p style={{fontSize:22,fontWeight:500,color:C.text,margin:0}}>{totalScore.toLocaleString('ro')}</p>
+          <p style={{fontSize:11,color:C.hint,margin:'3px 0 0'}}>valoare x frecventa</p>
+        </div>
+        <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+          <p style={{fontSize:11,color:C.hint,margin:'0 0 4px',textTransform:'uppercase',letterSpacing:'.05em'}}>Conv rate ponderat</p>
+          <p style={{fontSize:22,fontWeight:500,color:C.green,margin:0}}>{weightedRate.toFixed(1)}</p>
+          <p style={{fontSize:11,color:C.hint,margin:'3px 0 0'}}>scor per sesiune</p>
+        </div>
+        <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+          <p style={{fontSize:11,color:C.hint,margin:'0 0 4px',textTransform:'uppercase',letterSpacing:'.05em'}}>Sesiuni perioada</p>
+          <p style={{fontSize:22,fontWeight:500,color:C.text,margin:0}}>{totalSess.toLocaleString('ro')}</p>
+          <p style={{fontSize:11,color:C.hint,margin:'3px 0 0'}}>total sesiuni</p>
+        </div>
+      </div>
+
+      {/* Alert Key Events */}
+      {CONV_DEFINITIONS.filter(c => !c.isPageView && active[c.id] && getVal(c) === 0).length > 0 && (
+        <div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13}}>
+          <strong style={{color:C.red}}>Atentie: </strong>
+          <span style={{color:C.muted}}>
+            {CONV_DEFINITIONS.filter(c => !c.isPageView && active[c.id] && getVal(c) === 0).map(c=>c.label).join(', ')} returneaza 0 — Key Events neconfigurate in GA4.
+          </span>
+        </div>
+      )}
+
+      {/* Controls */}
+      <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
+        <span style={{fontSize:12,color:C.hint}}>Categorie:</span>
+        {['Toate',...CATEGORIES].map(cat=>(
+          <button key={cat} onClick={()=>setCatFilter(cat)} style={{
+            padding:'4px 10px',fontSize:12,borderRadius:6,cursor:'pointer',
+            border:`0.5px solid ${catFilter===cat?(catColors[cat]||C.blue):C.border}`,
+            background:catFilter===cat?'#EBF4FC':'transparent',
+            color:catFilter===cat?(catColors[cat]||C.blue):C.muted,fontWeight:catFilter===cat?500:400
+          }}>{cat}</button>
+        ))}
+        <div style={{flex:1}}/>
+        <button onClick={()=>toggleAll(true)} style={{padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',border:`0.5px solid ${C.border}`,background:'transparent',color:C.muted}}>Activeaza toate</button>
+        <button onClick={()=>toggleAll(false)} style={{padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',border:`0.5px solid ${C.border}`,background:'transparent',color:C.muted}}>Dezactiveaza toate</button>
+      </div>
+
+      {/* Conversions list */}
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        {filtered.map(conv => {
+          const val = getVal(conv)
+          const isOn = active[conv.id]
+          const catCol = catColors[conv.category] || C.blue
+          const convRate = totalSess > 0 ? (val / totalSess * 100) : 0
+          return (
+            <div key={conv.id} style={{
+              background:C.card,border:`0.5px solid ${isOn?C.border:'#ebebE4'}`,borderRadius:10,
+              padding:'12px 14px',display:'flex',alignItems:'center',gap:12,
+              opacity:isOn?1:0.5,transition:'opacity .15s'
+            }}>
+              {/* Toggle */}
+              <button onClick={()=>toggle(conv.id)} style={{
+                width:36,height:20,borderRadius:99,border:'none',cursor:'pointer',flexShrink:0,
+                background:isOn?C.blue:'#d0d0c8',position:'relative',transition:'background .2s'
+              }}>
+                <div style={{
+                  width:14,height:14,borderRadius:'50%',background:'#fff',position:'absolute',
+                  top:3,left:isOn?19:3,transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,.2)'
+                }}/>
+              </button>
+
+              {/* Icon + category */}
+              <span style={{fontSize:18,flexShrink:0}}>{conv.icon}</span>
+
+              {/* Info */}
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  <span style={{fontSize:13,fontWeight:500,color:isOn?C.text:C.muted}}>{conv.label}</span>
+                  <span style={{fontSize:10,fontWeight:500,padding:'1px 6px',borderRadius:99,background:catCol+'20',color:catCol}}>{conv.category}</span>
+                  {conv.isPageView && <span style={{fontSize:10,color:C.hint,padding:'1px 5px',border:`0.5px solid ${C.border}`,borderRadius:4}}>page view</span>}
+                </div>
+                <p style={{fontSize:12,color:C.hint,margin:'2px 0 0'}}>{conv.description}
+                  {conv.page && <> · <PageLink path={conv.page} style={{fontSize:11,fontFamily:'monospace',color:C.blue}}>{conv.page}</PageLink></>}
+                </p>
+              </div>
+
+              {/* Value */}
+              <div style={{textAlign:'right',flexShrink:0}}>
+                <p style={{fontSize:18,fontWeight:500,color:isOn&&val>0?C.green:C.hint,margin:0}}>{val.toLocaleString('ro')}</p>
+                <p style={{fontSize:11,color:C.hint,margin:'1px 0 0'}}>{convRate.toFixed(2)}% rate</p>
+              </div>
+
+              {/* Weight */}
+              <div style={{textAlign:'right',flexShrink:0,width:50}}>
+                <p style={{fontSize:11,color:C.hint,margin:0}}>val.</p>
+                <p style={{fontSize:13,fontWeight:500,color:C.muted,margin:0}}>{conv.value}</p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Breakdown by category */}
+      <div style={{marginTop:20}}>
+        <Sec title="Conversii per categorie (active)">
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8}}>
+            {CATEGORIES.map(cat => {
+              const catConvs = CONV_DEFINITIONS.filter(c=>c.category===cat&&active[c.id])
+              const catTotal = catConvs.reduce((s,c)=>s+getVal(c),0)
+              const col = catColors[cat]||C.blue
+              if(catConvs.length===0) return null
+              return (
+                <div key={cat} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'12px 14px'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                    <div style={{width:8,height:8,borderRadius:'50%',background:col}}/>
+                    <span style={{fontSize:11,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em'}}>{cat}</span>
+                  </div>
+                  <p style={{fontSize:22,fontWeight:500,color:catTotal>0?col:C.hint,margin:'0 0 2px'}}>{catTotal.toLocaleString('ro')}</p>
+                  <p style={{fontSize:11,color:C.hint,margin:0}}>{catConvs.length} tipuri</p>
+                </div>
+              )
+            })}
+          </div>
+        </Sec>
+      </div>
+    </div>
+  )
+}
+
 /* ─── ACTIUNI ──────────────────────────────────────────────────────── */
 function TabActiuni({ data }) {
   const curr=data.traffic.current, prev=data.traffic.previous
@@ -547,6 +731,7 @@ const TABS=[
   {id:'seo',     label:'SEO'},
   {id:'pagini',  label:'Pagini'},
   {id:'funnel',  label:'Funnel'},
+  {id:'conversii',label:'Conversii'},
   {id:'recomandari',label:'Recomandari'},
   {id:'actiuni', label:'Actiuni'},
 ]
@@ -612,6 +797,7 @@ export default function Dashboard() {
           {tab==='seo'         &&<TabSEO         data={data}/>}
           {tab==='pagini'      &&<TabPagini      data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}
+          {tab==='conversii'   &&<TabConversii   data={data}/>}
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
