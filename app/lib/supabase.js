@@ -1,13 +1,16 @@
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rstihjcnuazzyksdwczp.supabase.co'
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
+// Accepta service key SAU anon key — RLS e dezactivat pe tabelele hp_analytics_*
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY 
+  || process.env.SUPABASE_ANON_KEY
+  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzdGloamNudWF6enlrc2R3Y3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NjI2NTIsImV4cCI6MjA5MTIzODY1Mn0.gTdYMDD81KbidsfUeOmh0rw7h-radqlsniJDJItdaVg'
 
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      'apikey': SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
       'Prefer': opts.prefer !== undefined ? opts.prefer : 'return=representation',
       ...(opts.headers || {}),
     },
