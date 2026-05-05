@@ -67,8 +67,8 @@ export async function GET(request) {
     const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,r14,r15,r16,r17] = await Promise.allSettled([
       w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], currFrom, currTo),
       w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], prevFrom, prevTo),
-      w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'], currFrom, currTo, [['page_path','ncontains','/admin']]),
-      w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','conversions'], prevFrom, prevTo, [['page_path','ncontains','/admin']]),
+      w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','bounce_rate','user_engagement_duration','conversions'], currFrom, currTo, [['page_path','ncontains','/admin']]),
+      w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','bounce_rate','user_engagement_duration','conversions'], prevFrom, prevTo, [['page_path','ncontains','/admin']]),
       w(['session_default_channel_group','sessions','conversions_signup','conversions_offer_accepted','conversions_bravo_cerere_noua','conversions_bun_venit_agent','conversions_bun_venit_cumparator','conversions_bun_venit_proprietar'], currFrom, currTo),
       w(['date','sessions','newusers','conversions','engagement_rate','average_session_duration'], currFrom, currTo),
       w(['date','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], currFrom, currTo),
