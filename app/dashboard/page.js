@@ -189,15 +189,14 @@ export default function Dashboard() {
   const [customFrom,setCustomFrom]=useState(null)
   const [customTo,setCustomTo]=useState(null)
 
+  const [syncing, setSyncing] = useState(false)
+
   const load=useCallback(async(d, from, to)=>{
     setLoading(true);setError('')
     try{
       let url
-      if (from && to) {
-        url = `/api/report?from=${from}&to=${to}`
-      } else {
-        url = `/api/report?days=${d||days}`
-      }
+      if (from && to) url = `/api/report?from=${from}&to=${to}`
+      else url = `/api/report?days=${d||days}`
       const res=await fetch(url)
       if(!res.ok) throw new Error(`${res.status}`)
       const j=await res.json()
@@ -206,6 +205,15 @@ export default function Dashboard() {
     }catch(e){setError('Eroare: '+e.message)}
     finally{setLoading(false)}
   },[days])
+
+  async function forceSync() {
+    setSyncing(true)
+    try {
+      await fetch('/api/sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({days: days||30}) })
+      await load(days, customFrom, customTo)
+    } catch(e) { setError('Sync failed: '+e.message) }
+    finally { setSyncing(false) }
+  }
 
   const onDays=useCallback(d=>{
     setDays(d)
@@ -235,10 +243,21 @@ export default function Dashboard() {
           <div style={{width:26,height:26,borderRadius:6,background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:600,fontSize:12}}>H</div>
           <span style={{fontSize:14,fontWeight:500,color:C.text}}>HomePitch Analytics</span>
           {data&&<span style={{fontSize:11,color:C.hint}}>· {data.periodLabel}</span>}
+          {data&&data._source&&(
+            <span style={{
+              fontSize:10,fontWeight:500,padding:'2px 7px',borderRadius:99,
+              background: data._source==='cache'?'#EBF4FC': data._source==='stale_cache'?'#FFF7ED':'#F0FDF4',
+              color: data._source==='cache'?C.blue: data._source==='stale_cache'?C.amber:C.green,
+            }}>
+              {data._source==='cache'?'⚡ cache': data._source==='stale_cache'?'⚠ cache vechi':'↓ live'}
+              {data._cachedAt&&` · ${new Date(data._cachedAt).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}`}
+            </span>
+          )}
         </div>
         <div style={{flex:1}}/>
         {data&&<PeriodBar days={days} customFrom={customFrom} customTo={customTo} onDays={onDays} onCustom={onCustom}/>}
         <button onClick={()=>customFrom?load(null,customFrom,customTo):load(days)} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>↻</button>
+        <button onClick={forceSync} disabled={syncing} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${syncing?C.border:C.blue}`,borderRadius:6,background:syncing?'transparent':'#EBF4FC',color:syncing?C.hint:C.blue,cursor:syncing?'not-allowed':'pointer'}} title="Forteaza sync din Windsor si salveaza in Supabase">{syncing?'sync...':'⬇ sync'}</button>
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
       </div>
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',gap:0,overflowX:'auto'}}>
@@ -266,7 +285,14 @@ export default function Dashboard() {
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
-            <span style={{fontSize:11,color:C.hint}}>Generat {new Date(data.generatedAt).toLocaleString('ro-RO')} | Windsor.ai - GA4 + GSC | Interval: {data.days} zile</span>
+            <span style={{fontSize:11,color:C.hint}}>
+              Generat {new Date(data.generatedAt).toLocaleString('ro-RO')} 
+              {' · '}
+              {data._source==='cache'?`Cache Supabase (${new Date(data._cachedAt).toLocaleString('ro-RO')})`:
+               data._source==='stale_cache'?`Cache vechi Supabase (${new Date(data._cachedAt).toLocaleString('ro-RO')})`:
+               'Live din Windsor.ai → GA4 + GSC'}
+              {' · '}{data.days} zile
+            </span>
             <span style={{fontSize:11,color:C.hint}}>HomePitch.ro</span>
           </div>
         </>)}
