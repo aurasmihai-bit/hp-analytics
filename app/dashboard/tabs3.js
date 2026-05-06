@@ -518,4 +518,173 @@ function TabConversii({ data }) {
 
 /* ─── ACTIUNI ──────────────────────────────────────────────────────── */
 
+/* ─── TAB CERERE TRACKING ──────────────────────────────────────────── */
+export function TabCerereTracking({ data }) {
+  const tracking = (data.cerereTracking || []).filter(d =>
+    d.conversions_bravo_cerere_noua > 0 ||
+    d.conversions_bun_venit_cumparator > 0 ||
+    d.conversions_bun_venit_agent > 0 ||
+    d.conversions_bun_venit_proprietar > 0
+  )
+  const allDates = data.cerereTracking || []
+
+  const totalCereri   = allDates.reduce((s,d) => s+(d.conversions_bravo_cerere_noua||0), 0)
+  const totalCump     = allDates.reduce((s,d) => s+(d.conversions_bun_venit_cumparator||0), 0)
+  const totalAgent    = allDates.reduce((s,d) => s+(d.conversions_bun_venit_agent||0), 0)
+  const totalProp     = allDates.reduce((s,d) => s+(d.conversions_bun_venit_proprietar||0), 0)
+  const totalInreg    = totalCump + totalAgent + totalProp
+
+  // Days with at least 1 cerere
+  const activeDays    = allDates.filter(d => (d.conversions_bravo_cerere_noua||0) > 0).length
+  const totalDays     = allDates.length || 1
+  const avgPerActiveDay = activeDays > 0 ? (totalCereri / activeDays).toFixed(1) : '0'
+
+  // Conversion rate: cereri / inregistrari cumparatori
+  const convRate = totalCump > 0 ? (totalCereri / totalCump * 100).toFixed(0) : null
+
+  // Find first day with data
+  const firstDay = allDates.find(d => (d.conversions_bravo_cerere_noua||0) > 0)
+  const daysSinceFirst = firstDay
+    ? Math.round((new Date() - new Date(firstDay.date)) / 864e5)
+    : null
+
+  return (
+    <div>
+      {/* Header KPIs */}
+      <Grid>
+        <KPI label="Cereri noi (total)" curr={totalCereri}
+          sub={activeDays > 0 ? `${activeDays} zile cu activitate` : 'Implementat recent'}/>
+        <KPI label="Medie / zi activa" curr={parseFloat(avgPerActiveDay)} type="dec1"
+          sub={daysSinceFirst ? `de acum ${daysSinceFirst} zile` : '—'}/>
+        <KPI label="Inregistrari cumparatori" curr={totalCump}/>
+        <KPI label="Inregistrari agenti" curr={totalAgent}/>
+      </Grid>
+
+      {/* Alert daca date putine */}
+      {totalCereri < 10 && (
+        <Signal type="neutral"
+          title={`${totalCereri} cereri noi — implementat recent, baseline in formare`}
+          body={`Key Event-ul a fost activat recent. Datele de mai jos reflecta primele zile de tracking. Revino dupa 2-4 saptamani pentru tendinte relevante. Obiectiv realist: 2-3 cereri/zi in 60 zile.`}
+        />
+      )}
+
+      {convRate && (
+        <Signal
+          type={parseInt(convRate) > 50 ? 'positive' : parseInt(convRate) > 20 ? 'neutral' : 'negative'}
+          title={`${convRate}% din cumparatorii inregistrati adauga si o cerere`}
+          body={`${totalCereri} cereri din ${totalCump} inregistrari cumparatori. ${parseInt(convRate) < 50 ? 'Potential de crestere: dupa inregistrare, redirecteaza userul direct catre formularul de cerere.' : 'Rata buna — mai mult de jumatate din cumparatori adauga cerere.'}`}
+        />
+      )}
+
+      {/* Grafic zilnic principal */}
+      <Sec title="Cereri noi adaugate — evolutie zilnica">
+        <Card>
+          {allDates.length > 0 ? (
+            <LineChart
+              data={allDates}
+              metrics={[
+                {field:'conversions_bravo_cerere_noua', label:'Cereri noi', color:'#3B82C4'},
+                {field:'conversions_bun_venit_cumparator', label:'Inregistrari cumparatori', color:'#16A34A'},
+                {field:'conversions_bun_venit_agent', label:'Inregistrari agenti', color:'#D97706'},
+              ]}
+              height={220}
+            />
+          ) : (
+            <div style={{padding:'40px 0',textAlign:'center',color:C.hint,fontSize:13}}>
+              Nu exista date zilnice pentru perioada selectata.<br/>
+              <span style={{fontSize:11,marginTop:4,display:'block'}}>Incearca un interval mai mare (30-60 zile) sau asteapta acumularea datelor.</span>
+            </div>
+          )}
+        </Card>
+      </Sec>
+
+      {/* Grafic bar: cereri pe zi (mai usor de citit pentru volum mic) */}
+      {allDates.length > 0 && (
+        <Sec title="Cereri noi per zi — detaliu">
+          <Card style={{padding:'12px 16px'}}>
+            {(() => {
+              const withCereri = allDates.filter(d => (d.conversions_bravo_cerere_noua||0) > 0)
+              if (withCereri.length === 0) return (
+                <p style={{fontSize:13,color:C.hint,textAlign:'center',padding:'20px 0'}}>
+                  Nicio cerere adaugata in perioada selectata.
+                </p>
+              )
+              const maxV = Math.max(...withCereri.map(d => d.conversions_bravo_cerere_noua||0), 1)
+              return withCereri.map((d,i) => {
+                const v = d.conversions_bravo_cerere_noua || 0
+                const pct = v / maxV * 100
+                const dt = new Date(d.date)
+                const dayLabel = dt.toLocaleDateString('ro-RO', {weekday:'short', day:'numeric', month:'short'})
+                return (
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                    <span style={{fontSize:11,color:C.muted,width:100,flexShrink:0,fontFamily:'monospace'}}>{dayLabel}</span>
+                    <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:10,overflow:'hidden'}}>
+                      <div style={{width:`${pct}%`,height:10,background:C.blue,borderRadius:99}}/>
+                    </div>
+                    <span style={{fontSize:14,fontWeight:600,color:C.blue,width:20,textAlign:'right',flexShrink:0}}>{v}</span>
+                  </div>
+                )
+              })
+            })()}
+          </Card>
+        </Sec>
+      )}
+
+      {/* Inregistrari per tip */}
+      <Sec title="Inregistrari per tip de cont">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:10}}>
+          {[
+            {label:'Cumparatori',val:totalCump,col:C.blue,icon:'👤'},
+            {label:'Agenti',val:totalAgent,col:C.amber,icon:'🏢'},
+            {label:'Proprietari',val:totalProp,col:C.green,icon:'🏠'},
+          ].map(item=>(
+            <div key={item.label} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px',textAlign:'center'}}>
+              <div style={{fontSize:20,marginBottom:4}}>{item.icon}</div>
+              <div style={{fontSize:22,fontWeight:500,color:item.val>0?item.col:C.hint}}>{item.val}</div>
+              <div style={{fontSize:11,color:C.hint,marginTop:2}}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      </Sec>
+
+      {/* Target si ritm */}
+      <Sec title="Proiectie si target">
+        <Card>
+          {(() => {
+            const dailyRate = activeDays > 0 ? totalCereri / totalDays : 0
+            const proj7  = Math.round(dailyRate * 7)
+            const proj30 = Math.round(dailyRate * 30)
+            const target7  = 14  // 2/zi
+            const target30 = 60  // 2/zi
+            return (
+              <div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:14}}>
+                  {[
+                    {label:'Ritm actual /zi',val:dailyRate.toFixed(2),sub:'pe tot intervalul'},
+                    {label:'Proiectie 7 zile',val:proj7,sub:`target: ${target7}`,ok:proj7>=target7},
+                    {label:'Proiectie 30 zile',val:proj30,sub:`target: ${target30}`,ok:proj30>=target30},
+                  ].map((it,i)=>(
+                    <div key={i} style={{textAlign:'center',padding:'10px',background:it.ok===true?'#F0FDF4':it.ok===false?'#FEF2F2':'#f5f5f3',borderRadius:8}}>
+                      <div style={{fontSize:20,fontWeight:600,color:it.ok===true?C.green:it.ok===false?C.red:C.text}}>{it.val}</div>
+                      <div style={{fontSize:11,color:C.hint,marginTop:2}}>{it.label}</div>
+                      <div style={{fontSize:10,color:it.ok===true?C.green:it.ok===false?C.red:C.hint,marginTop:1}}>{it.sub}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:12,color:C.muted,lineHeight:1.6,borderTop:`0.5px solid ${C.border}`,paddingTop:10}}>
+                  <strong style={{color:C.text}}>Target recomandat:</strong> 2 cereri/zi = 60/luna = 720/an.
+                  La ritmul actual de <strong>{dailyRate.toFixed(2)}/zi</strong>,
+                  {dailyRate < 2
+                    ? ` esti sub target. Implementeaza CTA inline pe /cereri si redirecteaza cumparatorii catre formular imediat dupa inregistrare.`
+                    : ` esti pe track. Mentine ritmul si monitorizeaza saptamanal.`}
+                </div>
+              </div>
+            )
+          })()}
+        </Card>
+      </Sec>
+    </div>
+  )
+}
+
 export { TabRecomandari, TabCerereNoua, TabConversii }

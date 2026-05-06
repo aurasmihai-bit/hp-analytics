@@ -32,7 +32,7 @@ function subtractPrev(all60, curr30, key) {
 
 async function fetchFromWindsor(currFrom, currTo, prevFrom, prevTo) {
   const t = Date.now()
-  const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,r14,r15,r16,r17] = await Promise.allSettled([
+  const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,r13,r14,r15,r16,r17,r18] = await Promise.allSettled([
     w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], currFrom, currTo),
     w(['session_default_channel_group','sessions','newusers','engaged_sessions','engagement_rate','average_session_duration','conversions'], prevFrom, prevTo),
     w(['page_path','screen_page_views','active_users','bounce_rate','engagement_rate','average_session_duration','user_engagement_duration','conversions'], currFrom, currTo, [['page_path','ncontains','/admin']]),
@@ -50,6 +50,8 @@ async function fetchFromWindsor(currFrom, currTo, prevFrom, prevTo) {
     w(['session_default_channel_group','page_path','screen_page_views','active_users','conversions'], currFrom, currTo, [['page_path','contains','cerere-noua']]),
     w(['session_default_channel_group','page_path','screen_page_views','active_users','conversions'], currFrom, currTo, [['page_path','contains','/cereri/nou']]),
     w(['session_default_channel_group','page_path','screen_page_views','active_users','conversions'], currFrom, currTo, [['page_path','contains','/vreau']]),
+    // r18: daily conversii cerere noua + inregistrari (tracking dedicat)
+    w(['date','conversions_bravo_cerere_noua','conversions_bun_venit_cumparator','conversions_bun_venit_agent','conversions_bun_venit_proprietar'], currFrom, currTo),
   ])
 
   const x = r => r.status === 'fulfilled' ? (r.value||[]) : []
@@ -72,6 +74,7 @@ async function fetchFromWindsor(currFrom, currTo, prevFrom, prevTo) {
       daily: { cerereNoua: ceNouDaily, cereriNou: cereriNouDaily, vreau: vreauDaily },
       byChannel: { cerereNoua: x(r15), cereriNou: x(r16), vreau: x(r17) },
     },
+    cerereTracking: x(r18).sort((a,b) => a.date.localeCompare(b.date)),
     _fetchMs: Date.now() - t,
   }
 }
@@ -129,12 +132,13 @@ export async function GET(request) {
     const snapshotDate = currTo
     try {
       await upsertSnapshot(snapshotDate, days, {
-        traffic:     data.traffic,
-        pages:       data.pages,
-        conversions: data.conversions,
-        daily:       data.daily,
-        gsc:         data.gsc,
-        cererePages: data.cererePages,
+        traffic:        data.traffic,
+        pages:          data.pages,
+        conversions:    data.conversions,
+        daily:          data.daily,
+        gsc:            data.gsc,
+        cererePages:    data.cererePages,
+        cerereTracking: data.cerereTracking,
       })
       await logSync({
         period_days: days,
@@ -177,14 +181,15 @@ export async function GET(request) {
 
 function buildResponse(snap, label, days, now) {
   return {
-    generatedAt:  now.toISOString(),
-    periodLabel:  label,
+    generatedAt:     now.toISOString(),
+    periodLabel:     label,
     days,
-    traffic:      snap.traffic,
-    pages:        snap.pages,
-    conversions:  snap.conversions,
-    daily:        snap.daily,
-    gsc:          snap.gsc,
-    cererePages:  snap.cerere_pages,
+    traffic:         snap.traffic,
+    pages:           snap.pages,
+    conversions:     snap.conversions,
+    daily:           snap.daily,
+    gsc:             snap.gsc,
+    cererePages:     snap.cerere_pages,
+    cerereTracking:  snap.cerere_tracking,
   }
 }

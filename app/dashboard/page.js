@@ -5,7 +5,7 @@ import { C, sum, dlt, fmtN, Action, Sec, Grid, KPI, Signal, Delta } from './comp
 import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
 import { TabGrafice, TabSemnale, TabTrafic, TabSEO } from './tabs1'
 import { TabPagini, TabFunnel } from './tabs2'
-import { TabRecomandari, TabCerereNoua, TabConversii } from './tabs3'
+import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -168,16 +168,17 @@ function TabActiuni({ data }) {
 
 /* ─── MAIN ─────────────────────────────────────────────────────────── */
 const TABS=[
-  {id:'semnale',label:'Semnale'},
-  {id:'grafice', label:'Grafice'},
-  {id:'trafic',  label:'Trafic'},
-  {id:'seo',     label:'SEO'},
-  {id:'pagini',  label:'Pagini'},
-  {id:'funnel',  label:'Funnel'},
-  {id:'cerere',  label:'Analiza LP cereri'},
-  {id:'conversii',label:'Conversii'},
+  {id:'semnale',   label:'Semnale'},
+  {id:'grafice',   label:'Grafice'},
+  {id:'trafic',    label:'Trafic'},
+  {id:'seo',       label:'SEO'},
+  {id:'pagini',    label:'Pagini'},
+  {id:'funnel',    label:'Funnel'},
+  {id:'cerere',    label:'Analiza LP cereri'},
+  {id:'tracking',  label:'Tracking cereri'},
+  {id:'conversii', label:'Conversii'},
   {id:'recomandari',label:'Recomandari'},
-  {id:'actiuni', label:'Actiuni'},
+  {id:'actiuni',   label:'Actiuni'},
 ]
 
 export default function Dashboard() {
@@ -280,8 +281,9 @@ export default function Dashboard() {
           {tab==='seo'         &&<TabSEO         data={data}/>}
           {tab==='pagini'      &&<TabPagini      data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}
-          {tab==='cerere'      &&<TabCerereNoua  data={data}/>}
-          {tab==='conversii'   &&<TabConversii   data={data}/>}
+          {tab==='cerere'      &&<TabCerereNoua      data={data}/>}
+          {tab==='tracking'    &&<TabCerereTracking  data={data}/>}
+          {tab==='conversii'   &&<TabConversii       data={data}/>}
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
