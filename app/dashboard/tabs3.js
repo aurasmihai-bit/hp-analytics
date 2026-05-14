@@ -12,100 +12,178 @@ function TabRecomandari({ data }) {
   const direct=curr.find(r=>r.session_default_channel_group==='Direct')
   const socialConvR=social&&social.sessions>0?social.conversions/social.sessions*100:0
   const organicConvR=organic&&organic.sessions>0?organic.conversions/organic.sessions*100:0
+  const directConvR=direct&&direct.sessions>0?direct.conversions/direct.sessions*100:0
   const h3=pages.find(p=>p.page_path==='/home3')
   const hp=pages.find(p=>p.page_path==='/')
   const simp=pages.find(p=>p.page_path==='/simplu')
   const cereri=pages.find(p=>p.page_path==='/cereri')
   const ceNou=pages.find(p=>p.page_path==='/cerere-noua')
+  const vreau=pages.find(p=>p.page_path==='/vreau')
+  const proprietati=pages.find(p=>p.page_path==='/proprietati')
+  const scorCump=pages.find(p=>p.page_path==='/scor-cumparator')
+  const cereriNou=pages.find(p=>p.page_path==='/cereri/nou')
   const h3r=h3&&h3.screen_page_views>0?h3.conversions/h3.screen_page_views*100:0
   const hpr=hp&&hp.screen_page_views>0?hp.conversions/hp.screen_page_views*100:0
+  const simpr=simp&&simp.screen_page_views>0?simp.conversions/simp.screen_page_views*100:0
+  const vreauR=vreau&&vreau.screen_page_views>0?vreau.conversions/vreau.screen_page_views*100:0
   const cereriViews=cereri?.screen_page_views||0
   const ceNouViews=ceNou?.screen_page_views||0
-  const funnelRate=cereriViews>0?ceNouViews/cereriViews*100:0
+  const vreauViews=vreau?.screen_page_views||0
+  const cereriNouViews=cereriNou?.screen_page_views||0
+  const totalFormViews=ceNouViews+vreauViews+cereriNouViews
+  const funnelRate=cereriViews>0?totalFormViews/cereriViews*100:0
   const gscClicks=sum(data.gsc.current,'organic_google_search_clicks')
   const gscImpr=sum(data.gsc.current,'organic_google_search_impressions')
   const gscCtr=gscImpr>0?gscClicks/gscImpr*100:0
   const queries=data.gsc.queries||[]
   const nearTop=queries.filter(q=>(q.organic_google_search_average_position||0)>=4&&(q.organic_google_search_average_position||0)<=10)
-  const lowCtrQueries=queries.filter(q=>(q.organic_google_search_impressions||0)>30&&(q.organic_google_search_click_through_rate||0)<0.03)
+  // Conversii custom
+  const tracking=data.cerereTracking||[]
+  const totalCereriNoi=tracking.reduce((s,d)=>s+(d.conversions_bravo_cerere_noua||0),0)
+  const totalCump=tracking.reduce((s,d)=>s+(d.conversions_bun_venit_cumparator||0),0)
+  const totalProp=tracking.reduce((s,d)=>s+(d.conversions_bun_venit_proprietar||0),0)
+  const cereriConvRate=totalCump>0?(totalCereriNoi/totalCump*100).toFixed(0):null
+  // Gap homepage vs home3 — s-a micsorat
+  const homepageGap=h3r-hpr
+  const homepageGapReduced=homepageGap < 1.5
 
   return (
     <div>
+      {/* Header */}
       <div style={{background:'linear-gradient(135deg,#1A2B4A 0%,#2d4a7a 100%)',borderRadius:12,padding:'20px 24px',marginBottom:24,color:'#fff'}}>
-        <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.6)',margin:'0 0 6px'}}>Analiza bazata pe date reale</p>
-        <h2 style={{fontSize:18,fontWeight:500,margin:'0 0 6px'}}>Cum poti creste traficul si conversiile</h2>
+        <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.6)',margin:'0 0 4px'}}>Actualizat saptamanal — date reale GA4</p>
+        <h2 style={{fontSize:18,fontWeight:500,margin:'0 0 6px'}}>Recomandari si prioritati</h2>
         <p style={{fontSize:13,color:'rgba(255,255,255,.7)',margin:0}}>
-          {fmtN(totalSess)} sesiuni analizate. Conv rate general: {totalSess>0?(totalConv/totalSess*100).toFixed(1):'0'}%
+          {fmtN(totalSess)} sesiuni · Conv rate: {totalSess>0?(totalConv/totalSess*100).toFixed(1):'0'}% · {totalCereriNoi} cereri noi adaugate (tracking activ)
         </p>
       </div>
 
-      <Sec title="Crestere trafic — oportunitate imediata">
-        <Signal type="info" title="Organic Social converteste de 2x mai bine decat Direct" tag="PRIORITATE"
-          body={`Social: ${socialConvR.toFixed(1)}% conv rate vs Direct: ${direct&&direct.sessions>0?(direct.conversions/direct.sessions*100).toFixed(1):0}%. Cu ${fmtN(social?.sessions||0)} sesiuni din social si ${socialConvR.toFixed(1)}% conv rate, e canalul tau cel mai eficient. Dubland volumul de social, conversiile cresc proportional.`}/>
-        <Signal type="info" title={`Organic Search: ${organicConvR.toFixed(1)}% conv rate cu volum mic (${fmtN(organic?.sessions||0)} sesiuni)`} tag="SEO"
-          body={`Searchul organic are conv rate ${organicConvR.toFixed(1)}% — cel mai bun canal. Dar genereaza doar ${Math.round((organic?.sessions||0)/totalSess*100)}% din trafic. ${nearTop.length} queries sunt pe pozitia 4-10 in Google — optimizand continutul pentru ele poti dubla traficul organic fara cost.`}/>
-        {gscImpr>0&&<Signal type="neutral" title={`CTR organic ${gscCtr.toFixed(1)}% — ${Math.round(gscImpr)} impressions pierdute`}
-          body={`La ${Math.round(gscImpr)} impressions si CTR ${gscCtr.toFixed(1)}%, pierzi ~${Math.round(gscImpr*(0.1-gscCtr/100))} clicks potentiali pe luna daca ai CTR 10%. ${lowCtrQueries.length} queries au impressions mari dar CTR sub 3% — optimizarea titlurilor poate aduce trafic gratuit imediat.`}/>}
+      {/* UPDATE: /vreau este acum cel mai bun formular */}
+      <Sec title="Ce s-a schimbat fata de saptamana trecuta">
+        {vreauR > 3 && (
+          <Signal type="positive"
+            title={`/vreau — ${vreauR.toFixed(1)}% conv rate — cel mai eficient formular de cerere`}
+            body={`/vreau: ${vreauR.toFixed(1)}% vs /cerere-noua: ${(ceNou&&ceNou.screen_page_views>0?ceNou.conversions/ceNou.screen_page_views*100:0).toFixed(1)}%. Redirecteaza traficul spre /vreau sau copiaza structura sa pe /cerere-noua.`}
+            tag="NOU"
+          />
+        )}
+        {homepageGapReduced ? (
+          <Signal type="positive"
+            title={`Homepage / si /home3 au conv rate aproape identic (${hpr.toFixed(1)}% vs ${h3r.toFixed(1)}%)`}
+            body={`Gap-ul s-a redus semnificativ. Homepage / are acum ${hpr.toFixed(1)}% conv rate — aproape de /home3 (${h3r.toFixed(1)}%). Probabil s-au aplicat imbunatatiri pe /. Monitorizare in continuare recomandata dar nu mai e urgenta schimbarea.`}
+          />
+        ) : (
+          <Signal type="neutral"
+            title={`/home3 (${h3r.toFixed(1)}%) inca mai bun decat homepage (${hpr.toFixed(1)}%)`}
+            body="Gap s-a micsorat dar exista inca potential. Continua optimizarea homepage-ului."
+          />
+        )}
+        {cereriNou && (cereriNou.conversions||0) === 0 && (cereriNou.screen_page_views||0) > 20 && (
+          <Signal type="negative"
+            title={`/cereri/nou: ${fmtN(cereriNouViews)} views, ${Math.round(cereriNou.average_session_duration||0)}s, 0 conversii — tracking inca broken`}
+            body="Problema persista din saptamana trecuta. Key Event nesetat sau redirect fara event. Prioritate maxima — pierdere de date."
+          />
+        )}
+        {totalProp > 40 && (
+          <Signal type="neutral"
+            title={`Segment proprietari activ — ${totalProp} inregistrari luna aceasta`}
+            body="Spike de 42 pe 28 apr posibil import de date sau test. Verifica daca e organic sau artificial. Daca e real, segmentul proprietari creste — merita o pagina de onboarding dedicata."
+          />
+        )}
       </Sec>
 
-      <Sec title="Crestere conversii cerere noua — gap critic">
-        <div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:12,padding:'16px 20px',marginBottom:12}}>
-          <div style={{display:'flex',gap:20,marginBottom:10,flexWrap:'wrap'}}>
+      {/* Canale */}
+      <Sec title="Canale — oportunitate imediata">
+        <Signal type="info" tag="PRIORITATE"
+          title={`Organic Social: ${socialConvR.toFixed(1)}% conv rate — cel mai eficient canal per sesiune`}
+          body={`Social: ${socialConvR.toFixed(1)}% vs Direct: ${directConvR.toFixed(1)}% vs Search: ${organicConvR.toFixed(1)}%. Cu ${fmtN(social?.sessions||0)} sesiuni si ${socialConvR.toFixed(1)}% conv rate, Social e canalul tau cu cel mai mare ROI. Fiecare sesiune din social valoreaza de ${(socialConvR/directConvR).toFixed(1)}x mai mult decat Direct.`}
+        />
+        <Signal type="info" tag="SEO"
+          title={`Organic Search: ${organicConvR.toFixed(1)}% conv rate dar pozitie medie 83 — potential enorm neexploatat`}
+          body={`Searchul organic converteste cel mai bine dar genereaza doar ${Math.round((organic?.sessions||0)/totalSess*100)}% din trafic. Pozitia medie 83 inseamna ca HomePitch inca nu e indexat pe queries relevante. Contentul targetat poate schimba asta in 3-6 luni.`}
+        />
+      </Sec>
+
+      {/* Funnel cerere */}
+      <Sec title="Funnel cerere noua — status actual">
+        <div style={{background:'#F0FDF4',border:'0.5px solid #86EFAC',borderRadius:12,padding:'16px 20px',marginBottom:12}}>
+          <div style={{display:'flex',gap:16,marginBottom:12,flexWrap:'wrap'}}>
             {[
-              {label:'/cereri vizitat',val:fmtN(cereriViews),sub:'oameni intrati pe lista'},
-              {label:'→ /cerere-noua',val:fmtN(ceNouViews),sub:`${funnelRate.toFixed(0)}% din /cereri`},
-              {label:'Conv /cerere-noua',val:`${ceNou&&ceNou.screen_page_views>0?(ceNou.conversions/ceNou.screen_page_views*100).toFixed(1):0}%`,sub:'completeaza formularul'},
+              {label:'/cereri vizitat',val:fmtN(cereriViews),sub:'useri pe lista'},
+              {label:'→ formulare',val:fmtN(totalFormViews),sub:`${funnelRate.toFixed(0)}% progresie`},
+              {label:'Cereri noi trackate',val:totalCereriNoi,sub:'din 28 apr',bold:true},
+              {label:'/vreau conv rate',val:`${vreauR.toFixed(1)}%`,sub:'cel mai bun',green:true},
             ].map(i=>(
-              <div key={i.label} style={{flex:1,minWidth:100}}>
-                <p style={{fontSize:22,fontWeight:500,color:C.text,margin:'0 0 2px'}}>{i.val}</p>
+              <div key={i.label} style={{flex:1,minWidth:90}}>
+                <p style={{fontSize:22,fontWeight:500,color:i.green?C.green:C.text,margin:'0 0 2px'}}>{i.val}</p>
                 <p style={{fontSize:11,color:C.hint,margin:'0 0 1px'}}>{i.label}</p>
                 <p style={{fontSize:11,color:C.muted,margin:0}}>{i.sub}</p>
               </div>
             ))}
           </div>
-          <p style={{fontSize:13,color:C.red,margin:0,fontWeight:500}}>
-            Problema: {Math.round(100-funnelRate)}% din userii care vad cererile NU ajung sa adauge o cerere noua.
-          </p>
+          {cereriConvRate && <p style={{fontSize:13,color:C.green,margin:0,fontWeight:500}}>
+            {cereriConvRate}% din cumparatorii inregistrati adauga o cerere. Target: 80%+.
+          </p>}
         </div>
-        <Signal type="negative" title={`Drop masiv ${Math.round(100-funnelRate)}% intre /cereri si /cerere-noua`}
-          body="Cel mai mare gap din funnel. Userii vad cererile existente dar nu sunt convinsi sa adauge propria cerere. Cauze probabile: CTA-ul pentru cerere noua nu e vizibil, nu inteleg beneficiul, sau nu sunt logati si fluxul e confuz."/>
-        <Signal type="neutral" title="Durata pe /cerere-noua: 203s — formular prea lung sau confuz"
-          body="3 minute si 23 secunde pe pagina formularului cu conv rate 1% = uzura mare. Fie formularul are prea multi pasi, fie campurile sunt neclare. Simplificarea formularului sau adaugarea unui progress indicator poate creste conversia cu 30-50%."/>
+        <Signal type="negative"
+          title="/cereri/nou: 0 conversii trackate — Key Event inca nesetat"
+          body={`${fmtN(cereriNouViews)} views, ${Math.round(cereriNou?.average_session_duration||0)}s pe formular si zero conversii GA4. Aceasta e o gaura neagra in date — nu stii cate cereri vin pe aceasta ruta. Fix in 5 minute.`}
+        />
+        <Signal type="positive"
+          title="/vreau functioneaza — cel mai bun formular de cerere"
+          body={`${vreauR.toFixed(1)}% conv rate cu ${fmtN(vreauViews)} views. Structura sa (simplu, rapid) este modelul pe care trebuie sa-l replicati pe /cerere-noua si /cereri/nou.`}
+        />
       </Sec>
 
+      {/* Oportunitate noua: /proprietati */}
+      <Sec title="Oportunitate noua identificata — /proprietati">
+        <Signal type="negative"
+          title={`/proprietati: ${fmtN(proprietati?.screen_page_views||0)} views, 0 conversii, ${Math.round((proprietati?.bounce_rate||0)*100)}% bounce`}
+          body={`A doua pagina ca trafic dupa /cereri dar cu 0 conversii si cel mai mare bounce rate din top 10 pagini (${Math.round((proprietati?.bounce_rate||0)*100)}%). Userii ajung pe pagina dar nu stiu ce sa faca. Lipseste un CTA clar — fie sa publice o proprietate (agent/proprietar), fie sa vada cereri (cumparator).`}
+        />
+        {scorCump && (
+          <Signal type="info"
+            title={`/scor-cumparator: ${Math.round(scorCump?.average_session_duration||0)}s pe pagina — potential upsell VIP`}
+            body={`Userii care isi verifica scorul sunt cei mai angajati din platforma. ${Math.round(scorCump?.average_session_duration||0)}s medie si ${(scorCump.conversions/Math.max(scorCump.screen_page_views,1)*100).toFixed(1)}% conv rate. Momentul ideal pentru a prezenta beneficiile planului VIP.`}
+          />
+        )}
+      </Sec>
+
+      {/* Actiuni cu estimare impact */}
       <Sec title="Actiuni concrete recomandate">
-        <Action urgency="urgent" impact="Impact: mare" title="Adauga CTA proeminent pe /cereri: 'Adauga cererea ta'"
-          body={`${fmtN(cereriViews)} useri/luna vad lista de cereri dar doar ${fmtN(ceNouViews)} (${funnelRate.toFixed(0)}%) ajung la formular. Un buton mare, sticky sau floating 'Adauga cererea ta' vizibil permanent pe /cereri poate creste acest procent la 20-30%, adaugand sute de cereri noi lunar.`}
-          fix="Adauga un buton CTA 'Adauga cererea ta' fixed bottom pe /cereri pentru mobile si sticky top pentru desktop. Testeaza varianta cu mesaj de urgenta: 'Agentii din zona ta asteapta cereri — adauga-o acum'. Masoara conv rate /cereri > /cerere-noua."/>
-        <Action urgency="urgent" impact="Impact: mare" title="Simplifica formularul /cerere-noua — max 4 campuri in pasul 1"
-          body="203s pe formular cu 1% conv rate = formular prea complex. Oamenii abandoneaza. Best practice: primul pas cu maxim 4 campuri (tip proprietate, oras, buget, contact), restul optionale sau in pasul 2 dupa ce userul e deja angajat."
-          fix="Redeseneaza /cerere-noua ca multi-step: Pasul 1 - tip, oras, buget (30 secunde). Pasul 2 - detalii optionale. Adauga progress bar '1 din 2'. Testeaza cu Google Optimize sau schimba direct si monitorizeaza conv rate timp de 2 saptamani."/>
-        <Action urgency="urgent" impact="Impact: mare" title="Seteaza /home3 ca homepage — converteste de 2.4x mai bine"
-          body={`/home3 are ${h3r.toFixed(1)}% conv rate vs ${hpr.toFixed(1)}% pe homepage (${(h3r/Math.max(hpr,0.1)).toFixed(1)}x mai eficient). Cu ${fmtN(hp?.screen_page_views||0)} vizite pe homepage lunar, schimbarea ar aduce ${Math.round((hp?.screen_page_views||0)*(h3r-hpr)/100)} conversii suplimentare/luna fara niciun cost de trafic.`}
-          fix="In setarile serverului/CMS, seteaza /home3 ca pagina principala. Alternativ, fa un redirect 301 de la / catre /home3, sau copiaza elementele de pe /home3 (layout, copy, CTA) pe homepage. Monitorizeaza conv rate timp de 14 zile."/>
-        <Action urgency="important" impact="Impact: mediu" title="Dubleaza frecventa postarilor pe Social Media"
-          body={`Organic Social: ${socialConvR.toFixed(1)}% conv rate, ${fmtN(social?.sessions||0)} sesiuni. E canalul cu cel mai bun ROI pe conversii. Traficul social e volatile si depinde direct de frecventa si consistenta postarilor. Dublarea frecventei = dublu trafic de calitate inalta.`}
-          fix="Creeaza un calendar editorial: 1 post/zi pe cel mai activ canal al tau. Foloseste formate care au convertit inainte (verifica GA4 Acquisition > Social). Adauga UTM parameters la linkurile din social pentru tracking precis in GA4."/>
-        <Action urgency="important" impact="Impact: mediu" title={`SEO: optimizeaza pentru ${nearTop.length} queries din pozitia 4-10`}
-          body={`Ai ${nearTop.length} queries aproape de top 3 in Google. O imbunatatire de 2-3 pozitii poate dubla sau tripla traficul pentru fiecare query. Organic Search are ${organicConvR.toFixed(1)}% conv rate — cel mai eficient canal cost-pe-conversie.`}
-          fix={`In Google Search Console, identifica paginile care rankeaza pe pozitia 4-10. Pentru fiecare: adauga 200-300 cuvinte de continut relevant, imbunatateste H1/H2 sa includa query-ul exact, adauga link-uri interne din alte pagini. Prioritizeaza queries cu cele mai multe impressions.`}/>
-        <Action urgency="seo" impact="Impact: rapid" title="Activeaza Key Events GA4 — acum zbori orb pe conversii custom"
-          body="Fara conversions_signup, offer_accepted si bravo_cerere_noua configurate ca Key Events, nu stii ce canal aduce inregistrari reale vs bounce. Decizia de a investi mai mult in Social vs SEO nu poate fi bazata pe date."
-          fix="GA4 Admin - Events - cauta 'conversions_signup' - toggle 'Mark as conversion'. Repeta pentru: conversions_offer_accepted, conversions_bravo_cerere_noua, conversions_bun_venit_agent, conversions_bun_venit_cumparator, conversions_bun_venit_proprietar. Durata: 5 minute."/>
+        <Action urgency="urgent" impact="5 min" title="Fix Key Event pe /cereri/nou"
+          body={`${fmtN(cereriNouViews)} views si ${Math.round(cereriNou?.average_session_duration||0)}s pe formular dar 0 conversii GA4. Persista din saptamana trecuta.`}
+          fix="Adauga gtag('event', 'conversions_bravo_cerere_noua') la submit reusit pe /cereri/nou. Verifica in GA4 DebugView ca se triggereaza."/>
+        <Action urgency="urgent" impact="Impact: mare" title="Adauga CTA inline pe /cereri dupa randul 2"
+          body={`${fmtN(cereriViews)} views pe /cereri dar doar ${funnelRate.toFixed(0)}% ajung la formulare. Un card CTA dupa al 4-lea rezultat (pozitia 5 in grid) e cel mai rapid fix — nu modifica layout-ul existent.`}
+          fix="Insereaza un card dark (aceeasi dimensiune cu cardurile de cereri) dupa pozitia 4 din grid cu textul: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati."/>
+        <Action urgency="urgent" impact="Impact: mare" title="Adauga CTA pe /proprietati — 729 views, 0 conversii"
+          body={`/proprietati e a doua pagina ca trafic cu ${fmtN(proprietati?.screen_page_views||0)} views si ${Math.round((proprietati?.bounce_rate||0)*100)}% bounce dar zero conversii. Pagina nu are niciun CTA activ.`}
+          fix="Adauga doua CTA-uri conditionate pe tip user: Agent/Proprietar -> 'Publica o proprietate' -> /proprietati/nou. Cumparator -> 'Adauga o cerere si primesti oferte' -> /vreau. Estimare: +50-100 conversii/luna."/>
+        <Action urgency="important" impact="Impact: mediu" title="Redirecteaza traficul spre /vreau in loc de /cerere-noua"
+          body={`/vreau are ${vreauR.toFixed(1)}% conv rate vs ${(ceNou&&ceNou.screen_page_views>0?ceNou.conversions/ceNou.screen_page_views*100:0).toFixed(1)}% pe /cerere-noua. Acelasi obiectiv, de 5x mai eficient.`}
+          fix="Testeaza redirect soft: pe butonul '+ Cerere noua' din /cereri, linkuieste spre /vreau in loc de /cerere-noua. Masoara conv rate timp de 14 zile."/>
+        <Action urgency="important" impact="Impact: mediu" title="Dubleaza frecventa postari Social Media"
+          body={`Social: ${socialConvR.toFixed(1)}% conv rate cu ${fmtN(social?.sessions||0)} sesiuni. Cel mai bun ROI pe conversii. Fiecare sesiune din social valoreaza de ${(socialConvR/Math.max(directConvR,1)).toFixed(1)}x mai mult decat Direct.`}
+          fix="1 post/zi pe canalul principal. Adauga UTM parameters: ?utm_source=instagram&utm_medium=social&utm_campaign=cereri pentru tracking precis. Verifica in GA4 ce tipuri de continut aduc trafic care converteste."/>
+        <Action urgency="seo" impact="Impact: termen lung" title="Creeaza continut SEO pentru queries cu volum mare"
+          body="Pozitia medie 83 inseamna ca HomePitch nu apare pe queries relevante. Nu exista continut optimizat pentru cum cauta oamenii proprietati sau agenti imobiliari in Romania."
+          fix="Prioritate 1: pagini de tip 'apartamente de vanzare [oras]' si 'agenti imobiliari [oras]'. Prioritate 2: ghiduri pentru cumparatori ('cum sa gasesti un apartament in Bucuresti'). Fiecare pagina de continut bine optimizata aduce trafic pasiv pe termen lung."/>
       </Sec>
 
-      <Sec title="Estimare impact implementare">
+      {/* Impact estimat */}
+      <Sec title="Estimare impact — luna urmatoare">
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10}}>
           {[
-            {label:'CTA pe /cereri',est:`+${Math.round(cereriViews*0.1)} cereri/luna`,col:C.red},
-            {label:'Formular simplificat',est:'+30-50% conv rate',col:C.amber},
-            {label:'/home3 ca homepage',est:`+${Math.round((hp?.screen_page_views||0)*(h3r-hpr)/100)} conv/luna`,col:C.green},
-            {label:'Social x2',est:`+${fmtN(social?.sessions||0)} sesiuni/luna`,col:C.blue},
-            {label:'SEO top 3',est:'+50-100% organic',col:C.purple},
+            {label:'Fix /cereri/nou tracking',est:'date complete in 7 zile',col:C.red},
+            {label:'CTA pe /cereri',est:`+${Math.round(cereriViews*0.08)} cereri/luna`,col:C.amber},
+            {label:'CTA pe /proprietati',est:'+50-100 conv/luna',col:C.blue},
+            {label:'Social x2',est:`+${fmtN(Math.round(social?.sessions||0*0.8))} sesiuni/luna`,col:C.green},
+            {label:'Redirect spre /vreau',est:`+${Math.round(ceNouViews*(vreauR/100-0.008))} cereri/luna`,col:C.purple},
           ].map(i=>(
             <div key={i.label} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'12px 14px'}}>
               <p style={{fontSize:11,color:C.hint,margin:'0 0 4px'}}>{i.label}</p>
-              <p style={{fontSize:14,fontWeight:500,color:i.col,margin:0}}>{i.est}</p>
+              <p style={{fontSize:13,fontWeight:500,color:i.col,margin:0}}>{i.est}</p>
             </div>
           ))}
         </div>

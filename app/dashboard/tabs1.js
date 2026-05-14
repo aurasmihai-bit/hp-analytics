@@ -214,6 +214,129 @@ function TabSEO({ data }) {
         </Sec>
       )}
       {topP.length>0&&<Sec title="Top pagini organice"><Card style={{padding:'12px 16px'}}><BarChart data={topP} labelField="page_path" valueField="organic_google_search_clicks" color={C.green}/></Card></Sec>}
+
+      {/* ZONA CUVINTE CHEIE — SEO + AI */}
+      <Sec title="Cuvinte cheie cu potential — SEO si AI Search">
+        <div style={{background:'linear-gradient(135deg,#1A2B4A,#1e3a6e)',borderRadius:12,padding:'14px 18px',marginBottom:14,color:'#fff'}}>
+          <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.07em',color:'rgba(255,255,255,.55)',margin:'0 0 4px'}}>Analiza manuala — actualizata luna Mai 2026</p>
+          <p style={{fontSize:13,color:'rgba(255,255,255,.8)',margin:0,lineHeight:1.5}}>
+            Pozitia medie actuala: <strong style={{color:'#FCD34D'}}>84</strong> · 104 impressions · HomePitch nu apare pe niciun query relevant. Aceste cuvinte cheie reprezinta oportunitatea de crestere organica.
+          </p>
+        </div>
+
+        {/* Categorii de keywords */}
+        {[
+          {
+            cat: 'Cerere de cumparare — intent direct (prioritate 1)',
+            col: C.red,
+            desc: 'Oamenii care cauta exact ce ofera HomePitch. Volum mediu, intent maxim.',
+            keywords: [
+              {kw:'cerere cumparare apartament',vol:'~500/luna',dif:'mica',tip:'pagina /cereri',ai:'DA'},
+              {kw:'adauga cerere imobiliara',vol:'~200/luna',dif:'mica',tip:'pagina /cerere-noua',ai:'DA'},
+              {kw:'cum sa gasesti un apartament fara agent',vol:'~800/luna',dif:'medie',tip:'articol blog',ai:'DA'},
+              {kw:'platforma cumparare apartament Romania',vol:'~300/luna',dif:'medie',tip:'homepage',ai:'DA'},
+              {kw:'cerere oferta imobiliara',vol:'~150/luna',dif:'mica',tip:'pagina /cereri',ai:'NU'},
+            ]
+          },
+          {
+            cat: 'Agent imobiliar — recrutare si credibilitate (prioritate 2)',
+            col: C.amber,
+            desc: 'Agentii cauta platforme unde gasesc cumparatori calificati. Volum mic, valoare mare.',
+            keywords: [
+              {kw:'agenti imobiliari bucuresti',vol:'~2000/luna',dif:'mare',tip:'pagina /agenti',ai:'DA'},
+              {kw:'platforma agenti imobiliari',vol:'~400/luna',dif:'mica',tip:'pagina /pentru-agenti',ai:'DA'},
+              {kw:'cum sa gasesti clienti imobiliari',vol:'~600/luna',dif:'medie',tip:'articol blog',ai:'DA'},
+              {kw:'lead-uri imobiliare cumparatori',vol:'~250/luna',dif:'mica',tip:'landing agenti',ai:'DA'},
+              {kw:'homepitch agent',vol:'branded',dif:'mica',tip:'homepage',ai:'DA'},
+            ]
+          },
+          {
+            cat: 'Cumparator activ — intent tranzactional (prioritate 2)',
+            col: C.green,
+            desc: 'Oamenii in cautare activa de proprietate. Volum mare dar competitie ridicata.',
+            keywords: [
+              {kw:'apartamente de vanzare bucuresti',vol:'~8000/luna',dif:'mare',tip:'pagina de cereri filtrata',ai:'DA'},
+              {kw:'apartament 2 camere bucuresti pret',vol:'~3000/luna',dif:'mare',tip:'landing filtrat',ai:'DA'},
+              {kw:'cumpar apartament bucuresti',vol:'~1500/luna',dif:'mare',tip:'pagina /cereri',ai:'DA'},
+              {kw:'apartamente sector 2 de vanzare',vol:'~900/luna',dif:'medie',tip:'pagina filtrata zona',ai:'NU'},
+              {kw:'apartament 3 camere pret 2025',vol:'~1200/luna',dif:'medie',tip:'articol ghid pret',ai:'DA'},
+            ]
+          },
+          {
+            cat: 'AI Search — ChatGPT, Perplexity, Gemini (prioritate 3)',
+            col: C.purple,
+            desc: 'Queries pe care oamenii le pun in AI si HomePitch ar trebui sa apara in raspunsuri. Necesita continut de tip "raspuns definitiv".',
+            keywords: [
+              {kw:'cum functioneaza homepitch',vol:'AI',dif:'mica',tip:'pagina /cum-functioneaza',ai:'DA'},
+              {kw:'cele mai bune platforme imobiliare romania 2025',vol:'AI',dif:'mica',tip:'articol comparativ',ai:'DA'},
+              {kw:'alternativa imobiliare.ro',vol:'~200/luna',dif:'medie',tip:'landing comparativ',ai:'DA'},
+              {kw:'platforma unde cumparatorul face cerere si primeste oferte',vol:'AI',dif:'mica',tip:'homepage + FAQ',ai:'DA'},
+              {kw:'cum sa cumperi apartament fara stres romania',vol:'AI+SEO',dif:'mica',tip:'ghid complet',ai:'DA'},
+            ]
+          },
+          {
+            cat: 'Long-tail cu conversie ridicata (prioritate 1 — quick wins)',
+            col: C.blue,
+            desc: 'Volume mici, competitie minima, intent clar. Cele mai rapide de rankat.',
+            keywords: [
+              {kw:'vreau sa cumpar apartament in bucuresti',vol:'~300/luna',dif:'mica',tip:'/vreau sau /cerere-noua',ai:'DA'},
+              {kw:'agenti imobiliari care vin la tine cu oferte',vol:'~100/luna',dif:'mica',tip:'homepage',ai:'DA'},
+              {kw:'adauga cerere si primesti oferte imobiliare',vol:'~80/luna',dif:'mica',tip:'/cerere-noua',ai:'DA'},
+              {kw:'caut apartament 2 camere bucuresti buget 100000',vol:'~200/luna',dif:'mica',tip:'cerere filtrata',ai:'NU'},
+              {kw:'scor cumparator imobiliare',vol:'~50/luna',dif:'mica',tip:'/scor-cumparator',ai:'DA'},
+            ]
+          },
+        ].map(({cat,col,desc,keywords})=>(
+          <div key={cat} style={{marginBottom:16}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+              <div style={{width:10,height:10,borderRadius:'50%',background:col,flexShrink:0}}/>
+              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{cat}</span>
+            </div>
+            <p style={{fontSize:12,color:C.muted,margin:'0 0 8px',marginLeft:18}}>{desc}</p>
+            <div style={{overflowX:'auto',marginLeft:18}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                <thead>
+                  <tr style={{borderBottom:`0.5px solid ${C.border}`,background:'#fafaf8'}}>
+                    {['Cuvant cheie','Volum/luna','Dificultate','Pagina recomandata','AI Search'].map(h=>(
+                      <th key={h} style={{textAlign:'left',padding:'5px 10px',color:C.hint,fontWeight:600,fontSize:9,textTransform:'uppercase',letterSpacing:'.05em'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {keywords.map((k,i)=>(
+                    <tr key={i} style={{borderBottom:`0.5px solid ${C.border}`}}>
+                      <td style={{padding:'7px 10px',color:C.text,fontWeight:500}}>{k.kw}</td>
+                      <td style={{padding:'7px 10px',color:C.muted}}>{k.vol}</td>
+                      <td style={{padding:'7px 10px'}}>
+                        <span style={{fontSize:10,fontWeight:600,padding:'2px 6px',borderRadius:4,
+                          background:k.dif==='mica'?'#F0FDF4':k.dif==='medie'?'#FFF7ED':k.dif==='mare'?'#FEF2F2':'#EFF6FF',
+                          color:k.dif==='mica'?C.green:k.dif==='medie'?C.amber:k.dif==='mare'?C.red:C.blue
+                        }}>{k.dif}</span>
+                      </td>
+                      <td style={{padding:'7px 10px',fontFamily:'monospace',fontSize:10,color:C.blue}}>{k.tip}</td>
+                      <td style={{padding:'7px 10px',textAlign:'center'}}>
+                        <span style={{fontSize:11,fontWeight:600,color:k.ai==='DA'?C.green:C.hint}}>{k.ai==='DA'?'✓':'-'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+
+        {/* Ghid de actiune */}
+        <div style={{background:'#F0FDF4',border:'0.5px solid #86EFAC',borderRadius:10,padding:'14px 16px',marginTop:8}}>
+          <p style={{fontSize:12,fontWeight:600,color:C.green,margin:'0 0 8px'}}>Cum sa incepi — plan in 3 pasi</p>
+          {[
+            '1. Quick wins (saptamana 1): Optimizeaza paginile existente pentru long-tail — /cerere-noua, /vreau, /scor-cumparator. Adauga H1 cu query-ul exact, 200 cuvinte de continut relevant, meta description cu CTA.',
+            '2. Pagini noi (luna 1-2): Creeaza /agenti-imobiliari-bucuresti si /cum-functioneaza cu continut de 800+ cuvinte. Acestea targeteaza si AI Search — ChatGPT si Perplexity le vor cita in raspunsuri.',
+            '3. Continut long-form (luna 2-3): Ghid "Cum sa cumperi apartament in Romania 2025" — articol de 2000+ cuvinte care rankeaza pentru zeci de queries long-tail simultan.',
+          ].map((s,i)=>(
+            <p key={i} style={{fontSize:12,color:C.muted,margin:'0 0 6px',lineHeight:1.55}}>{s}</p>
+          ))}
+        </div>
+      </Sec>
     </div>
   )
 }

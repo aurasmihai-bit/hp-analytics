@@ -122,43 +122,129 @@ function TabActiuni({ data }) {
   const curr=data.traffic.current, prev=data.traffic.previous
   const pages=data.pages.current, queries=data.gsc.queries||[]
   const cc=sum(curr,'conversions'), cp=sum(prev,'conversions')
-  const custConv=sum(data.conversions,'conversions_signup')+sum(data.conversions,'conversions_offer_accepted')+sum(data.conversions,'conversions_bravo_cerere_noua')
+  const tracking=data.cerereTracking||[]
+  const totalCereriNoi=tracking.reduce((s,d)=>s+(d.conversions_bravo_cerere_noua||0),0)
+  const totalCump=tracking.reduce((s,d)=>s+(d.conversions_bun_venit_cumparator||0),0)
+  const custConv=sum(data.conversions,'conversions_signup')+sum(data.conversions,'conversions_offer_accepted')+totalCereriNoi
   const h3=pages.find(p=>p.page_path==='/home3'), hp=pages.find(p=>p.page_path==='/')
   const reset=pages.find(p=>p.page_path==='/resetare-parola')
+  const proprietati=pages.find(p=>p.page_path==='/proprietati')
+  const vreau=pages.find(p=>p.page_path==='/vreau')
+  const ceNou=pages.find(p=>p.page_path==='/cerere-noua')
+  const cereriNou=pages.find(p=>p.page_path==='/cereri/nou')
+  const cereri=pages.find(p=>p.page_path==='/cereri')
   const h3r=h3&&h3.screen_page_views>0?h3.conversions/h3.screen_page_views*100:0
   const hpr=hp&&hp.screen_page_views>0?hp.conversions/hp.screen_page_views*100:0
-  const cereri=pages.find(p=>p.page_path==='/cereri'), ceNou=pages.find(p=>p.page_path==='/cerere-noua')
-  const funnelGap=cereri&&ceNou?(1-ceNou.screen_page_views/cereri.screen_page_views)*100:0
-  const lowCtr=queries.filter(q=>(q.organic_google_search_impressions||0)>100&&(q.organic_google_search_click_through_rate||0)<0.03).sort((a,b)=>(b.organic_google_search_impressions||0)-(a.organic_google_search_impressions||0))[0]
+  const vreauR=vreau&&vreau.screen_page_views>0?vreau.conversions/vreau.screen_page_views*100:0
+  const ceNouR=ceNou&&ceNou.screen_page_views>0?ceNou.conversions/ceNou.screen_page_views*100:0
+  const homepageGapClosed=h3r>0&&hpr>0&&(h3r-hpr)<1.5
+  const lowCtr=queries.filter(q=>(q.organic_google_search_impressions||0)>50&&(q.organic_google_search_click_through_rate||0)<0.03).sort((a,b)=>(b.organic_google_search_impressions||0)-(a.organic_google_search_impressions||0))[0]
   const nearTop=queries.filter(q=>(q.organic_google_search_average_position||0)>=4&&(q.organic_google_search_average_position||0)<=8).sort((a,b)=>(b.organic_google_search_clicks||0)-(a.organic_google_search_clicks||0))[0]
+  const cereriViews=cereri?.screen_page_views||0
+  const totalFormViews=(ceNou?.screen_page_views||0)+(vreau?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
+  const funnelRate=cereriViews>0?totalFormViews/cereriViews*100:0
+
   const actions=[]
-  if(custConv===0) actions.push({urgency:'urgent',title:'Activeaza Key Events GA4 — conversii custom = 0',body:'Fara conversions_signup, offer_accepted si cerere_noua nu poti masura ROI per canal sau lua decizii de investitie bazate pe date reale.',fix:'GA4 Admin - Events - Mark as conversion: conversions_signup, conversions_offer_accepted, conversions_bravo_cerere_noua. 5 minute.'})
-  if(funnelGap>80) actions.push({urgency:'urgent',title:`Funnel gap ${funnelGap.toFixed(0)}%: ${fmtN(cereri?.screen_page_views)} useri vad /cereri, doar ${fmtN(ceNou?.screen_page_views)} ajung la formular`,body:'Cel mai mare gap din funnel. Adauga un CTA vizibil pe /cereri care sa duca la /cerere-noua.',fix:'Adauga buton fixed/sticky pe /cereri: "Adauga cererea ta acum". Testeaza si un banner inline dupa primele 3 rezultate.'})
-  if(h3r>hpr*1.5&&(h3?.screen_page_views||0)>20) actions.push({urgency:'urgent',title:`/home3 converteste de ${(h3r/Math.max(hpr,0.1)).toFixed(1)}x mai bine — seteaza-l ca homepage`,body:`/home3: ${h3r.toFixed(1)}% vs /: ${hpr.toFixed(1)}%. Schimbarea aduce imediat mai multe conversii cu acelasi trafic.`,fix:'Seteaza /home3 ca pagina principala sau copiaza elementele diferite pe /. Monitorizeaza 14 zile.'})
-  if(lowCtr) actions.push({urgency:'important',title:`SEO: "${lowCtr.query||'query'}" — ${Math.round(lowCtr.organic_google_search_impressions)} impr, CTR ${((lowCtr.organic_google_search_click_through_rate||0)*100).toFixed(1)}%`,body:'Multa vizibilitate, putine clickuri. Titlul sau meta description nu sunt convingatoare.',fix:'Gaseste pagina in GSC, rescrie titlul cu beneficiul principal, adauga meta description cu CTA. Monitorizeaza CTR 2 saptamani.'})
-  if(nearTop) {
-    const q = nearTop.query && nearTop.query!=='(not provided)' ? `"${nearTop.query}"` : 'un query identificat'
-    const pos = (nearTop.organic_google_search_average_position||0).toFixed(1)
-    const impr = Math.round(nearTop.organic_google_search_impressions||0)
-    actions.push({urgency:'important',title:`SEO: ${q} pe pozitia ${pos} — aproape de top 3`,body:`Pozitia ${pos} cu ${impr} impressions. Urcare la top 3 poate dubla traficul organic pe aceasta pagina.`,fix:`Gaseste pagina exacta: Google Search Console > Performance > Queries > filtreaza pozitie 4-10 > click pe query > tab Pages. Pe acea pagina: adauga 200+ cuvinte relevante, imbunatateste H1 cu query-ul exact, adauga link-uri interne din pagini cu trafic mare.`})
-  } else {
-    actions.push({urgency:'luna asta',title:'SEO: verifica queries din pozitia 4-10 in Google Search Console',body:'Exista oportunitati de crestere organica nearidentificate automat. Verificarea manuala dureaza 5 minute.',fix:'Google Search Console > Performance > filtreaza pozitia medie 4-10 > sorteaza dupa Impressions. Paginile de sus sunt prioritatea ta SEO imediata.'})
+
+  // 1. /cereri/nou tracking broken — persista
+  if(cereriNou&&(cereriNou.conversions||0)===0&&(cereriNou.screen_page_views||0)>20) {
+    actions.push({urgency:'urgent',
+      title:`/cereri/nou: ${fmtN(cereriNou.screen_page_views)} views, ${Math.round(cereriNou.average_session_duration||0)}s, 0 conversii — Key Event inca nesetat`,
+      body:'Problema persista. Userii completeaza formularul dar evenimentul nu se triggereaza. Pierdere directa de date.',
+      fix:"Adauga la submit reusit pe /cereri/nou: gtag('event', 'conversions_bravo_cerere_noua', {page_source: 'cereri_nou'}). Verifica in GA4 DebugView. Durata: 5 minute."})
   }
-  if(reset&&(reset.engagement_rate||0)<0.6&&(reset.screen_page_views||0)>10) actions.push({urgency:'important',title:`/resetare-parola — engagement ${Math.round((reset.engagement_rate||0)*100)}% (posibil broken)`,body:`${reset.screen_page_views} vizite dar bounce mare imediat. Emailul posibil nu ajunge sau linkul expira.`,fix:'Testeaza manual fluxul complet. Adauga mesaj de confirmare clar dupa submittere.'})
+
+  // 2. CTA pe /cereri — inca neluat
+  if(funnelRate<15) {
+    actions.push({urgency:'urgent',
+      title:`Funnel /cereri → formulare: ${funnelRate.toFixed(0)}% — CTA inline inca lipseste`,
+      body:`${fmtN(cereriViews)} vizite pe /cereri dar doar ${fmtN(totalFormViews)} (${funnelRate.toFixed(0)}%) ajung la formulare. Un card CTA dupa al 4-lea rezultat din grid poate dubla aceasta rata.`,
+      fix:"Insereaza un card dark-navy dupa pozitia 4 din gridul de cereri cu textul: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati. Efort: 30 minute."})
+  }
+
+  // 3. /proprietati — oportunitate noua identificata
+  if(proprietati&&(proprietati.screen_page_views||0)>200&&(proprietati.conversions||0)===0) {
+    actions.push({urgency:'urgent',
+      title:`/proprietati: ${fmtN(proprietati.screen_page_views)} views, 0 conversii, ${Math.round((proprietati.bounce_rate||0)*100)}% bounce`,
+      body:`A doua pagina ca trafic dar cu ZERO conversii. Userii ajung si pleaca fara nicio actiune — lipseste un CTA adecvat pentru tipul de user.`,
+      fix:"Adauga CTA conditionat: Agent/Proprietar → 'Publica o proprietate' → /proprietati/nou. Cumparator → 'Adauga o cerere si primesti oferte' → /vreau. Doua reclame de 2 minute, impact estimat +50-100 conv/luna."})
+  }
+
+  // 4. /vreau vs /cerere-noua — redirect oportunitate
+  if(vreauR>0&&ceNouR>0&&vreauR>ceNouR*2) {
+    actions.push({urgency:'important',
+      title:`/vreau (${vreauR.toFixed(1)}% conv) de ${(vreauR/Math.max(ceNouR,0.1)).toFixed(1)}x mai eficient decat /cerere-noua (${ceNouR.toFixed(1)}%)`,
+      body:'Acelasi obiectiv, performante complet diferite. Traficul trimis spre /cerere-noua ar converti de 5x mai bine daca ar ajunge pe /vreau.',
+      fix:"Schimba destinatia butonului '+ Cerere noua' din /cereri catre /vreau. Masoara conv rate timp de 14 zile. Daca se confirma, aplica peste tot."})
+  }
+
+  // 5. Homepage vs home3 — daca gap s-a inchis, felicitare + urmatorul pas
+  if(homepageGapClosed) {
+    actions.push({urgency:'luna asta',
+      title:`Homepage / (${hpr.toFixed(1)}%) aproape de /home3 (${h3r.toFixed(1)}%) — gap inchis`,
+      body:'Imbunatatirile pe homepage au dat rezultate. Gap-ul s-a redus sub 1.5pp. Focuseaza-te acum pe urmatoarea oportunitate: /proprietati si funnelul de cereri.',
+      fix:"Monitorizeaza conv rate-ul homepage-ului saptamanal. Daca se stabilizeaza peste 7%, redirecteaza efortul spre /proprietati si CTA-ul pe /cereri."})
+  } else if(h3r>hpr*1.5&&(h3?.screen_page_views||0)>20) {
+    actions.push({urgency:'important',
+      title:`/home3 (${h3r.toFixed(1)}%) inca mai bun decat homepage (${hpr.toFixed(1)}%) — gap de ${(h3r-hpr).toFixed(1)}pp`,
+      body:'Gap exista inca. Copiaza elementele diferite de pe /home3 (CTA, copy, layout) pe homepage.',
+      fix:'Identifica ce e diferit pe /home3 vs /. Aplica schimbarile pe homepage si monitorizeaza 14 zile.'})
+  }
+
+  // 6. /resetare-parola — daca inca are problema
+  if(reset&&(reset.engagement_rate||0)<0.6&&(reset.screen_page_views||0)>10) {
+    actions.push({urgency:'important',
+      title:`/resetare-parola — engagement ${Math.round((reset.engagement_rate||0)*100)}% (emailul de reset a fost imbunatatit, verifica fluxul)`,
+      body:`Am optimizat emailul de reset (expirare 30 min, CTA clar). Daca bounce-ul persista, problema e tehnica — linkul expira prea repede sau emailul ajunge in spam.`,
+      fix:'Testeaza manual fluxul complet: solicita reset > verifica inbox + spam > apasa link > confirma ca functioneaza. Verifica in Supabase Auth logs timpul de expirare al token-ului.'})
+  }
+
+  // 7. SEO
+  if(nearTop) {
+    const q=nearTop.query&&nearTop.query!=='(not provided)'?`"${nearTop.query}"`:'un query identificat'
+    actions.push({urgency:'important',
+      title:`SEO: ${q} pozitia ${(nearTop.organic_google_search_average_position||0).toFixed(1)} — aproape de top 3`,
+      body:`${Math.round(nearTop.organic_google_search_impressions||0)} impressions. Urcare la top 3 poate dubla traficul organic.`,
+      fix:'GSC > Performance > Queries > filtreaza pozitie 4-10 > click pe query > tab Pages. Pe acea pagina: adauga 200+ cuvinte relevante, imbunatateste H1 cu query-ul exact, adauga link-uri interne.'})
+  } else {
+    actions.push({urgency:'seo',
+      title:'SEO: pozitie medie 83 — HomePitch nu apare pe queries relevante',
+      body:'Cu 104 impressions si pozitia 83, practic nu exista vizibilitate organica. Nu exista continut optimizat pentru cum cauta oamenii in Romania.',
+      fix:"Creeaza 3 pagini de continut in luna aceasta: 1) 'Cum sa cumperi un apartament in Bucuresti' 2) 'Agenti imobiliari Bucuresti' 3) 'Apartamente de vanzare Bucuresti'. Fiecare pagina bine optimizata aduce trafic pasiv pe termen lung."})
+  }
+
   const cd=dlt(cc,cp)
-  if(cd!==null&&cd<-20) actions.push({urgency:'urgent',title:`Conversii -${Math.abs(cd).toFixed(0)}% fata de perioada anterioara`,body:`${cc} conversii vs ${cp}. Scadere semnificativa.`,fix:'Verifica GA4 pentru erori JS. Verifica /cerere-noua si /home3 pentru probleme.'})
-  if(actions.length===0) actions.push({urgency:'luna asta',title:'Fara alerte majore — focus pe crestere organica',body:'Metricile sunt stabile.',fix:'Adauga 2-3 pagini de continut SEO targetand queries din GSC cu impressions mari si CTR scazut.'})
+  if(cd!==null&&cd<-20) actions.push({urgency:'urgent',
+    title:`Conversii -${Math.abs(cd).toFixed(0)}% fata de perioada anterioara`,
+    body:`${cc} conversii vs ${cp}. Scadere semnificativa — posibila problema tehnica.`,
+    fix:'Verifica GA4 pentru erori JS. Verifica /cerere-noua, /vreau si /home3 pentru probleme.'})
+
+  if(actions.length===0) actions.push({urgency:'luna asta',
+    title:'Saptamana fara alerte majore',
+    body:'Metricile sunt stabile. Focus pe continut SEO si optimizari de conversie.',
+    fix:'Scrie 1 articol de continut targetand un query din GSC cu impressions mari.'})
+
+  // Saptamana curenta ca referinta
+  const weekLabel = new Date().toLocaleDateString('ro-RO',{day:'numeric',month:'long',year:'numeric'})
+
   return (
     <div>
-      <Sec title={`${Math.min(actions.length,6)} actiuni prioritizate`}>
-        {actions.slice(0,6).map((a,i)=><Action key={i} {...a}/>)}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
+        <span style={{fontSize:11,color:C.hint}}>Actualizat: {weekLabel}</span>
+        <div style={{display:'flex',gap:6}}>
+          <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FEF2F2',color:C.red}}>{actions.filter(a=>a.urgency==='urgent').length} urgente</span>
+          <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FFF7ED',color:C.amber}}>{actions.filter(a=>a.urgency==='important').length} importante</span>
+        </div>
+      </div>
+      <Sec title={`${Math.min(actions.length,7)} actiuni prioritizate`}>
+        {actions.slice(0,7).map((a,i)=><Action key={i} {...a}/>)}
       </Sec>
-      <Sec title="Context">
+      <Sec title="Context metrici">
         <Grid>
           <KPI label="Conversii" curr={cc} prev={cp}/>
-          <KPI label="Conv custom" curr={custConv}/>
-          <KPI label="/home3 rate" curr={h3r} type="pctN"/>
-          <KPI label="/ rate" curr={hpr} type="pctN"/>
+          <KPI label="Cereri noi (tracking)" curr={totalCereriNoi}/>
+          <KPI label="/vreau rate" curr={vreauR} type="pctN"/>
+          <KPI label="/ homepage rate" curr={hpr} type="pctN"/>
         </Grid>
       </Sec>
     </div>
