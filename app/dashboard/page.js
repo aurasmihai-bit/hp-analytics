@@ -296,7 +296,9 @@ export default function Dashboard() {
   async function forceSync() {
     setSyncing(true)
     try {
-      await fetch('/api/sync', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({days: days||30}) })
+      const res = await fetch('/api/sync', { method:'POST', headers:{'Content-Type':'application/json'} })
+      const json = await res.json()
+      // Dupa sync, reincarca perioada curenta din cache nou
       await load(days, customFrom, customTo)
     } catch(e) { setError('Sync failed: '+e.message) }
     finally { setSyncing(false) }

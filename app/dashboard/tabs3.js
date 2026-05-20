@@ -5,184 +5,87 @@ import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config
 
 /* ─── RECOMANDARI ──────────────────────────────────────────────────── */
 function TabRecomandari({ data }) {
-  const curr=data.traffic.current, pages=data.pages.current
-  const totalSess=sum(curr,'sessions'), totalConv=sum(curr,'conversions')
-  const social=curr.find(r=>r.session_default_channel_group==='Organic Social')
-  const organic=curr.find(r=>r.session_default_channel_group==='Organic Search')
-  const direct=curr.find(r=>r.session_default_channel_group==='Direct')
-  const socialConvR=social&&social.sessions>0?social.conversions/social.sessions*100:0
-  const organicConvR=organic&&organic.sessions>0?organic.conversions/organic.sessions*100:0
-  const directConvR=direct&&direct.sessions>0?direct.conversions/direct.sessions*100:0
-  const h3=pages.find(p=>p.page_path==='/home3')
-  const hp=pages.find(p=>p.page_path==='/')
-  const simp=pages.find(p=>p.page_path==='/simplu')
-  const cereri=pages.find(p=>p.page_path==='/cereri')
-  const ceNou=pages.find(p=>p.page_path==='/cerere-noua')
-  const vreau=pages.find(p=>p.page_path==='/vreau')
-  const proprietati=pages.find(p=>p.page_path==='/proprietati')
-  const scorCump=pages.find(p=>p.page_path==='/scor-cumparator')
-  const cereriNou=pages.find(p=>p.page_path==='/cereri/nou')
-  const h3r=h3&&h3.screen_page_views>0?h3.conversions/h3.screen_page_views*100:0
-  const hpr=hp&&hp.screen_page_views>0?hp.conversions/hp.screen_page_views*100:0
-  const simpr=simp&&simp.screen_page_views>0?simp.conversions/simp.screen_page_views*100:0
-  const vreauR=vreau&&vreau.screen_page_views>0?vreau.conversions/vreau.screen_page_views*100:0
-  const cereriViews=cereri?.screen_page_views||0
-  const ceNouViews=ceNou?.screen_page_views||0
-  const vreauViews=vreau?.screen_page_views||0
-  const cereriNouViews=cereriNou?.screen_page_views||0
-  const totalFormViews=ceNouViews+vreauViews+cereriNouViews
-  const funnelRate=cereriViews>0?totalFormViews/cereriViews*100:0
-  const gscClicks=sum(data.gsc.current,'organic_google_search_clicks')
-  const gscImpr=sum(data.gsc.current,'organic_google_search_impressions')
-  const gscCtr=gscImpr>0?gscClicks/gscImpr*100:0
-  const queries=data.gsc.queries||[]
-  const nearTop=queries.filter(q=>(q.organic_google_search_average_position||0)>=4&&(q.organic_google_search_average_position||0)<=10)
-  // Conversii custom
-  const tracking=data.cerereTracking||[]
-  const totalCereriNoi=tracking.reduce((s,d)=>s+(d.conversions_bravo_cerere_noua||0),0)
-  const totalCump=tracking.reduce((s,d)=>s+(d.conversions_bun_venit_cumparator||0),0)
-  const totalProp=tracking.reduce((s,d)=>s+(d.conversions_bun_venit_proprietar||0),0)
-  const cereriConvRate=totalCump>0?(totalCereriNoi/totalCump*100).toFixed(0):null
-  // Gap homepage vs home3 — s-a micsorat
-  const homepageGap=h3r-hpr
-  const homepageGapReduced=homepageGap < 1.5
+  const rec = data.recommendations || {}
+  const insights = rec.insights || []
+  const actions  = rec.actions  || []
+  const s = rec.summary || {}
+  const generatedAt = rec.generatedAt
+
+  if (!insights.length && !actions.length) {
+    return (
+      <div style={{textAlign:"center",padding:"60px 20px",color:C.hint}}>
+        <p style={{fontSize:14,marginBottom:8}}>Recomandarile se genereaza la urmatorul sync.</p>
+        <p style={{fontSize:12}}>Apasa butonul sync din header pentru a genera recomandari pe datele curente.</p>
+      </div>
+    )
+  }
+
+  const fmtDate = d => d ? new Date(d).toLocaleString("ro-RO",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}) : "—"
 
   return (
     <div>
-      {/* Header */}
-      <div style={{background:'linear-gradient(135deg,#1A2B4A 0%,#2d4a7a 100%)',borderRadius:12,padding:'20px 24px',marginBottom:24,color:'#fff'}}>
-        <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.6)',margin:'0 0 4px'}}>Actualizat saptamanal — date reale GA4</p>
-        <h2 style={{fontSize:18,fontWeight:500,margin:'0 0 6px'}}>Recomandari si prioritati</h2>
-        <p style={{fontSize:13,color:'rgba(255,255,255,.7)',margin:0}}>
-          {fmtN(totalSess)} sesiuni · Conv rate: {totalSess>0?(totalConv/totalSess*100).toFixed(1):'0'}% · {totalCereriNoi} cereri noi adaugate (tracking activ)
-        </p>
-      </div>
-
-      {/* UPDATE: /vreau este acum cel mai bun formular */}
-      <Sec title="Ce s-a schimbat fata de saptamana trecuta">
-        {vreauR > 3 && (
-          <Signal type="positive"
-            title={`/vreau — ${vreauR.toFixed(1)}% conv rate — cel mai eficient formular de cerere`}
-            body={`/vreau: ${vreauR.toFixed(1)}% vs /cerere-noua: ${(ceNou&&ceNou.screen_page_views>0?ceNou.conversions/ceNou.screen_page_views*100:0).toFixed(1)}%. Redirecteaza traficul spre /vreau sau copiaza structura sa pe /cerere-noua.`}
-            tag="NOU"
-          />
-        )}
-        {homepageGapReduced ? (
-          <Signal type="positive"
-            title={`Homepage / si /home3 au conv rate aproape identic (${hpr.toFixed(1)}% vs ${h3r.toFixed(1)}%)`}
-            body={`Gap-ul s-a redus semnificativ. Homepage / are acum ${hpr.toFixed(1)}% conv rate — aproape de /home3 (${h3r.toFixed(1)}%). Probabil s-au aplicat imbunatatiri pe /. Monitorizare in continuare recomandata dar nu mai e urgenta schimbarea.`}
-          />
-        ) : (
-          <Signal type="neutral"
-            title={`/home3 (${h3r.toFixed(1)}%) inca mai bun decat homepage (${hpr.toFixed(1)}%)`}
-            body="Gap s-a micsorat dar exista inca potential. Continua optimizarea homepage-ului."
-          />
-        )}
-        {cereriNou && (cereriNou.conversions||0) === 0 && (cereriNou.screen_page_views||0) > 20 && (
-          <Signal type="negative"
-            title={`/cereri/nou: ${fmtN(cereriNouViews)} views, ${Math.round(cereriNou.average_session_duration||0)}s, 0 conversii — tracking inca broken`}
-            body="Problema persista din saptamana trecuta. Key Event nesetat sau redirect fara event. Prioritate maxima — pierdere de date."
-          />
-        )}
-        {totalProp > 40 && (
-          <Signal type="neutral"
-            title={`Segment proprietari activ — ${totalProp} inregistrari luna aceasta`}
-            body="Spike de 42 pe 28 apr posibil import de date sau test. Verifica daca e organic sau artificial. Daca e real, segmentul proprietari creste — merita o pagina de onboarding dedicata."
-          />
-        )}
-      </Sec>
-
-      {/* Canale */}
-      <Sec title="Canale — oportunitate imediata">
-        <Signal type="info" tag="PRIORITATE"
-          title={`Organic Social: ${socialConvR.toFixed(1)}% conv rate — cel mai eficient canal per sesiune`}
-          body={`Social: ${socialConvR.toFixed(1)}% vs Direct: ${directConvR.toFixed(1)}% vs Search: ${organicConvR.toFixed(1)}%. Cu ${fmtN(social?.sessions||0)} sesiuni si ${socialConvR.toFixed(1)}% conv rate, Social e canalul tau cu cel mai mare ROI. Fiecare sesiune din social valoreaza de ${(socialConvR/directConvR).toFixed(1)}x mai mult decat Direct.`}
-        />
-        <Signal type="info" tag="SEO"
-          title={`Organic Search: ${organicConvR.toFixed(1)}% conv rate dar pozitie medie 83 — potential enorm neexploatat`}
-          body={`Searchul organic converteste cel mai bine dar genereaza doar ${Math.round((organic?.sessions||0)/totalSess*100)}% din trafic. Pozitia medie 83 inseamna ca HomePitch inca nu e indexat pe queries relevante. Contentul targetat poate schimba asta in 3-6 luni.`}
-        />
-      </Sec>
-
-      {/* Funnel cerere */}
-      <Sec title="Funnel cerere noua — status actual">
-        <div style={{background:'#F0FDF4',border:'0.5px solid #86EFAC',borderRadius:12,padding:'16px 20px',marginBottom:12}}>
-          <div style={{display:'flex',gap:16,marginBottom:12,flexWrap:'wrap'}}>
+      <div style={{background:"linear-gradient(135deg,#1A2B4A 0%,#2d4a7a 100%)",borderRadius:12,padding:"18px 22px",marginBottom:20,color:"#fff"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
+          <div>
+            <p style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"rgba(255,255,255,.55)",margin:"0 0 4px"}}>Generate automat la fiecare sync</p>
+            <h2 style={{fontSize:17,fontWeight:500,margin:"0 0 4px"}}>Recomandari bazate pe date reale</h2>
+            <p style={{fontSize:12,color:"rgba(255,255,255,.65)",margin:0}}>
+              {fmtN(s.totalSess)} sesiuni · Conv rate: {s.totalSess>0?(s.totalConv/s.totalSess*100).toFixed(1):"0"}%
+              {s.totalCereriNoi > 0 && " · " + s.totalCereriNoi + " cereri noi trackate"}
+            </p>
+          </div>
+          {generatedAt && (
+            <div style={{textAlign:"right",flexShrink:0}}>
+              <p style={{fontSize:10,color:"rgba(255,255,255,.4)",margin:"0 0 2px"}}>Ultima generare</p>
+              <p style={{fontSize:11,color:"rgba(255,255,255,.7)",margin:0}}>{fmtDate(generatedAt)}</p>
+            </div>
+          )}
+        </div>
+        {s.totalSess > 0 && (
+          <div style={{display:"flex",gap:16,marginTop:14,paddingTop:12,borderTop:"0.5px solid rgba(255,255,255,.15)",flexWrap:"wrap"}}>
             {[
-              {label:'/cereri vizitat',val:fmtN(cereriViews),sub:'useri pe lista'},
-              {label:'→ formulare',val:fmtN(totalFormViews),sub:`${funnelRate.toFixed(0)}% progresie`},
-              {label:'Cereri noi trackate',val:totalCereriNoi,sub:'din 28 apr',bold:true},
-              {label:'/vreau conv rate',val:`${vreauR.toFixed(1)}%`,sub:'cel mai bun',green:true},
+              {l:"Social conv rate", v:s.socialConvR+"%", highlight: s.socialConvR > 25},
+              {l:"/vreau conv rate",  v:s.vreauR+"%",     highlight: s.vreauR > 3},
+              {l:"Homepage rate",    v:s.hpr+"%",         highlight: false},
+              {l:"Funnel /cereri",   v:s.funnelRate+"%",  highlight: s.funnelRate > 15},
             ].map(i=>(
-              <div key={i.label} style={{flex:1,minWidth:90}}>
-                <p style={{fontSize:22,fontWeight:500,color:i.green?C.green:C.text,margin:'0 0 2px'}}>{i.val}</p>
-                <p style={{fontSize:11,color:C.hint,margin:'0 0 1px'}}>{i.label}</p>
-                <p style={{fontSize:11,color:C.muted,margin:0}}>{i.sub}</p>
+              <div key={i.l} style={{minWidth:80}}>
+                <p style={{fontSize:10,color:"rgba(255,255,255,.45)",margin:"0 0 1px"}}>{i.l}</p>
+                <p style={{fontSize:16,fontWeight:600,color:i.highlight?"#86EFAC":"#fff",margin:0}}>{i.v}</p>
               </div>
             ))}
           </div>
-          {cereriConvRate && <p style={{fontSize:13,color:C.green,margin:0,fontWeight:500}}>
-            {cereriConvRate}% din cumparatorii inregistrati adauga o cerere. Target: 80%+.
-          </p>}
-        </div>
-        <Signal type="negative"
-          title="/cereri/nou: 0 conversii trackate — Key Event inca nesetat"
-          body={`${fmtN(cereriNouViews)} views, ${Math.round(cereriNou?.average_session_duration||0)}s pe formular si zero conversii GA4. Aceasta e o gaura neagra in date — nu stii cate cereri vin pe aceasta ruta. Fix in 5 minute.`}
-        />
-        <Signal type="positive"
-          title="/vreau functioneaza — cel mai bun formular de cerere"
-          body={`${vreauR.toFixed(1)}% conv rate cu ${fmtN(vreauViews)} views. Structura sa (simplu, rapid) este modelul pe care trebuie sa-l replicati pe /cerere-noua si /cereri/nou.`}
-        />
-      </Sec>
-
-      {/* Oportunitate noua: /proprietati */}
-      <Sec title="Oportunitate noua identificata — /proprietati">
-        <Signal type="negative"
-          title={`/proprietati: ${fmtN(proprietati?.screen_page_views||0)} views, 0 conversii, ${Math.round((proprietati?.bounce_rate||0)*100)}% bounce`}
-          body={`A doua pagina ca trafic dupa /cereri dar cu 0 conversii si cel mai mare bounce rate din top 10 pagini (${Math.round((proprietati?.bounce_rate||0)*100)}%). Userii ajung pe pagina dar nu stiu ce sa faca. Lipseste un CTA clar — fie sa publice o proprietate (agent/proprietar), fie sa vada cereri (cumparator).`}
-        />
-        {scorCump && (
-          <Signal type="info"
-            title={`/scor-cumparator: ${Math.round(scorCump?.average_session_duration||0)}s pe pagina — potential upsell VIP`}
-            body={`Userii care isi verifica scorul sunt cei mai angajati din platforma. ${Math.round(scorCump?.average_session_duration||0)}s medie si ${(scorCump.conversions/Math.max(scorCump.screen_page_views,1)*100).toFixed(1)}% conv rate. Momentul ideal pentru a prezenta beneficiile planului VIP.`}
-          />
         )}
+      </div>
+
+      <Sec title={insights.length + " semnale identificate"}>
+        {insights.map((s,i) => <Signal key={i} {...s}/>)}
       </Sec>
 
-      {/* Actiuni cu estimare impact */}
-      <Sec title="Actiuni concrete recomandate">
-        <Action urgency="urgent" impact="5 min" title="Fix Key Event pe /cereri/nou"
-          body={`${fmtN(cereriNouViews)} views si ${Math.round(cereriNou?.average_session_duration||0)}s pe formular dar 0 conversii GA4. Persista din saptamana trecuta.`}
-          fix="Adauga gtag('event', 'conversions_bravo_cerere_noua') la submit reusit pe /cereri/nou. Verifica in GA4 DebugView ca se triggereaza."/>
-        <Action urgency="urgent" impact="Impact: mare" title="Adauga CTA inline pe /cereri dupa randul 2"
-          body={`${fmtN(cereriViews)} views pe /cereri dar doar ${funnelRate.toFixed(0)}% ajung la formulare. Un card CTA dupa al 4-lea rezultat (pozitia 5 in grid) e cel mai rapid fix — nu modifica layout-ul existent.`}
-          fix="Insereaza un card dark (aceeasi dimensiune cu cardurile de cereri) dupa pozitia 4 din grid cu textul: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati."/>
-        <Action urgency="urgent" impact="Impact: mare" title="Adauga CTA pe /proprietati — 729 views, 0 conversii"
-          body={`/proprietati e a doua pagina ca trafic cu ${fmtN(proprietati?.screen_page_views||0)} views si ${Math.round((proprietati?.bounce_rate||0)*100)}% bounce dar zero conversii. Pagina nu are niciun CTA activ.`}
-          fix="Adauga doua CTA-uri conditionate pe tip user: Agent/Proprietar -> 'Publica o proprietate' -> /proprietati/nou. Cumparator -> 'Adauga o cerere si primesti oferte' -> /vreau. Estimare: +50-100 conversii/luna."/>
-        <Action urgency="important" impact="Impact: mediu" title="Redirecteaza traficul spre /vreau in loc de /cerere-noua"
-          body={`/vreau are ${vreauR.toFixed(1)}% conv rate vs ${(ceNou&&ceNou.screen_page_views>0?ceNou.conversions/ceNou.screen_page_views*100:0).toFixed(1)}% pe /cerere-noua. Acelasi obiectiv, de 5x mai eficient.`}
-          fix="Testeaza redirect soft: pe butonul '+ Cerere noua' din /cereri, linkuieste spre /vreau in loc de /cerere-noua. Masoara conv rate timp de 14 zile."/>
-        <Action urgency="important" impact="Impact: mediu" title="Dubleaza frecventa postari Social Media"
-          body={`Social: ${socialConvR.toFixed(1)}% conv rate cu ${fmtN(social?.sessions||0)} sesiuni. Cel mai bun ROI pe conversii. Fiecare sesiune din social valoreaza de ${(socialConvR/Math.max(directConvR,1)).toFixed(1)}x mai mult decat Direct.`}
-          fix="1 post/zi pe canalul principal. Adauga UTM parameters: ?utm_source=instagram&utm_medium=social&utm_campaign=cereri pentru tracking precis. Verifica in GA4 ce tipuri de continut aduc trafic care converteste."/>
-        <Action urgency="seo" impact="Impact: termen lung" title="Creeaza continut SEO pentru queries cu volum mare"
-          body="Pozitia medie 83 inseamna ca HomePitch nu apare pe queries relevante. Nu exista continut optimizat pentru cum cauta oamenii proprietati sau agenti imobiliari in Romania."
-          fix="Prioritate 1: pagini de tip 'apartamente de vanzare [oras]' si 'agenti imobiliari [oras]'. Prioritate 2: ghiduri pentru cumparatori ('cum sa gasesti un apartament in Bucuresti'). Fiecare pagina de continut bine optimizata aduce trafic pasiv pe termen lung."/>
+      <Sec title={actions.length + " actiuni prioritizate"}
+        right={
+          <div style={{display:"flex",gap:5}}>
+            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#FEF2F2",color:C.red,fontWeight:600}}>
+              {actions.filter(a=>a.urgency==="urgent").length} urgente
+            </span>
+            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#FFF7ED",color:C.amber,fontWeight:600}}>
+              {actions.filter(a=>a.urgency==="important").length} importante
+            </span>
+          </div>
+        }>
+        {actions.map((a,i) => <Action key={i} {...a}/>)}
       </Sec>
 
-      {/* Impact estimat */}
-      <Sec title="Estimare impact — luna urmatoare">
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10}}>
+      <Sec title="Estimare impact">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
           {[
-            {label:'Fix /cereri/nou tracking',est:'date complete in 7 zile',col:C.red},
-            {label:'CTA pe /cereri',est:`+${Math.round(cereriViews*0.08)} cereri/luna`,col:C.amber},
-            {label:'CTA pe /proprietati',est:'+50-100 conv/luna',col:C.blue},
-            {label:'Social x2',est:`+${fmtN(Math.round(social?.sessions||0*0.8))} sesiuni/luna`,col:C.green},
-            {label:'Redirect spre /vreau',est:`+${Math.round(ceNouViews*(vreauR/100-0.008))} cereri/luna`,col:C.purple},
+            {label:"Fix /cereri/nou tracking",est:"date complete in 7 zile",col:C.red},
+            {label:"CTA inline pe /cereri",   est:"+" + Math.round((s.totalSess||0)*0.003) + " cereri/luna",col:C.amber},
+            {label:"CTA pe /proprietati",     est:"+50-100 conv/luna",col:C.blue},
+            {label:"Social Media x2",         est:"+" + Math.round((s.totalSess||0)*0.15) + " sesiuni/luna",col:C.green},
           ].map(i=>(
-            <div key={i.label} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'12px 14px'}}>
-              <p style={{fontSize:11,color:C.hint,margin:'0 0 4px'}}>{i.label}</p>
+            <div key={i.label} style={{background:C.card,border:"0.5px solid "+C.border,borderRadius:10,padding:"12px 14px"}}>
+              <p style={{fontSize:11,color:C.hint,margin:"0 0 4px"}}>{i.label}</p>
               <p style={{fontSize:13,fontWeight:500,color:i.col,margin:0}}>{i.est}</p>
             </div>
           ))}
@@ -191,6 +94,8 @@ function TabRecomandari({ data }) {
     </div>
   )
 }
+
+
 
 /* ─── CERERE NOUA — COMPARATIE ─────────────────────────────────────── */
 function TabCerereNoua({ data }) {

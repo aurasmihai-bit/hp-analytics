@@ -38,6 +38,7 @@ export async function upsertSnapshot(snapshotDate, periodDays, payload) {
       gsc:             payload.gsc,
       cerere_pages:    payload.cererePages,
       cerere_tracking: payload.cerereTracking,
+      recommendations: payload.recommendations,
     }),
   })
 }
@@ -54,6 +55,11 @@ export function isFresh(snapshot, maxAgeHours = 6) {
   if (!snapshot) return false
   const age = Date.now() - new Date(snapshot.synced_at).getTime()
   return age < maxAgeHours * 60 * 60 * 1000
+}
+
+// Considera cache valid daca exista, indiferent de varsta (pentru switch de perioada)
+export function cacheExists(snapshot) {
+  return !!snapshot
 }
 
 export async function logSync(params) {

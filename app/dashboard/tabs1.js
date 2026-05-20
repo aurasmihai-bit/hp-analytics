@@ -4,6 +4,19 @@ import { useEffect, useState, useCallback } from 'react'
 import { C, COLORS, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Action, Sec, Grid, Card, LineChart, BarChart, PageLink, BASE_URL } from './components'
 import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
 
+const PRESETS = [
+  {id:'combo', label:'Sesiuni + Conv', metrics:[{field:'sessions',label:'Sesiuni',color:'#3B82C4'},{field:'conversions',label:'Conversii',color:'#D97706'}]},
+  {id:'sess',  label:'Sesiuni',        metrics:[{field:'sessions',label:'Sesiuni',color:'#3B82C4'}]},
+  {id:'new',   label:'Useri noi',      metrics:[{field:'newusers',label:'Useri noi',color:'#16A34A'}]},
+  {id:'conv',  label:'Conversii',      metrics:[{field:'conversions',label:'Conversii',color:'#D97706'}]},
+  {id:'eng',   label:'Engagement',     metrics:[{field:'engagement_rate',label:'Engagement',color:'#7C3AED',fmt:'pct'}]},
+  {id:'dur',   label:'Durata',         metrics:[{field:'average_session_duration',label:'Durata (s)',color:'#0891B2',fmt:'sec'}]},
+]
+
+function Chip({ active, onClick, navy, children }) {
+  return <button onClick={onClick} style={{padding:'5px 12px',fontSize:12,borderRadius:7,cursor:'pointer',fontWeight:active?500:400,border:`0.5px solid ${active?(navy?C.navy:C.blue):C.border}`,background:active?(navy?C.navy:'#EBF4FC'):'transparent',color:active?(navy?'#fff':C.blue):C.muted,fontFamily:'inherit'}}>{children}</button>
+}
+
 function TabGrafice({ data }) {
   const [preset,setPreset]=useState('combo')
   const daily=data.daily?.current||[]

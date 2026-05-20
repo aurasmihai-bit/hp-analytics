@@ -1,53 +1,51 @@
 import { NextResponse } from 'next/server'
 
-async function doSync(request, days = 30) {
+const SYNC_PERIODS = [30, 7, 14, 60, 90]
+
+async function syncPeriod(request, days) {
   const base = `https://${request.headers.get('host')}`
   const res = await fetch(`${base}/api/report?days=${days}&refresh=1`, {
     headers: { cookie: request.headers.get('cookie') || '' }
   })
-  if (!res.ok) throw new Error(`Report fetch failed: ${res.status}`)
+  if (!res.ok) throw new Error(`Report fetch failed for ${days}d: ${res.status}`)
   const data = await res.json()
-  return { ok: true, source: data._source, days, syncedAt: new Date().toISOString() }
+  return { days, source: data._source }
 }
 
-// Vercel cron trimite GET
+// Vercel cron — GET
 export async function GET(request) {
   const cronSecret = process.env.CRON_SECRET
   const authHeader = request.headers.get('authorization')
-
-  // Verifica secret pt cron (sau session pt dashboard)
   const isAuthorized =
     (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
     request.cookies.get('hp_session')?.value === process.env.SESSION_SECRET
 
-  if (!isAuthorized) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!isAuthorized) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const result = await doSync(request, 30)
-    // Sync si 7 zile pentru grafice rapide
-    doSync(request, 7).catch(() => {})
-    return NextResponse.json(result)
+    const main = await syncPeriod(request, 30)
+    SYNC_PERIODS.filter(d => d !== 30).forEach(d => syncPeriod(request, d).catch(() => {}))
+    return NextResponse.json({ ok: true, ...main, syncedAt: new Date().toISOString() })
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
 
+// Manual sync din dashboard — POST
 export async function POST(request) {
-  const isAuthorized =
-    request.cookies.get('hp_session')?.value === process.env.SESSION_SECRET
-
-  if (!isAuthorized) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const body = await request.json().catch(() => ({}))
-  const days = body.days || 30
+  const isAuthorized = request.cookies.get('hp_session')?.value === process.env.SESSION_SECRET
+  if (!isAuthorized) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const result = await doSync(request, days)
-    return NextResponse.json(result)
+    // Sincronizeaza toate perioadele: 7, 14, 30, 60, 90 zile
+    const results = await Promise.allSettled(
+      SYNC_PERIODS.map(d => syncPeriod(request, d))
+    )
+    const summary = results.map((r, i) => ({
+      days: SYNC_PERIODS[i],
+      status: r.status === 'fulfilled' ? 'ok' : 'error',
+    }))
+    return NextResponse.json({ ok: true, periods: summary, syncedAt: new Date().toISOString() })
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }

@@ -112,9 +112,11 @@ export function LineChart({ data, metrics, height=200, showLegend=true }) {
   const axes={}
   metrics.forEach(m=>{
     const axis=m.yAxis||'left'
-    if(!axes[axis]) axes[axis]={min:Infinity,max:-Infinity}
+    if(!axes[axis]) axes[axis]={min:0,max:0}
     data.forEach(d=>{const v=d[m.field]||0;if(v<axes[axis].min)axes[axis].min=v;if(v>axes[axis].max)axes[axis].max=v})
-    axes[axis].range=(axes[axis].max-axes[axis].min)||1
+    // Guard: if all values are 0 or identical, set range to 1 to avoid div by zero
+    axes[axis].min=Math.min(0,axes[axis].min)
+    axes[axis].range=Math.max((axes[axis].max-axes[axis].min),1)
   })
   const toY=(v,axis)=>{const ax=axes[axis||'left'];return PAD.top+cH-((v-ax.min)/ax.range)*cH}
   const toX=i=>PAD.left+(i/Math.max(data.length-1,1))*cW
