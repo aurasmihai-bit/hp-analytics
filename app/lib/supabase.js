@@ -1,8 +1,7 @@
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rstihjcnuazzyksdwczp.supabase.co'
-// Accepta service key SAU anon key — RLS e dezactivat pe tabelele hp_analytics_*
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY 
-  || process.env.SUPABASE_ANON_KEY
-  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzdGloamNudWF6enlrc2R3Y3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NjI2NTIsImV4cCI6MjA5MTIzODY1Mn0.gTdYMDD81KbidsfUeOmh0rw7h-radqlsniJDJItdaVg'
+// Service role key hardcodat — RLS dezactivat pe hp_analytics_*
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzdGloamNudWF6enlrc2R3Y3pwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY2MjY1MiwiZXhwIjoyMDkxMjM4NjUyfQ.2bc82kbs1015eRjhMmQSGlU3SPqTpWxsmZjm5hiGJKU'
 
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -28,17 +27,17 @@ export async function upsertSnapshot(snapshotDate, periodDays, payload) {
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify({
-      snapshot_date: snapshotDate,
-      period_days: periodDays,
-      synced_at: new Date().toISOString(),
-      traffic:         payload.traffic,
-      pages:           payload.pages,
-      conversions:     payload.conversions,
-      daily:           payload.daily,
-      gsc:             payload.gsc,
-      cerere_pages:    payload.cererePages,
-      cerere_tracking: payload.cerereTracking,
-      recommendations: payload.recommendations,
+      snapshot_date:    snapshotDate,
+      period_days:      periodDays,
+      synced_at:        new Date().toISOString(),
+      traffic:          payload.traffic,
+      pages:            payload.pages,
+      conversions:      payload.conversions,
+      daily:            payload.daily,
+      gsc:              payload.gsc,
+      cerere_pages:     payload.cererePages,
+      cerere_tracking:  payload.cerereTracking,
+      recommendations:  payload.recommendations,
     }),
   })
 }
@@ -55,11 +54,6 @@ export function isFresh(snapshot, maxAgeHours = 6) {
   if (!snapshot) return false
   const age = Date.now() - new Date(snapshot.synced_at).getTime()
   return age < maxAgeHours * 60 * 60 * 1000
-}
-
-// Considera cache valid daca exista, indiferent de varsta (pentru switch de perioada)
-export function cacheExists(snapshot) {
-  return !!snapshot
 }
 
 export async function logSync(params) {
@@ -83,9 +77,9 @@ export async function upsertWeeklyReport(weekStart, weekEnd, payload) {
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify({
-      week_start:   weekStart,
-      week_end:     weekEnd,
-      created_at:   new Date().toISOString(),
+      week_start:  weekStart,
+      week_end:    weekEnd,
+      created_at:  new Date().toISOString(),
       ...payload,
     }),
   })
