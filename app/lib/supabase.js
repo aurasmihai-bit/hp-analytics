@@ -76,3 +76,32 @@ export async function getHistory(limit = 60) {
     { prefer: '' }
   )
 }
+
+// ── Weekly Reports ────────────────────────────────────────────────
+export async function upsertWeeklyReport(weekStart, weekEnd, payload) {
+  return sbFetch('/hp_analytics_weekly_reports', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=representation',
+    body: JSON.stringify({
+      week_start:   weekStart,
+      week_end:     weekEnd,
+      created_at:   new Date().toISOString(),
+      ...payload,
+    }),
+  })
+}
+
+export async function getWeeklyReports(limit = 12) {
+  return sbFetch(
+    `/hp_analytics_weekly_reports?order=week_start.desc&limit=${limit}`,
+    { prefer: '' }
+  )
+}
+
+export async function getWeeklyReport(weekStart) {
+  const rows = await sbFetch(
+    `/hp_analytics_weekly_reports?week_start=eq.${weekStart}&limit=1`,
+    { prefer: '' }
+  )
+  return rows?.[0] || null
+}

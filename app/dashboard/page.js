@@ -6,6 +6,7 @@ import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config
 import { TabGrafice, TabSemnale, TabTrafic, TabSEO } from './tabs1'
 import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
+import { TabRaportSaptamanal } from './tabs4'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -263,6 +264,7 @@ const TABS=[
   {id:'cerere',    label:'Analiza LP cereri'},
   {id:'tracking',  label:'Tracking cereri'},
   {id:'conversii', label:'Conversii'},
+  {id:'raport',    label:'📅 Raport sapt.'},
   {id:'recomandari',label:'Recomandari'},
   {id:'actiuni',   label:'Actiuni'},
 ]
@@ -372,6 +374,7 @@ export default function Dashboard() {
           {tab==='cerere'      &&<TabCerereNoua      data={data}/>}
           {tab==='tracking'    &&<TabCerereTracking  data={data}/>}
           {tab==='conversii'   &&<TabConversii       data={data}/>}
+          {tab==='raport'      &&<TabRaportSaptamanal data={data}/>}
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
