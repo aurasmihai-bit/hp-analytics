@@ -1,7 +1,7 @@
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://rstihjcnuazzyksdwczp.supabase.co'
-// Service role key hardcodat — RLS dezactivat pe hp_analytics_*
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzdGloamNudWF6enlrc2R3Y3pwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY2MjY1MiwiZXhwIjoyMDkxMjM4NjUyfQ.2bc82kbs1015eRjhMmQSGlU3SPqTpWxsmZjm5hiGJKU'
+const SUPABASE_URL = 'https://rstihjcnuazzyksdwczp.supabase.co'
+// Anon key — ref corespunde cu proiectul, RLS dezactivat pe hp_analytics_*
+const SUPABASE_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzdGloamNudWF6enlrc2R3Y3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NjI2NTIsImV4cCI6MjA5MTIzODY1Mn0.gTdYMDD81KbidsfUeOmh0rw7h-radqlsniJDJItdaVg'
 
 async function sbFetch(path, opts = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -64,14 +64,6 @@ export async function logSync(params) {
   })
 }
 
-export async function getHistory(limit = 60) {
-  return sbFetch(
-    `/hp_analytics_snapshots?period_days=eq.30&order=snapshot_date.desc&limit=${limit}`,
-    { prefer: '' }
-  )
-}
-
-// ── Weekly Reports ────────────────────────────────────────────────
 export async function upsertWeeklyReport(weekStart, weekEnd, payload) {
   return sbFetch('/hp_analytics_weekly_reports', {
     method: 'POST',
