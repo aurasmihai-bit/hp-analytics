@@ -1,7 +1,340 @@
 'use client'
-import { useState } from 'react'
-import { C, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Action, Sec, Grid, Card, LineChart, BarChart, PageLink } from './components'
+import { useEffect, useMemo, useState } from 'react'
+import { C, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Sec, Grid, Card, LineChart, BarChart, PageLink } from './components'
 import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
+
+const BACKLOG_STORE_KEY = 'hp_recommendation_backlog_v1'
+const BACKLOG_STATUSES = [
+  {id:'nou', label:'Nou', bg:'#EBF4FC', col:C.blue},
+  {id:'in_lucru', label:'In lucru', bg:'#FFF7ED', col:C.amber},
+  {id:'masurare', label:'Masurare', bg:'#F0FDF4', col:C.green},
+  {id:'inchis', label:'Inchis', bg:'#f5f5f3', col:C.gray},
+]
+const BACKLOG_TYPES = {
+  tracking: {label:'Bug tracking', owner:'Dev + Analytics', review:'7 zile', metric:'GA4 vs buyer_requests', col:C.red},
+  growth: {label:'Growth experiments', owner:'Product/Growth', review:'14 zile', metric:'cereri si conv rate', col:C.blue},
+  seo: {label:'SEO / Content', owner:'SEO/Content', review:'14-28 zile', metric:'impressions, clicks, pozitie', col:C.green},
+}
+
+function actionKey(action, index) {
+  const base = String(action.title || action.fix || index)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+  return `${action.urgency || 'item'}-${base || index}`
+}
+
+function classifyAction(action) {
+  const text = `${action.urgency || ''} ${action.title || ''} ${action.body || ''} ${action.fix || ''}`.toLowerCase()
+  if (text.includes('seo') || text.includes('gsc') || text.includes('query') || text.includes('search console')) return 'seo'
+  if (text.includes('ga4') || text.includes('tracking') || text.includes('key event') || text.includes('resetare-parola') || text.includes('/cereri/nou')) return 'tracking'
+  return 'growth'
+}
+
+function metricForAction(action, type, summary) {
+  const title = String(action.title || '').toLowerCase()
+  if (type === 'tracking') {
+    const gap = Math.max(0, (summary.platformCereriNoi || 0) - (summary.trackingCereriNoi || 0))
+    return gap > 0 ? `${gap} cereri neatribuite GA4` : BACKLOG_TYPES.tracking.metric
+  }
+  if (type === 'seo') {
+    return summary.seoImpressions ? `${fmtN(summary.seoImpressions)} impressions` : BACKLOG_TYPES.seo.metric
+  }
+  if (title.includes('/vreau')) return '/vreau vs /cerere-noua'
+  if (title.includes('/cereri')) return `funnel ${summary.funnelRate || 0}%`
+  if (title.includes('target cereri') || title.includes('cereri noi')) return `${summary.dailyRequestRate || 0}/${summary.requestDailyTarget || 2} cereri/zi`
+  if (title.includes('cumparatorii fara cerere') || title.includes('cumparatori')) return `${summary.cereriConvRate || 0}% buyer→cerere`
+  if (title.includes('cereri / sesiuni')) return `${summary.requestSessionRate || 0}% cereri/sesiuni`
+  return BACKLOG_TYPES.growth.metric
+}
+
+function readBacklogStore() {
+  if (typeof window === 'undefined') return {}
+  try {
+    return JSON.parse(window.localStorage.getItem(BACKLOG_STORE_KEY) || '{}') || {}
+  } catch {
+    return {}
+  }
+}
+
+function writeBacklogStore(next) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(BACKLOG_STORE_KEY, JSON.stringify(next))
+}
+
+function stateTime(state) {
+  const time = Date.parse(state?.updatedAt || '')
+  return Number.isFinite(time) ? time : 0
+}
+
+function mergeBacklogStates(localState, cloudState) {
+  const merged = {}
+  const ids = new Set([...Object.keys(localState || {}), ...Object.keys(cloudState || {})])
+  ids.forEach(id => {
+    const local = localState?.[id]
+    const cloud = cloudState?.[id]
+    if (!local) merged[id] = cloud
+    else if (!cloud) merged[id] = local
+    else merged[id] = stateTime(local) > stateTime(cloud) ? local : cloud
+  })
+  return merged
+}
+
+function serializeBacklogState(state) {
+  const sorted = {}
+  Object.keys(state || {}).sort().forEach(id => {
+    sorted[id] = state[id]
+  })
+  return JSON.stringify(sorted)
+}
+
+function backlogMetadata(item) {
+  if (!item) return {}
+  return {
+    type: item.type,
+    title: item.title,
+    body: item.body,
+    fix: item.fix,
+    metric: item.metric,
+    urgency: item.urgency,
+  }
+}
+
+async function saveBacklogToCloud(items, stateMap) {
+  const payloadItems = Object.entries(stateMap || {}).map(([id, state]) => {
+    const item = items.find(i => i.id === id)
+    return { id, state, metadata: backlogMetadata(item) }
+  })
+  if (!payloadItems.length) return {}
+
+  const res = await fetch('/api/backlog', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: payloadItems }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const error = new Error(data.error || 'Nu am putut salva backlog-ul in cloud.')
+    error.setupRequired = !!data.setupRequired
+    throw error
+  }
+  return data.items || {}
+}
+
+function verifyBacklogItem(item, summary) {
+  const title = String(item.title || '').toLowerCase()
+  const fix = String(item.fix || '').toLowerCase()
+  const text = `${title} ${fix}`
+  const platformCereri = Number(summary.platformCereriNoi || 0)
+  const ga4Cereri = Number(summary.trackingCereriNoi || 0)
+  const trackingCoverage = platformCereri > 0 ? ga4Cereri / platformCereri : ga4Cereri > 0 ? 1 : 0
+  const funnelRate = Number(summary.funnelRate || 0)
+  const vreauR = Number(summary.vreauR || 0)
+  const ceNouR = Number(summary.ceNouR || 0)
+  const dailyRequestRate = Number(summary.dailyRequestRate || 0)
+  const requestDailyTarget = Number(summary.requestDailyTarget || 2)
+  const requestSessionRate = Number(summary.requestSessionRate || 0)
+  const requestSessionTargetRate = Number(summary.requestSessionTargetRate || 2)
+  const buyerToRequestRate = Number(summary.cereriConvRate || 0)
+  const buyerRequestTargetRate = Number(summary.buyerRequestTargetRate || 90)
+  const seoPosition = Number(summary.seoAvgPosition || 0)
+  const seoImpressions = Number(summary.seoImpressions || 0)
+  const seoClicks = Number(summary.seoClicks || 0)
+
+  if (item.type === 'tracking' || text.includes('key event') || text.includes('ga4')) {
+    if (platformCereri > 0 && trackingCoverage >= 0.8) {
+      return {
+        ok: true,
+        title: 'Confirmat: GA4 acopera majoritatea cererilor reale',
+        detail: `${ga4Cereri}/${platformCereri} cereri apar in GA4. Diferenta e in limita acceptabila pentru raportare.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: GA4 inca pierde cereri reale',
+      detail: platformCereri > 0
+        ? `Platforma are ${platformCereri} cereri, dar GA4 vede ${ga4Cereri}. Verifica eventul bravo_cerere_noua pe toate rutele si payload-ul gtag.`
+        : 'Nu exista inca destule cereri reale ca sa confirm verificarea. Ruleaza sync dupa ce apar cereri noi.',
+      suggestions: ['Testeaza submit pe /cerere-noua, /cereri/nou si /vreau in GA4 DebugView.', 'Verifica daca eventul se trimite dupa raspunsul de succes din backend, nu doar la click.'],
+    }
+  }
+
+  if (text.includes('/cereri') && text.includes('cta') && !text.includes('/cereri/nou')) {
+    if (funnelRate >= 15) {
+      return {
+        ok: true,
+        title: 'Confirmat: funnelul /cereri catre formular a trecut de 15%',
+        detail: `Funnel curent: ${funnelRate.toFixed(1)}%.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: funnelul /cereri ramane sub prag',
+      detail: `Funnel curent: ${funnelRate.toFixed(1)}%. Pragul minim pentru confirmare este 15%.`,
+      suggestions: ['Verifica daca CTA-ul apare above the fold si dupa primele rezultate.', 'Masoara click pe CTA separat, nu doar vizita formular.'],
+    }
+  }
+
+  if (text.includes('target cereri') || text.includes('2 cereri/zi')) {
+    if (dailyRequestRate >= requestDailyTarget) {
+      return {
+        ok: true,
+        title: 'Confirmat: ritmul de cereri a atins targetul',
+        detail: `Ritm curent: ${dailyRequestRate.toFixed(2)} cereri/zi, target ${requestDailyTarget}/zi.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: ritmul de cereri este sub target',
+      detail: `Ritm curent: ${dailyRequestRate.toFixed(2)} cereri/zi, target ${requestDailyTarget}/zi.`,
+      suggestions: ['Verifica daca CTA-urile principale duc catre /vreau.', 'Masoara separat click_to_request_start si submit-ul final.', 'Ruleaza testul minim 14 zile sau pana ai 100+ sesiuni pe paginile cu CTA.'],
+    }
+  }
+
+  if (text.includes('cumparatorii fara cerere') || (text.includes('cumparatori') && text.includes('cerere'))) {
+    if (buyerToRequestRate >= buyerRequestTargetRate) {
+      return {
+        ok: true,
+        title: 'Confirmat: rata cumparatori catre cerere a trecut pragul',
+        detail: `Rata curenta: ${buyerToRequestRate.toFixed(0)}%, target ${buyerRequestTargetRate}%.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: cumparatorii inregistrati inca nu trimit destule cereri',
+      detail: `Rata curenta: ${buyerToRequestRate.toFixed(0)}%, target ${buyerRequestTargetRate}%.`,
+      suggestions: ['Redirect dupa signup direct catre /vreau cu date precompletate.', 'Trimite reminder la 15 minute pentru buyerii fara cerere.', 'Verifica daca formularul pastreaza progresul cand userul revine.'],
+    }
+  }
+
+  if (text.includes('cereri / sesiuni')) {
+    if (requestSessionRate >= requestSessionTargetRate) {
+      return {
+        ok: true,
+        title: 'Confirmat: conversia sesiuni catre cereri a trecut pragul',
+        detail: `Rata curenta: ${requestSessionRate.toFixed(2)}%, target ${requestSessionTargetRate}%.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: cererile raportate la sesiuni sunt sub prag',
+      detail: `Rata curenta: ${requestSessionRate.toFixed(2)}%, target ${requestSessionTargetRate}%.`,
+      suggestions: ['Verifica pozitia CTA-urilor catre /vreau pe paginile cu intent.', 'Masoara click_to_request_start separat de submit.', 'Compara rata pe mobile vs desktop inainte de urmatorul sprint.'],
+    }
+  }
+
+  if (text.includes('/vreau') || text.includes('/cerere-noua')) {
+    if (vreauR >= 3 && vreauR >= ceNouR * 1.5) {
+      return {
+        ok: true,
+        title: 'Confirmat: /vreau ramane ruta mai eficienta',
+        detail: `/vreau are ${vreauR.toFixed(1)}% conv rate vs /cerere-noua ${ceNouR.toFixed(1)}%.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: performanta /vreau nu a ajuns la prag',
+      detail: `/vreau are ${vreauR.toFixed(1)}% conv rate vs /cerere-noua ${ceNouR.toFixed(1)}%. Pragul pentru confirmare este /vreau >= 3% si cu 50% peste /cerere-noua.`,
+      suggestions: ['Verifica daca butoanele principale trimit spre /vreau.', 'Pastreaza testul 14 zile sau pana ai minim 100 views pe ruta.'],
+    }
+  }
+
+  if (item.type === 'seo') {
+    if (seoPosition > 0 && seoPosition <= 3 && seoClicks > 0) {
+      return {
+        ok: true,
+        title: 'Confirmat: query-ul SEO a ajuns in top 3',
+        detail: `Pozitie medie ${seoPosition.toFixed(1)}, ${seoClicks} clicks, ${seoImpressions} impressions.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: SEO are nevoie de mai mult progres',
+      detail: seoImpressions > 0
+        ? `Pozitie medie curenta ${seoPosition ? seoPosition.toFixed(1) : '—'}, ${seoClicks} clicks, ${seoImpressions} impressions. Confirmarea cere top 3 si clicks masurabile.`
+        : 'Nu exista impressions suficiente in GSC pentru verificare.',
+      suggestions: ['Verifica pagina asociata query-ului in GSC > Queries > Pages.', 'Asteapta 14-28 zile dupa publicarea modificarilor si re-ruleaza sync.'],
+    }
+  }
+
+  return {
+    ok: false,
+    title: 'Nu pot confirma automat aceasta recomandare',
+    detail: 'Recomandarea nu are inca o regula de verificare clara in dashboard.',
+    suggestions: ['Defineste un KPI de confirmare: cereri, conv rate, CTR, pozitie SEO sau coverage GA4.'],
+  }
+}
+
+function BacklogCard({ item, state, onChange, onVerify }) {
+  const meta = BACKLOG_TYPES[item.type]
+  const status = BACKLOG_STATUSES.find(s => s.id === (state.status || 'nou')) || BACKLOG_STATUSES[0]
+  const owner = state.owner || meta.owner
+  const ignored = !!state.ignored
+  const verification = state.verification
+  const verifyOk = verification?.ok === true
+  return (
+    <div style={{background:C.card,border:`0.5px solid ${verifyOk?'#86EFAC':verification&&!verifyOk?'#FCA5A5':C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:10,opacity:ignored?0.58:1}}>
+      <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:8}}>
+        <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:99,background:status.bg,color:status.col,flexShrink:0}}>{status.label}</span>
+        <span style={{fontSize:13,fontWeight:600,color:ignored?C.hint:C.text,lineHeight:1.35,flex:1,textDecoration:ignored?'line-through':'none'}}>{item.title}</span>
+      </div>
+      {item.body && <p style={{fontSize:12,color:C.muted,lineHeight:1.5,margin:'0 0 10px',textDecoration:ignored?'line-through':'none'}}>{item.body}</p>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+        <label style={{display:'block'}}>
+          <span style={{display:'block',fontSize:10,color:C.hint,marginBottom:3,textTransform:'uppercase',letterSpacing:'.04em'}}>Status</span>
+          <select value={state.status || 'nou'} onChange={e=>onChange(item.id,{status:e.target.value},item)} style={{width:'100%',padding:'6px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.bg,fontFamily:'inherit'}}>
+            {BACKLOG_STATUSES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
+        <label style={{display:'block'}}>
+          <span style={{display:'block',fontSize:10,color:C.hint,marginBottom:3,textTransform:'uppercase',letterSpacing:'.04em'}}>Owner</span>
+          <input value={owner} onChange={e=>onChange(item.id,{owner:e.target.value},item)} style={{width:'100%',boxSizing:'border-box',padding:'6px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.bg,fontFamily:'inherit'}}/>
+        </label>
+      </div>
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+        <button onClick={()=>onVerify(item)} disabled={ignored} style={{
+          padding:'6px 10px',fontSize:11,fontWeight:600,borderRadius:7,cursor:ignored?'not-allowed':'pointer',
+          border:`0.5px solid ${verifyOk?C.green:C.border}`,
+          background:verifyOk?'#F0FDF4':'#fff',color:verifyOk?C.green:C.text,fontFamily:'inherit'
+        }}>{verifyOk ? '✓ Implementat confirmat' : 'Am implementat'}</button>
+        <button onClick={()=>onChange(item.id,{ignored:!ignored},item)} style={{
+          padding:'6px 10px',fontSize:11,fontWeight:600,borderRadius:7,cursor:'pointer',
+          border:`0.5px solid ${ignored?C.gray:C.border}`,
+          background:ignored?'#f5f5f3':'#fff',color:ignored?C.gray:C.muted,fontFamily:'inherit'
+        }}>{ignored ? 'Reactiveaza' : 'Ignora recomandarea'}</button>
+      </div>
+      {verification && (
+        <div style={{background:verifyOk?'#F0FDF4':'#FEF2F2',border:`0.5px solid ${verifyOk?'#86EFAC':'#FCA5A5'}`,borderRadius:8,padding:'9px 10px',marginBottom:10}}>
+          <p style={{fontSize:12,fontWeight:700,color:verifyOk?C.green:C.red,margin:'0 0 4px'}}>{verification.title}</p>
+          <p style={{fontSize:12,color:C.muted,lineHeight:1.45,margin:0}}>{verification.detail}</p>
+          {!verifyOk && verification.suggestions?.length > 0 && (
+            <ul style={{margin:'7px 0 0 18px',padding:0,color:C.muted,fontSize:12,lineHeight:1.45}}>
+              {verification.suggestions.map((suggestion,i)=><li key={i}>{suggestion}</li>)}
+            </ul>
+          )}
+          {verification.checkedAt && <p style={{fontSize:10,color:C.hint,margin:'7px 0 0'}}>Verificat: {new Date(verification.checkedAt).toLocaleString('ro-RO',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</p>}
+        </div>
+      )}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+        <div style={{background:'#fafaf8',borderRadius:7,padding:'7px 8px'}}>
+          <p style={{fontSize:10,color:C.hint,margin:'0 0 2px'}}>Metric</p>
+          <p style={{fontSize:12,fontWeight:500,color:meta.col,margin:0}}>{item.metric}</p>
+        </div>
+        <div style={{background:'#fafaf8',borderRadius:7,padding:'7px 8px'}}>
+          <p style={{fontSize:10,color:C.hint,margin:'0 0 2px'}}>Review</p>
+          <p style={{fontSize:12,fontWeight:500,color:C.text,margin:0}}>{meta.review}</p>
+        </div>
+      </div>
+      {item.fix && (
+        <div style={{borderTop:`0.5px solid ${C.border}`,paddingTop:9}}>
+          <p style={{fontSize:10,fontWeight:600,color:C.green,margin:'0 0 3px'}}>Actiune concreta</p>
+          <p style={{fontSize:12,color:ignored?C.hint:C.text,lineHeight:1.45,margin:0,textDecoration:ignored?'line-through':'none'}}>{item.fix}</p>
+        </div>
+      )}
+      {state.updatedAt && <p style={{fontSize:10,color:C.hint,margin:'8px 0 0'}}>Actualizat: {new Date(state.updatedAt).toLocaleString('ro-RO',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</p>}
+    </div>
+  )
+}
 
 /* ─── RECOMANDARI ──────────────────────────────────────────────────── */
 function TabRecomandari({ data }) {
@@ -10,6 +343,134 @@ function TabRecomandari({ data }) {
   const actions  = rec.actions  || []
   const s = rec.summary || {}
   const generatedAt = rec.generatedAt
+  const cereriLabel = s.cereriSource === 'platform' ? 'cereri noi reale' : 'cereri noi trackate'
+  const backlogItems = useMemo(() => actions.map((action, index) => {
+    const type = classifyAction(action)
+    return {
+      ...action,
+      id: actionKey(action, index),
+      type,
+      metric: metricForAction(action, type, s),
+    }
+  }), [actions, s])
+  const [backlogState, setBacklogState] = useState({})
+  const [cloudState, setCloudState] = useState({ status:'loading', message:'Se incarca backlog-ul cloud' })
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadBacklog() {
+      const localState = readBacklogStore()
+      setBacklogState(localState)
+
+      try {
+        const res = await fetch('/api/backlog', { cache:'no-store' })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const error = new Error(data.error || 'Backlog cloud indisponibil')
+          error.setupRequired = !!data.setupRequired
+          throw error
+        }
+
+        const remoteState = data.items || {}
+        const merged = mergeBacklogStates(localState, remoteState)
+        if (cancelled) return
+
+        setBacklogState(merged)
+        writeBacklogStore(merged)
+        setCloudState({ status:'synced', message:'Backlog sincronizat in cloud' })
+
+        if (serializeBacklogState(merged) !== serializeBacklogState(remoteState)) {
+          await saveBacklogToCloud(backlogItems, merged)
+          if (!cancelled) setCloudState({ status:'synced', message:'Backlog local migrat in cloud' })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setCloudState({
+            status: error.setupRequired ? 'setup' : 'local',
+            message: error.setupRequired ? 'Tabela cloud lipseste' : 'Backlog salvat local pana revine cloud-ul',
+          })
+        }
+      }
+    }
+
+    loadBacklog()
+    return () => { cancelled = true }
+  }, [backlogItems])
+
+  async function persistBacklogChange(item, nextItemState) {
+    setCloudState({ status:'saving', message:'Se salveaza in cloud' })
+    try {
+      await saveBacklogToCloud([item], { [item.id]: nextItemState })
+      setCloudState({ status:'synced', message:'Backlog sincronizat in cloud' })
+    } catch (error) {
+      setCloudState({
+        status: error.setupRequired ? 'setup' : 'local',
+        message: error.setupRequired ? 'Tabela cloud lipseste' : 'Backlog salvat local; cloud indisponibil',
+      })
+    }
+  }
+
+  function updateBacklogItem(id, patch, item) {
+    const nextItemState = {
+      ...(backlogState[id] || {}),
+      ...patch,
+      updatedAt: new Date().toISOString(),
+    }
+    const next = {
+      ...backlogState,
+      [id]: nextItemState,
+    }
+    setBacklogState(next)
+    writeBacklogStore(next)
+    if (item) {
+      persistBacklogChange(item, nextItemState)
+    } else {
+      setCloudState({
+        status:'local',
+        message:'Backlog salvat local; lipseste itemul pentru sincronizare',
+      })
+    }
+  }
+
+  function cloudBadge() {
+    const config = {
+      loading: { label:'Cloud...', bg:'#EBF4FC', col:C.blue },
+      saving: { label:'Se salveaza', bg:'#FFF7ED', col:C.amber },
+      synced: { label:'Cloud sync', bg:'#F0FDF4', col:C.green },
+      setup: { label:'Cloud setup', bg:'#FEF2F2', col:C.red },
+      local: { label:'Local fallback', bg:'#f5f5f3', col:C.gray },
+    }[cloudState.status] || { label:'Backlog', bg:'#f5f5f3', col:C.gray }
+    return {
+      ...config,
+      title: cloudState.message,
+    }
+  }
+
+  function cloudNotice() {
+    if (cloudState.status !== 'setup' && cloudState.status !== 'local') return null
+    return (
+      <div style={{background:cloudState.status==='setup'?'#FEF2F2':'#FFF7ED',border:`0.5px solid ${cloudState.status==='setup'?'#FCA5A5':'#FDBA74'}`,borderRadius:10,padding:'10px 12px',marginBottom:12}}>
+        <p style={{fontSize:12,fontWeight:700,color:cloudState.status==='setup'?C.red:C.amber,margin:'0 0 3px'}}>{cloudState.message}</p>
+        <p style={{fontSize:12,color:C.muted,lineHeight:1.45,margin:0}}>
+          Statusurile raman disponibile pe acest device. Dupa aplicarea tabelei `hp_action_backlog`, ele se sincronizeaza automat in Supabase.
+        </p>
+      </div>
+    )
+  }
+
+  function handleVerifyItem(item) {
+    const result = verifyBacklogItem(item, s)
+    updateBacklogItem(item.id, {
+      verification: {
+        ...result,
+        checkedAt: new Date().toISOString(),
+      },
+      ...(result.ok ? { status:'masurare' } : {}),
+    }, item)
+  }
+
+  const backlogCloudBadge = cloudBadge()
 
   if (!insights.length && !actions.length) {
     return (
@@ -19,19 +480,31 @@ function TabRecomandari({ data }) {
       </div>
     )
   }
-
   const fmtDate = d => d ? new Date(d).toLocaleString("ro-RO",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}) : "—"
+  const trackingGap = Math.max(0, (s.platformCereriNoi || 0) - (s.trackingCereriNoi || 0))
+  const impactItems = [
+    {label:"Target cereri/zi", est:(s.dailyRequestRate || 0) >= (s.requestDailyTarget || 2) ? `${s.dailyRequestRate}/zi atins` : `${s.dailyRequestRate || 0}/${s.requestDailyTarget || 2}/zi`, col:(s.dailyRequestRate || 0) >= (s.requestDailyTarget || 2) ? C.green : C.amber},
+    {label:"Cumparatori → cerere", est:s.cereriConvRate ? `${s.cereriConvRate}% vs target ${s.buyerRequestTargetRate || 90}%` : "date insuficiente", col:Number(s.cereriConvRate || 0) >= (s.buyerRequestTargetRate || 90) ? C.green : C.amber},
+    trackingGap > 0
+      ? {label:"GA4 vs platforma", est:trackingGap + " cereri neatribuite GA4", col:C.red}
+      : {label:"Tracking cereri", est:(s.trackingCereriNoi || 0) + " cereri in GA4", col:(s.trackingCereriNoi || 0)>0?C.green:C.hint},
+    {label:"CTA inline pe /cereri", est:(s.funnelRate || 0) < 15 ? "ridica funnelul peste 15%" : "optimizare marginala", col:(s.funnelRate || 0) < 15 ? C.amber : C.green},
+    {label:"SEO Search Console", est:(s.seoImpressions || 0) > 0 ? fmtN(s.seoImpressions) + " impressions validate" : "date insuficiente", col:(s.seoImpressions || 0) > 0 ? C.green : C.hint},
+    {label:"Canal performant", est:(s.socialConvR || 0) > 0 ? "Social " + s.socialConvR + "% conv" : "testeaza canal nou", col:(s.socialConvR || 0) > 10 ? C.green : C.blue},
+  ]
+  const openItems = backlogItems.filter(item => (backlogState[item.id]?.status || 'nou') !== 'inchis').length
+  const measuringItems = backlogItems.filter(item => backlogState[item.id]?.status === 'masurare').length
 
   return (
     <div>
       <div style={{background:"linear-gradient(135deg,#1A2B4A 0%,#2d4a7a 100%)",borderRadius:12,padding:"18px 22px",marginBottom:20,color:"#fff"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
           <div>
-            <p style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"rgba(255,255,255,.55)",margin:"0 0 4px"}}>Generate automat la fiecare sync</p>
+            <p style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"rgba(255,255,255,.55)",margin:"0 0 4px"}}>Actualizate la incarcare si la sync</p>
             <h2 style={{fontSize:17,fontWeight:500,margin:"0 0 4px"}}>Recomandari bazate pe date reale</h2>
             <p style={{fontSize:12,color:"rgba(255,255,255,.65)",margin:0}}>
               {fmtN(s.totalSess)} sesiuni · Conv rate: {s.totalSess>0?(s.totalConv/s.totalSess*100).toFixed(1):"0"}%
-              {s.totalCereriNoi > 0 && " · " + s.totalCereriNoi + " cereri noi trackate"}
+              {s.totalCereriNoi > 0 && " · " + s.totalCereriNoi + " " + cereriLabel}
             </p>
           </div>
           {generatedAt && (
@@ -46,6 +519,8 @@ function TabRecomandari({ data }) {
             {[
               {l:"Social conv rate", v:s.socialConvR+"%", highlight: s.socialConvR > 25},
               {l:"/vreau conv rate",  v:s.vreauR+"%",     highlight: s.vreauR > 3},
+              {l:"Buyer → cerere",    v:(s.cereriConvRate || 0)+"%", highlight: Number(s.cereriConvRate || 0) >= (s.buyerRequestTargetRate || 90)},
+              {l:"Cereri / zi",       v:(s.dailyRequestRate || 0), highlight: Number(s.dailyRequestRate || 0) >= (s.requestDailyTarget || 2)},
               {l:"Homepage rate",    v:s.hpr+"%",         highlight: false},
               {l:"Funnel /cereri",   v:s.funnelRate+"%",  highlight: s.funnelRate > 15},
             ].map(i=>(
@@ -62,28 +537,53 @@ function TabRecomandari({ data }) {
         {insights.map((s,i) => <Signal key={i} {...s}/>)}
       </Sec>
 
-      <Sec title={actions.length + " actiuni prioritizate"}
+      <Sec title={`Backlog recomandari (${openItems} active)`}
         right={
-          <div style={{display:"flex",gap:5}}>
-            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#FEF2F2",color:C.red,fontWeight:600}}>
-              {actions.filter(a=>a.urgency==="urgent").length} urgente
+          <div style={{display:"flex",gap:5,flexWrap:'wrap',justifyContent:'flex-end'}}>
+            <span title={backlogCloudBadge.title} style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:backlogCloudBadge.bg,color:backlogCloudBadge.col,fontWeight:600}}>
+              {backlogCloudBadge.label}
             </span>
-            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#FFF7ED",color:C.amber,fontWeight:600}}>
-              {actions.filter(a=>a.urgency==="important").length} importante
+            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#EBF4FC",color:C.blue,fontWeight:600}}>
+              {backlogItems.length} total
+            </span>
+            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#F0FDF4",color:C.green,fontWeight:600}}>
+              {measuringItems} in masurare
             </span>
           </div>
         }>
-        {actions.map((a,i) => <Action key={i} {...a}/>)}
+        {cloudNotice()}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:12,alignItems:'start'}}>
+          {Object.entries(BACKLOG_TYPES).map(([type, meta]) => {
+            const items = backlogItems.filter(item => item.type === type)
+            return (
+              <div key={type}>
+                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:8}}>
+                  <div style={{width:8,height:8,borderRadius:'50%',background:meta.col,flexShrink:0}}/>
+                  <span style={{fontSize:12,fontWeight:700,color:C.text}}>{meta.label}</span>
+                  <span style={{fontSize:11,color:C.hint}}>{items.length}</span>
+                </div>
+                {items.length === 0 ? (
+                  <div style={{border:`0.5px dashed ${C.border}`,borderRadius:10,padding:'16px 12px',fontSize:12,color:C.hint,textAlign:'center'}}>Niciun item</div>
+                ) : (
+                  items.map(item => (
+                    <BacklogCard
+                      key={item.id}
+                      item={item}
+                      state={backlogState[item.id] || {}}
+                      onChange={updateBacklogItem}
+                      onVerify={handleVerifyItem}
+                    />
+                  ))
+                )}
+              </div>
+            )
+          })}
+        </div>
       </Sec>
 
       <Sec title="Estimare impact">
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
-          {[
-            {label:"Fix /cereri/nou tracking",est:"date complete in 7 zile",col:C.red},
-            {label:"CTA inline pe /cereri",   est:"+" + Math.round((s.totalSess||0)*0.003) + " cereri/luna",col:C.amber},
-            {label:"CTA pe /proprietati",     est:"+50-100 conv/luna",col:C.blue},
-            {label:"Social Media x2",         est:"+" + Math.round((s.totalSess||0)*0.15) + " sesiuni/luna",col:C.green},
-          ].map(i=>(
+          {impactItems.map(i=>(
             <div key={i.label} style={{background:C.card,border:"0.5px solid "+C.border,borderRadius:10,padding:"12px 14px"}}>
               <p style={{fontSize:11,color:C.hint,margin:"0 0 4px"}}>{i.label}</p>
               <p style={{fontSize:13,fontWeight:500,color:i.col,margin:0}}>{i.est}</p>
@@ -503,15 +1003,13 @@ function TabConversii({ data }) {
 
 /* ─── TAB CERERE TRACKING ──────────────────────────────────────────── */
 export function TabCerereTracking({ data }) {
-  const tracking = (data.cerereTracking || []).filter(d =>
-    d.conversions_bravo_cerere_noua > 0 ||
-    d.conversions_bun_venit_cumparator > 0 ||
-    d.conversions_bun_venit_agent > 0 ||
-    d.conversions_bun_venit_proprietar > 0
-  )
   const allDates = data.cerereTracking || []
 
-  const totalCereri   = allDates.reduce((s,d) => s+(d.conversions_bravo_cerere_noua||0), 0)
+  const ga4Cereri     = allDates.reduce((s,d) => s+(d.conversions_bravo_cerere_noua||0), 0)
+  const platformCereri = Number(data.platformRequests?.count || 0)
+  const totalCereri   = platformCereri > 0 ? platformCereri : ga4Cereri
+  const cereriSource  = platformCereri > 0 ? 'platform' : 'ga4'
+  const trackingGap   = platformCereri > 0 ? Math.max(0, platformCereri - ga4Cereri) : 0
   const totalCump     = allDates.reduce((s,d) => s+(d.conversions_bun_venit_cumparator||0), 0)
   const totalAgent    = allDates.reduce((s,d) => s+(d.conversions_bun_venit_agent||0), 0)
   const totalProp     = allDates.reduce((s,d) => s+(d.conversions_bun_venit_proprietar||0), 0)
@@ -519,8 +1017,8 @@ export function TabCerereTracking({ data }) {
 
   // Days with at least 1 cerere
   const activeDays    = allDates.filter(d => (d.conversions_bravo_cerere_noua||0) > 0).length
-  const totalDays     = allDates.length || 1
-  const avgPerActiveDay = activeDays > 0 ? (totalCereri / activeDays).toFixed(1) : '0'
+  const totalDays     = data.days || allDates.length || 1
+  const avgPerDay     = (totalCereri / totalDays).toFixed(2)
 
   // Conversion rate: cereri / inregistrari cumparatori
   const convRate = totalCump > 0 ? (totalCereri / totalCump * 100).toFixed(0) : null
@@ -535,13 +1033,21 @@ export function TabCerereTracking({ data }) {
     <div>
       {/* Header KPIs */}
       <Grid>
-        <KPI label="Cereri noi (total)" curr={totalCereri}
-          sub={activeDays > 0 ? `${activeDays} zile cu activitate` : 'Implementat recent'}/>
-        <KPI label="Medie / zi activa" curr={parseFloat(avgPerActiveDay)} type="dec1"
-          sub={daysSinceFirst ? `de acum ${daysSinceFirst} zile` : '—'}/>
+        <KPI label={cereriSource === 'platform' ? 'Cereri reale' : 'Cereri GA4'} curr={totalCereri}
+          sub={cereriSource === 'platform' ? 'din buyer_requests' : activeDays > 0 ? `${activeDays} zile cu activitate` : 'tracking GA4'}/>
+        <KPI label="Cereri GA4" curr={ga4Cereri}
+          sub={trackingGap > 0 ? `${trackingGap} lipsa vs platforma` : daysSinceFirst ? `de acum ${daysSinceFirst} zile` : '—'}/>
+        <KPI label="Medie / zi" curr={parseFloat(avgPerDay)} type="dec1"
+          sub={`${totalDays} zile analizate`}/>
         <KPI label="Inregistrari cumparatori" curr={totalCump}/>
-        <KPI label="Inregistrari agenti" curr={totalAgent}/>
       </Grid>
+
+      {trackingGap > 0 && (
+        <Signal type="negative"
+          title={`${trackingGap} cereri reale nu apar in GA4`}
+          body={`Platforma are ${platformCereri} cereri in buyer_requests, dar GA4 vede ${ga4Cereri}. Datele de business sunt corecte, insa atribuirea pe sursa/canal ramane incompleta pana cand evenimentul bravo_cerere_noua este trimis consecvent.`}
+        />
+      )}
 
       {/* Alert daca date putine */}
       {totalCereri < 10 && (
@@ -555,12 +1061,12 @@ export function TabCerereTracking({ data }) {
         <Signal
           type={parseInt(convRate) > 50 ? 'positive' : parseInt(convRate) > 20 ? 'neutral' : 'negative'}
           title={`${convRate}% din cumparatorii inregistrati adauga si o cerere`}
-          body={`${totalCereri} cereri din ${totalCump} inregistrari cumparatori. ${parseInt(convRate) < 50 ? 'Potential de crestere: dupa inregistrare, redirecteaza userul direct catre formularul de cerere.' : 'Rata buna — mai mult de jumatate din cumparatori adauga cerere.'}`}
+          body={`${totalCereri} cereri (${cereriSource === 'platform' ? 'platforma' : 'GA4'}) din ${totalCump} inregistrari cumparatori GA4. ${parseInt(convRate) < 50 ? 'Potential de crestere: dupa inregistrare, redirecteaza userul direct catre formularul de cerere.' : 'Rata buna — mai mult de jumatate din cumparatori adauga cerere.'}`}
         />
       )}
 
       {/* Grafic zilnic principal */}
-      <Sec title="Cereri noi adaugate — evolutie zilnica">
+      <Sec title="Cereri noi adaugate — evolutie zilnica GA4">
         <Card>
           {allDates.length > 0 ? (
             <LineChart
@@ -575,7 +1081,7 @@ export function TabCerereTracking({ data }) {
           ) : (
             <div style={{padding:'40px 0',textAlign:'center',color:C.hint,fontSize:13}}>
               Nu exista date zilnice pentru perioada selectata.<br/>
-              <span style={{fontSize:11,marginTop:4,display:'block'}}>Incearca un interval mai mare (30-60 zile) sau asteapta acumularea datelor.</span>
+              <span style={{fontSize:11,marginTop:4,display:'block'}}>Cererile reale sunt citite din platforma; graficul zilnic depinde de tracking-ul GA4.</span>
             </div>
           )}
         </Card>
@@ -634,7 +1140,7 @@ export function TabCerereTracking({ data }) {
       <Sec title="Proiectie si target">
         <Card>
           {(() => {
-            const dailyRate = activeDays > 0 ? totalCereri / totalDays : 0
+            const dailyRate = totalCereri / totalDays
             const proj7  = Math.round(dailyRate * 7)
             const proj30 = Math.round(dailyRate * 30)
             const target7  = 14  // 2/zi
@@ -656,7 +1162,7 @@ export function TabCerereTracking({ data }) {
                 </div>
                 <div style={{fontSize:12,color:C.muted,lineHeight:1.6,borderTop:`0.5px solid ${C.border}`,paddingTop:10}}>
                   <strong style={{color:C.text}}>Target recomandat:</strong> 2 cereri/zi = 60/luna = 720/an.
-                  La ritmul actual de <strong>{dailyRate.toFixed(2)}/zi</strong>,
+                  La ritmul actual de <strong>{dailyRate.toFixed(2)}/zi</strong> ({cereriSource === 'platform' ? 'cereri reale din platforma' : 'tracking GA4'}),
                   {dailyRate < 2
                     ? ` esti sub target. Implementeaza CTA inline pe /cereri si redirecteaza cumparatorii catre formular imediat dupa inregistrare.`
                     : ` esti pe track. Mentine ritmul si monitorizeaza saptamanal.`}

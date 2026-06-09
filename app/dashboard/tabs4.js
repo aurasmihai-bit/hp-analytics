@@ -2,6 +2,19 @@
 import { useEffect, useState, useCallback } from 'react'
 import { C, dlt, fmtN, Signal, Action, Sec, Card, LineChart } from './components'
 
+function isSuspiciousZeroReport(report) {
+  if (!report) return false
+  return [
+    'sessions',
+    'conversions',
+    'new_users',
+    'direct_sess',
+    'social_sess',
+    'search_sess',
+    'gsc_impressions',
+  ].every(field => !report[field])
+}
+
 export function TabRaportSaptamanal({ data }) {
   const [reports, setReports]   = useState([])
   const [loading, setLoading]   = useState(true)
@@ -52,6 +65,7 @@ export function TabRaportSaptamanal({ data }) {
   const current = reports.find(r => r.week_start === selected)
   const currentIdx = reports.findIndex(r => r.week_start === selected)
   const prevReport = currentIdx >= 0 ? reports[currentIdx + 1] : null
+  const currentLooksInvalid = isSuspiciousZeroReport(current)
 
   if (loading) return (
     <div style={{textAlign:'center',padding:'60px',color:C.hint,fontSize:13}}>
@@ -155,6 +169,14 @@ export function TabRaportSaptamanal({ data }) {
           {/* Panel principal */}
           {current ? (
             <div>
+              {currentLooksInvalid && (
+                <Signal
+                  type="negative"
+                  title="Raport generat fara date"
+                  body="Sesiuni si conversii sunt toate 0. Cel mai probabil raportul a fost salvat cand GA4 nu a returnat date. Regenereaza saptamana dupa ce deploy-ul are GA4_ACCOUNT_ID, GOOGLE_SERVICE_ACCOUNT_JSON si SUPABASE_SERVICE_KEY corecte."
+                />
+              )}
+
               {/* Week header */}
               <div style={{background:'linear-gradient(135deg,#1A2B4A,#2d4a7a)',borderRadius:12,padding:'16px 20px',marginBottom:14,color:'#fff'}}>
                 <p style={{fontSize:10,color:'rgba(255,255,255,.5)',margin:'0 0 2px',textTransform:'uppercase',letterSpacing:'.07em'}}>Raport saptamanal</p>

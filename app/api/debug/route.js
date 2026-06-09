@@ -1,11 +1,19 @@
 import { NextResponse } from 'next/server'
+import { requireEnv } from '../../lib/env'
 
 export async function GET(request) {
-  if (request.cookies.get('hp_session')?.value !== process.env.SESSION_SECRET) {
+  const sessionSecret = process.env.SESSION_SECRET
+  if (!sessionSecret || request.cookies.get('hp_session')?.value !== sessionSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const KEY = process.env.SUPABASE_SERVICE_KEY || ''
-  const URL = process.env.SUPABASE_URL || 'https://rstihjcnuazzyksdwczp.supabase.co'
+
+  let KEY, URL
+  try {
+    KEY = requireEnv('SUPABASE_SERVICE_KEY')
+    URL = requireEnv('SUPABASE_URL')
+  } catch {
+    return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
+  }
 
   // Decode JWT payload to check role
   let role = 'unknown'
@@ -23,5 +31,5 @@ export async function GET(request) {
     test = { status: res.status, body: (await res.text()).slice(0, 300) }
   } catch(e) { test = { error: e.message } }
 
-  return NextResponse.json({ keyRole: role, keyStart: KEY.slice(0,20)+'...', url: URL, test })
+  return NextResponse.json({ keyRole: role, url: URL, test })
 }

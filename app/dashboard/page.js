@@ -7,6 +7,7 @@ import { TabGrafice, TabSemnale, TabTrafic, TabSEO } from './tabs1'
 import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
+import { TabExitIntent } from './tabs6'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -120,6 +121,38 @@ function PeriodBar({ days, customFrom, customTo, onDays, onCustom }) {
 
 
 function TabActiuni({ data }) {
+  const rec = data.recommendations || {}
+  const serverActions = rec.actions || []
+  const s = rec.summary || {}
+  if (serverActions.length > 0) {
+    const generatedAt = rec.generatedAt || data.generatedAt
+    const cereriLabel = s.cereriSource === 'platform' ? 'Cereri noi reale' : 'Cereri noi tracking'
+    return (
+      <div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
+          <span style={{fontSize:11,color:C.hint}}>
+            Actualizat: {generatedAt ? new Date(generatedAt).toLocaleString('ro-RO',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}) : '—'}
+          </span>
+          <div style={{display:'flex',gap:6}}>
+            <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FEF2F2',color:C.red}}>{serverActions.filter(a=>a.urgency==='urgent').length} urgente</span>
+            <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FFF7ED',color:C.amber}}>{serverActions.filter(a=>a.urgency==='important').length} importante</span>
+          </div>
+        </div>
+        <Sec title={`${serverActions.length} actiuni prioritizate`}>
+          {serverActions.map((a,i)=><Action key={i} {...a}/>)}
+        </Sec>
+        <Sec title="Context metrici">
+          <Grid>
+            <KPI label="Conversii" curr={s.totalConv || 0} prev={s.totalConvPrev}/>
+            <KPI label={cereriLabel} curr={s.totalCereriNoi || 0} sub={s.cereriSource === 'platform' ? 'din buyer_requests' : 'din GA4'}/>
+            <KPI label="/vreau rate" curr={s.vreauR || 0} type="pctN"/>
+            <KPI label="/ homepage rate" curr={s.hpr || 0} type="pctN"/>
+          </Grid>
+        </Sec>
+      </div>
+    )
+  }
+
   const curr=data.traffic.current, prev=data.traffic.previous
   const pages=data.pages.current, queries=data.gsc.queries||[]
   const cc=sum(curr,'conversions'), cp=sum(prev,'conversions')
@@ -168,7 +201,7 @@ function TabActiuni({ data }) {
     actions.push({urgency:'urgent',
       title:`/proprietati: ${fmtN(proprietati.screen_page_views)} views, 0 conversii, ${Math.round((proprietati.bounce_rate||0)*100)}% bounce`,
       body:`A doua pagina ca trafic dar cu ZERO conversii. Userii ajung si pleaca fara nicio actiune — lipseste un CTA adecvat pentru tipul de user.`,
-      fix:"Adauga CTA conditionat: Agent/Proprietar → 'Publica o proprietate' → /proprietati/nou. Cumparator → 'Adauga o cerere si primesti oferte' → /vreau. Doua reclame de 2 minute, impact estimat +50-100 conv/luna."})
+      fix:"Adauga CTA conditionat: Agent/Proprietar → 'Publica o proprietate' → /proprietati/nou. Cumparator → 'Adauga o cerere si primesti oferte' → /vreau. Masoara uplift-ul 14 zile in GA4 si buyer_requests."})
   }
 
   // 4. /vreau vs /cerere-noua — redirect oportunitate
@@ -209,8 +242,8 @@ function TabActiuni({ data }) {
       fix:'GSC > Performance > Queries > filtreaza pozitie 4-10 > click pe query > tab Pages. Pe acea pagina: adauga 200+ cuvinte relevante, imbunatateste H1 cu query-ul exact, adauga link-uri interne.'})
   } else {
     actions.push({urgency:'seo',
-      title:'SEO: pozitie medie 83 — HomePitch nu apare pe queries relevante',
-      body:'Cu 104 impressions si pozitia 83, practic nu exista vizibilitate organica. Nu exista continut optimizat pentru cum cauta oamenii in Romania.',
+      title:'SEO: construieste continut pe queries validate in Search Console',
+      body:'Cand nu exista un query aproape de top 3, urmatorul pas este sa folosesti impressions si pagini din GSC pentru a prioritiza continutul.',
       fix:"Creeaza 3 pagini de continut in luna aceasta: 1) 'Cum sa cumperi un apartament in Bucuresti' 2) 'Agenti imobiliari Bucuresti' 3) 'Apartamente de vanzare Bucuresti'. Fiecare pagina bine optimizata aduce trafic pasiv pe termen lung."})
   }
 
@@ -260,6 +293,7 @@ const TABS=[
   {id:'trafic',    label:'Trafic'},
   {id:'seo',       label:'SEO'},
   {id:'pagini',    label:'Pagini'},
+  {id:'exit',      label:'Exit intent'},
   {id:'funnel',    label:'Funnel'},
   {id:'cerere',    label:'Analiza LP cereri'},
   {id:'tracking',  label:'Tracking cereri'},
@@ -299,7 +333,12 @@ export default function Dashboard() {
     setSyncing(true)
     try {
       const res = await fetch('/api/sync', { method:'POST', headers:{'Content-Type':'application/json'} })
-      const json = await res.json()
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.ok === false) {
+        const failed = (json.periods || []).filter(p => p.status === 'error')
+        const details = failed.length ? failed.map(p => `${p.days}z: ${p.error || 'error'}`).join('; ') : json.error
+        throw new Error(details || `HTTP ${res.status}`)
+      }
       // Dupa sync, reincarca perioada curenta din cache nou
       await load(days, customFrom, customTo)
     } catch(e) { setError('Sync failed: '+e.message) }
@@ -337,18 +376,19 @@ export default function Dashboard() {
           {data&&data._source&&(
             <span style={{
               fontSize:10,fontWeight:500,padding:'2px 7px',borderRadius:99,
-              background: data._source==='cache'?'#EBF4FC': data._source==='stale_cache'?'#FFF7ED':'#F0FDF4',
-              color: data._source==='cache'?C.blue: data._source==='stale_cache'?C.amber:C.green,
+              background: data._source==='cache'||data._source==='tab_db'?'#EBF4FC': data._source==='stale_cache'?'#FFF7ED':'#F0FDF4',
+              color: data._source==='cache'||data._source==='tab_db'?C.blue: data._source==='stale_cache'?C.amber:C.green,
             }}>
-              {data._source==='cache'?'⚡ cache': data._source==='stale_cache'?'⚠ cache vechi':'↓ live'}
+              {data._source==='tab_db'?'DB':data._source==='tab_db_incremental'?'DB + nou':data._source==='cache'?'cache': data._source==='stale_cache'?'cache vechi':data._source==='ga4'?'GA4':'live'}
               {data._cachedAt&&` · ${new Date(data._cachedAt).toLocaleTimeString('ro-RO',{hour:'2-digit',minute:'2-digit'})}`}
             </span>
           )}
         </div>
         <div style={{flex:1}}/>
         {data&&<PeriodBar days={days} customFrom={customFrom} customTo={customTo} onDays={onDays} onCustom={onCustom}/>}
+        <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:'#F0FDF4',color:C.green,textDecoration:'none'}}>Cereri piata</a>
         <button onClick={()=>customFrom?load(null,customFrom,customTo):load(days)} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>↻</button>
-        <button onClick={forceSync} disabled={syncing} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${syncing?C.border:C.blue}`,borderRadius:6,background:syncing?'transparent':'#EBF4FC',color:syncing?C.hint:C.blue,cursor:syncing?'not-allowed':'pointer'}} title="Forteaza sync din Windsor si salveaza in Supabase">{syncing?'sync...':'⬇ sync'}</button>
+        <button onClick={forceSync} disabled={syncing} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${syncing?C.border:C.blue}`,borderRadius:6,background:syncing?'transparent':'#EBF4FC',color:syncing?C.hint:C.blue,cursor:syncing?'not-allowed':'pointer'}} title="Forteaza sync din GA4 si salveaza in Supabase">{syncing?'sync...':'⬇ sync'}</button>
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
       </div>
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',gap:0,overflowX:'auto'}}>
@@ -362,7 +402,7 @@ export default function Dashboard() {
         ))}
       </div>
       <div style={{maxWidth:940,margin:'0 auto',padding:'20px 16px'}}>
-        {loading&&<div style={{textAlign:'center',padding:'80px 0',color:C.muted,fontSize:14}}>Se incarca datele din GA4 si GSC via Windsor.ai...</div>}
+        {loading&&<div style={{textAlign:'center',padding:'80px 0',color:C.muted,fontSize:14}}>Se incarca datele direct din GA4...</div>}
         {error&&<div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'16px 20px'}}><p style={{color:C.red,fontSize:14,margin:0}}>{error}</p></div>}
         {data&&!loading&&(<>
           {tab==='semnale'     &&<TabSemnale     data={data}/>}
@@ -370,6 +410,7 @@ export default function Dashboard() {
           {tab==='trafic'      &&<TabTrafic      data={data}/>}
           {tab==='seo'         &&<TabSEO         data={data}/>}
           {tab==='pagini'      &&<TabPagini      data={data}/>}
+          {tab==='exit'        &&<TabExitIntent  data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}
           {tab==='cerere'      &&<TabCerereNoua      data={data}/>}
           {tab==='tracking'    &&<TabCerereTracking  data={data}/>}
@@ -381,9 +422,11 @@ export default function Dashboard() {
             <span style={{fontSize:11,color:C.hint}}>
               Generat {new Date(data.generatedAt).toLocaleString('ro-RO')} 
               {' · '}
-              {data._source==='cache'?`Cache Supabase (${new Date(data._cachedAt).toLocaleString('ro-RO')})`:
+              {data._source==='tab_db'?`Baza de date zilnica (${new Date(data._cachedAt).toLocaleString('ro-RO')})`:
+               data._source==='tab_db_incremental'?`Baza de date + ${data._fetchedRanges?.length || 0} intervale noi`:
+               data._source==='cache'?`Cache Supabase (${new Date(data._cachedAt).toLocaleString('ro-RO')})`:
                data._source==='stale_cache'?`Cache vechi Supabase (${new Date(data._cachedAt).toLocaleString('ro-RO')})`:
-               'Live din Windsor.ai → GA4 + GSC'}
+               data._source==='ga4'?'Live din GA4 Data API':'Live din Windsor.ai'}
               {' · '}{data.days} zile
             </span>
             <span style={{fontSize:11,color:C.hint}}>HomePitch.ro</span>

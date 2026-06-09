@@ -1,17 +1,117 @@
 import { NextResponse } from 'next/server'
 import { getWeeklyReports, upsertWeeklyReport } from '../../lib/supabase'
+import { getOptionalEnv, requireEnv } from '../../lib/env'
+import { fetchWeeklyGa4Data } from '../../lib/ga4'
+import { fetchGscSummary } from '../../lib/gsc'
+import { fetchPlatformRequestStats } from '../../lib/platform'
 
-const GA4 = '521779420'
-const KEY  = process.env.WINDSOR_API_KEY || ''
+const DEFAULT_GA4_ACCOUNT = '521779420'
 
-async function w(fields, from, to, filters) {
-  const params = new URLSearchParams({ api_key: KEY, accounts: GA4, date_from: from, date_to: to })
+function getGa4Account() {
+  return getOptionalEnv('GA4_ACCOUNT_ID') || DEFAULT_GA4_ACCOUNT
+}
+
+async function w(fields, from, to, filters, account = getGa4Account()) {
+  const params = new URLSearchParams({ api_key: requireEnv('WINDSOR_API_KEY'), date_from: from, date_to: to })
+  if (account) params.set('accounts', account)
   params.set('fields', fields.join(','))
   if (filters) params.set('filters', JSON.stringify(filters))
   const res = await fetch(`https://connectors.windsor.ai/googleanalytics4?${params}`, { cache: 'no-store' })
-  if (!res.ok) throw new Error(`Windsor ${res.status}`)
-  const d = await res.json()
+  const text = await res.text()
+  let d = null
+  try { d = text ? JSON.parse(text) : null } catch {}
+  if (!res.ok) throw new Error(`Windsor ${res.status}: ${d?.error || text || res.statusText}`)
+  if (d?.error) throw new Error(`Windsor: ${d.error}`)
   return Array.isArray(d) ? d : (d.data || d.result || [])
+}
+
+function settledRows(result, label, required = false) {
+  if (result.status === 'fulfilled') return result.value || []
+  if (required) {
+    throw new Error(`${label} failed: ${result.reason?.message || result.reason}`)
+  }
+  console.warn(`${label} failed:`, result.reason?.message || result.reason)
+  return []
+}
+
+function assertHasWindsorRows(groups) {
+  const totalRows = groups.reduce((sum, rows) => sum + rows.length, 0)
+  if (totalRows === 0) {
+    throw new Error('Windsor returned no weekly analytics rows. Check WINDSOR_API_KEY, GA4_ACCOUNT_ID, GA4 access, and the requested week.')
+  }
+}
+
+function numberValue(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function sumField(rows, field) {
+  return rows.reduce((sum, row) => sum + numberValue(row[field]), 0)
+}
+
+function getWeeklyTotals(data) {
+  const traffic = data?.traffic || []
+  const pages = data?.pages || []
+  const tracking = data?.tracking || []
+  const gsc = data?.gsc || {}
+  const platformRequests = data?.platformRequests || {}
+  return {
+    sessions: sumField(traffic, 'sessions'),
+    conversions: sumField(traffic, 'conversions'),
+    newusers: sumField(traffic, 'newusers'),
+    pageViews: sumField(pages, 'screen_page_views'),
+    activeUsers: sumField(pages, 'active_users'),
+    cereriNoi: sumField(tracking, 'conversions_bravo_cerere_noua'),
+    platformCereriNoi: numberValue(platformRequests.count),
+    gscClicks: numberValue(gsc.clicks),
+    gscImpressions: numberValue(gsc.impressions),
+  }
+}
+
+function hasUsefulWeeklyMetrics(data) {
+  const totals = getWeeklyTotals(data)
+  return Object.values(totals).some(value => value > 0)
+}
+
+function logWeeklyDataStats(start, end, data, source) {
+  const traffic = data.traffic || []
+  const pages = data.pages || []
+  const tracking = data.tracking || []
+  console.log('Weekly data stats', JSON.stringify({
+    start,
+    end,
+    source,
+    rows: {
+      traffic: traffic.length,
+      pages: pages.length,
+      tracking: tracking.length,
+    },
+    keys: {
+      traffic: Object.keys(traffic[0] || {}),
+      pages: Object.keys(pages[0] || {}),
+      tracking: Object.keys(tracking[0] || {}),
+    },
+    totals: getWeeklyTotals(data),
+  }))
+}
+
+function parseLimit(value) {
+  const raw = value || '12'
+  if (!/^\d+$/.test(raw)) throw new Error('Invalid limit parameter')
+  const limit = Number(raw)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 52) {
+    throw new Error('limit must be between 1 and 52')
+  }
+  return limit
+}
+
+function parseOffsetWeeks(value) {
+  const offset = Number(value || 0)
+  if (!Number.isInteger(offset) || offset < 0 || offset > 260) {
+    throw new Error('offsetWeeks must be an integer between 0 and 260')
+  }
+  return offset
 }
 
 function getWeekBounds(offsetWeeks = 0) {
@@ -29,8 +129,39 @@ function getWeekBounds(offsetWeeks = 0) {
   }
 }
 
+function hasValidCronAuth(request) {
+  const cronSecret = process.env.CRON_SECRET
+  const authHeader = request.headers.get('authorization')
+  return !!cronSecret && authHeader === `Bearer ${cronSecret}`
+}
+
+function hasValidSession(request) {
+  const sessionSecret = process.env.SESSION_SECRET
+  return !!sessionSecret && request.cookies.get('hp_session')?.value === sessionSecret
+}
+
+function normalizePath(path) {
+  const clean = String(path || '').replace(/\/$/, '')
+  return clean || '/'
+}
+
+function getCereriNoiCount(tracking, pages) {
+  const keyEventTotal = sumField(tracking, 'conversions_bravo_cerere_noua')
+  if (keyEventTotal > 0) return keyEventTotal
+
+  const cererePaths = new Set(['/cerere-noua', '/cereri/nou', '/vreau'])
+  return pages
+    .filter(p => cererePaths.has(normalizePath(p.page_path)))
+    .reduce((s, p) => s + numberValue(p.conversions), 0)
+}
+
+function getCereriNoiMetric(data, tracking, pages) {
+  const platformCount = numberValue(data.platformRequests?.count)
+  if (platformCount > 0) return platformCount
+  return getCereriNoiCount(tracking, pages)
+}
+
 function extractMetrics(data) {
-  const sum = (arr, f) => arr.reduce((s,r) => s+(r[f]||0), 0)
   const get = (arr, ch) => arr.find(r=>r.session_default_channel_group===ch) || {}
   const curr = data.traffic || []
   const pages = data.pages || []
@@ -38,7 +169,8 @@ function extractMetrics(data) {
   const gsc = data.gsc || {}
 
   const getPage = path => pages.find(p=>p.page_path===path)
-  const rate = p => p?.screen_page_views>0 ? +(p.conversions/p.screen_page_views*100).toFixed(2) : 0
+  const metric = (row, field) => numberValue(row?.[field])
+  const rate = p => metric(p, 'screen_page_views') > 0 ? +(metric(p, 'conversions')/metric(p, 'screen_page_views')*100).toFixed(2) : 0
 
   const cereri = getPage('/cereri')
   const ceNou  = getPage('/cerere-noua')
@@ -47,8 +179,8 @@ function extractMetrics(data) {
   const hp     = getPage('/')
   const h3     = getPage('/home3')
 
-  const totalFormViews = (ceNou?.screen_page_views||0) + (vreau?.screen_page_views||0) + (cereriNou?.screen_page_views||0)
-  const cereriViews = cereri?.screen_page_views || 0
+  const totalFormViews = metric(ceNou, 'screen_page_views') + metric(vreau, 'screen_page_views') + metric(cereriNou, 'screen_page_views')
+  const cereriViews = metric(cereri, 'screen_page_views')
   const funnelRate = cereriViews > 0 ? +(totalFormViews/cereriViews*100).toFixed(2) : 0
 
   const direct = get(curr, 'Direct')
@@ -56,21 +188,21 @@ function extractMetrics(data) {
   const search = get(curr, 'Organic Search')
 
   return {
-    sessions:      Math.round(sum(curr,'sessions')),
-    conversions:   Math.round(sum(curr,'conversions')),
-    new_users:     Math.round(sum(curr,'newusers')),
-    direct_sess:   Math.round(direct.sessions||0),
-    direct_conv:   Math.round(direct.conversions||0),
-    social_sess:   Math.round(social.sessions||0),
-    social_conv:   Math.round(social.conversions||0),
-    search_sess:   Math.round(search.sessions||0),
-    search_conv:   Math.round(search.conversions||0),
-    cereri_noi:    Math.round(sum(tracking,'conversions_bravo_cerere_noua')),
-    bun_venit_c:   Math.round(sum(tracking,'conversions_bun_venit_cumparator')),
-    bun_venit_a:   Math.round(sum(tracking,'conversions_bun_venit_agent')),
-    bun_venit_p:   Math.round(sum(tracking,'conversions_bun_venit_proprietar')),
-    gsc_clicks:    Math.round(gsc.clicks||0),
-    gsc_impressions: Math.round(gsc.impressions||0),
+    sessions:      Math.round(sumField(curr,'sessions')),
+    conversions:   Math.round(sumField(curr,'conversions')),
+    new_users:     Math.round(sumField(curr,'newusers')),
+    direct_sess:   Math.round(numberValue(direct.sessions)),
+    direct_conv:   Math.round(numberValue(direct.conversions)),
+    social_sess:   Math.round(numberValue(social.sessions)),
+    social_conv:   Math.round(numberValue(social.conversions)),
+    search_sess:   Math.round(numberValue(search.sessions)),
+    search_conv:   Math.round(numberValue(search.conversions)),
+    cereri_noi:    Math.round(getCereriNoiMetric(data, tracking, pages)),
+    bun_venit_c:   Math.round(sumField(tracking,'conversions_bun_venit_cumparator')),
+    bun_venit_a:   Math.round(sumField(tracking,'conversions_bun_venit_agent')),
+    bun_venit_p:   Math.round(sumField(tracking,'conversions_bun_venit_proprietar')),
+    gsc_clicks:    Math.round(numberValue(gsc.clicks)),
+    gsc_impressions: Math.round(numberValue(gsc.impressions)),
     gsc_position:  gsc.position ? +gsc.position.toFixed(2) : null,
     homepage_rate: rate(hp),
     home3_rate:    rate(h3),
@@ -130,24 +262,17 @@ function generateWeeklyInsights(curr, prev) {
 // GET — cron zilnic luni SAU fetch istoricul
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
-  const limit = parseInt(searchParams.get('limit') || '12')
   const generate = searchParams.get('generate') === '1'
-  const cronSecret = process.env.CRON_SECRET
-  const authHeader = request.headers.get('authorization')
-  const isCron = cronSecret && authHeader === `Bearer ${cronSecret}`
-  const hasSession = request.cookies.get('hp_session')?.value === process.env.SESSION_SECRET
+  const wantsHistory = searchParams.has('limit') && !generate
+  const isCron = hasValidCronAuth(request)
+  const hasSession = hasValidSession(request)
+
+  if (!isCron && !hasSession) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Cron luni dimineata — genereaza automat raportul saptamanii trecute
-  if (isCron || generate) {
-    if (!isCron && !hasSession) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if ((isCron && !wantsHistory) || generate) {
     try {
       const { start, end } = getWeekBounds(1) // saptamana trecuta completa
-      const req = new Request(request.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', cookie: request.headers.get('cookie') || '' },
-        body: JSON.stringify({ offsetWeeks: 1 }),
-      })
-      // Simuleaza POST intern
       const result = await handleGenerate(start, end, request)
       return NextResponse.json({ ok: true, generated: true, weekStart: start, ...result })
     } catch(e) {
@@ -157,34 +282,84 @@ export async function GET(request) {
 
   // Normal fetch — returneaza istoricul
   try {
+    const limit = parseLimit(searchParams.get('limit'))
     const reports = await getWeeklyReports(limit)
     return NextResponse.json({ reports: reports || [] })
   } catch (e) {
-    return NextResponse.json({ reports: [], error: e.message })
+    if (e.message?.startsWith('Invalid limit') || e.message?.startsWith('limit must')) {
+      return NextResponse.json({ reports: [], error: e.message }, { status: 400 })
+    }
+    return NextResponse.json({ reports: [], error: e.message }, { status: 500 })
   }
 }
 
-async function handleGenerate(start, end, request) {
+async function fetchWeeklyData(start, end, account) {
   const [trafficR, pagesR, trackingR, gscR] = await Promise.allSettled([
-    w(['session_default_channel_group','sessions','newusers','engagement_rate','average_session_duration','conversions'], start, end),
-    w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','bounce_rate','conversions'], start, end, [['page_path','ncontains','/admin']]),
-    w(['date','conversions_bravo_cerere_noua','conversions_bun_venit_cumparator','conversions_bun_venit_agent','conversions_bun_venit_proprietar'], start, end),
-    w(['organic_google_search_clicks','organic_google_search_impressions','organic_google_search_average_position'], start, end),
+    w(['session_default_channel_group','sessions','newusers','engagement_rate','average_session_duration','conversions'], start, end, null, account),
+    w(['page_path','screen_page_views','active_users','engagement_rate','average_session_duration','bounce_rate','conversions'], start, end, [['page_path','ncontains','/admin']], account),
+    w(['date','conversions_bravo_cerere_noua','conversions_bun_venit_cumparator','conversions_bun_venit_agent','conversions_bun_venit_proprietar'], start, end, null, account),
+    w(['organic_google_search_clicks','organic_google_search_impressions','organic_google_search_average_position'], start, end, null, account),
   ])
 
-  const x = r => r.status === 'fulfilled' ? (r.value||[]) : []
-  const gscRaw = x(gscR)
-  const sumF = (arr, f) => arr.reduce((s,r) => s+(r[f]||0), 0)
-
+  const traffic = settledRows(trafficR, 'Weekly traffic', true)
+  const pages = settledRows(pagesR, 'Weekly pages', true)
+  const tracking = settledRows(trackingR, 'Weekly tracking')
+  const gscRaw = settledRows(gscR, 'Weekly GSC')
+  assertHasWindsorRows([traffic, pages])
   const rawData = {
-    traffic:  x(trafficR),
-    pages:    x(pagesR),
-    tracking: x(trackingR),
+    traffic,
+    pages,
+    tracking,
     gsc: {
-      clicks:      sumF(gscRaw,'organic_google_search_clicks'),
-      impressions: sumF(gscRaw,'organic_google_search_impressions'),
-      position:    gscRaw.length > 0 ? sumF(gscRaw,'organic_google_search_average_position')/gscRaw.length : null,
+      clicks:      sumField(gscRaw,'organic_google_search_clicks'),
+      impressions: sumField(gscRaw,'organic_google_search_impressions'),
+      position:    gscRaw.length > 0 ? sumField(gscRaw,'organic_google_search_average_position')/gscRaw.length : null,
     },
+  }
+  return rawData
+}
+
+async function handleGenerate(start, end, request) {
+  const configuredAccount = getGa4Account()
+  let rawData
+  try {
+    rawData = await fetchWeeklyGa4Data({ propertyId: configuredAccount, start, end })
+    logWeeklyDataStats(start, end, rawData, 'ga4-direct')
+  } catch (ga4Err) {
+    console.warn('Weekly GA4 direct fetch failed; using Windsor fallback:', ga4Err.message)
+  }
+
+  if (!hasUsefulWeeklyMetrics(rawData)) {
+    let fallbackData = await fetchWeeklyData(start, end, configuredAccount)
+    logWeeklyDataStats(start, end, fallbackData, configuredAccount ? 'windsor-configured-account' : 'windsor-all-accounts')
+    if (hasUsefulWeeklyMetrics(fallbackData)) rawData = fallbackData
+  }
+
+  if (configuredAccount && !hasUsefulWeeklyMetrics(rawData)) {
+    try {
+      const fallbackData = await fetchWeeklyData(start, end, null)
+      logWeeklyDataStats(start, end, fallbackData, 'windsor-all-accounts-fallback')
+      if (hasUsefulWeeklyMetrics(fallbackData)) rawData = fallbackData
+    } catch (e) {
+      console.warn('Weekly all-accounts Windsor fallback failed:', e.message)
+    }
+  }
+
+  if (!hasUsefulWeeklyMetrics(rawData)) {
+    throw new Error('GA4 direct and Windsor fallback returned only zero weekly metrics. Check GA4_ACCOUNT_ID and GOOGLE_SERVICE_ACCOUNT_JSON before saving this weekly report.')
+  }
+
+  try {
+    rawData.gsc = await fetchGscSummary({ start, end })
+  } catch (e) {
+    console.warn('Weekly Search Console direct fetch failed:', e.message)
+  }
+
+  try {
+    rawData.platformRequests = await fetchPlatformRequestStats({ start, end })
+    console.log('Weekly platform request stats', JSON.stringify(rawData.platformRequests))
+  } catch (e) {
+    console.warn('Weekly platform request stats failed:', e.message)
   }
 
   const metrics = extractMetrics(rawData)
@@ -193,10 +368,11 @@ async function handleGenerate(start, end, request) {
   let prevMetrics = null
   try {
     const prevReports = await getWeeklyReports(2)
-    const prevWeek = getWeekBounds(1)
     const found = prevReports?.find(r => r.week_start !== start)
     if (found) prevMetrics = found
-  } catch {}
+  } catch (e) {
+    console.warn('Previous weekly report lookup failed:', e.message)
+  }
 
   const { insights, actions } = generateWeeklyInsights(metrics, prevMetrics)
 
@@ -219,11 +395,15 @@ async function handleGenerate(start, end, request) {
 
 // POST — genereaza si salveaza raportul manual
 export async function POST(request) {
-  const isAuthorized = request.cookies.get('hp_session')?.value === process.env.SESSION_SECRET
-  if (!isAuthorized) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!hasValidSession(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => ({}))
-  const offsetWeeks = body.offsetWeeks || 0
+  let offsetWeeks
+  try {
+    offsetWeeks = parseOffsetWeeks(body.offsetWeeks)
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 400 })
+  }
   const { start, end } = getWeekBounds(offsetWeeks)
 
   try {

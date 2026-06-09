@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server'
 
-export function middleware(request) {
+export function proxy(request) {
   const { pathname } = request.nextUrl
 
   if (pathname === '/login' || pathname.startsWith('/api/auth')) {
     return NextResponse.next()
   }
 
+  if (pathname === '/api/report' || pathname === '/api/sync' || pathname === '/api/weekly' || pathname.startsWith('/api/backlog') || pathname.startsWith('/api/platform')) {
+    return NextResponse.next()
+  }
+
+  const sessionSecret = process.env.SESSION_SECRET
   const session = request.cookies.get('hp_session')
-  if (!session || session.value !== process.env.SESSION_SECRET) {
+  if (!sessionSecret || !session || session.value !== sessionSecret) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 

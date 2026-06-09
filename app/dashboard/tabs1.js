@@ -170,8 +170,9 @@ function TabTrafic({ data }) {
 
 /* ─── SEO ──────────────────────────────────────────────────────────── */
 function TabSEO({ data }) {
-  const curr=data.gsc.current, prev=data.gsc.previous
-  const queries=data.gsc.queries||[], gscPages=data.gsc.pages||[]
+  const gsc=data.gsc||{}
+  const curr=gsc.current||[], prev=gsc.previous||[]
+  const queries=gsc.queries||[], gscPages=gsc.pages||[]
   const cCl=sum(curr,'organic_google_search_clicks'), pCl=sum(prev,'organic_google_search_clicks')
   const cIm=sum(curr,'organic_google_search_impressions'), pIm=sum(prev,'organic_google_search_impressions')
   const cCtr=avg(curr,'organic_google_search_click_through_rate'), pCtr=avg(prev,'organic_google_search_click_through_rate')
@@ -188,6 +189,12 @@ function TabSEO({ data }) {
   }
   const topQ=[...queries].sort((a,b)=>(b.organic_google_search_clicks||0)-(a.organic_google_search_clicks||0)).slice(0,12)
   const topP=[...gscPages].sort((a,b)=>(b.organic_google_search_clicks||0)-(a.organic_google_search_clicks||0)).slice(0,10)
+  const hasSeoData=cCl>0||cIm>0||pCl>0||pIm>0||topQ.length>0||topP.length>0
+  if(!hasSeoData) insights.unshift({type:'negative',title:'Date SEO lipsa din Search Console',body:'Conexiunea Google Search Console nu returneaza randuri pentru proprietatea site-ului. Verifica accesul service account-ului in Search Console; dashboardul incearca si fallback Windsor.'})
+  const topQuery = topQ.find(q=>q.query&&q.query!=='(not provided)')
+  const seoSnapshot = hasSeoData
+    ? `Pozitia medie actuala: ${cPos ? cPos.toFixed(1) : '—'} · ${fmtN(cIm)} impressions · ${fmtN(cCl)} clicks${topQuery ? ` · top query: "${topQuery.query}"` : ''}.`
+    : 'Nu exista inca date Search Console pentru intervalul selectat. Pastreaza conexiunea activa si revino dupa acumularea de impressions.'
   return (
     <div>
       <Grid>
@@ -231,9 +238,9 @@ function TabSEO({ data }) {
       {/* ZONA CUVINTE CHEIE — SEO + AI */}
       <Sec title="Cuvinte cheie cu potential — SEO si AI Search">
         <div style={{background:'linear-gradient(135deg,#1A2B4A,#1e3a6e)',borderRadius:12,padding:'14px 18px',marginBottom:14,color:'#fff'}}>
-          <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.07em',color:'rgba(255,255,255,.55)',margin:'0 0 4px'}}>Analiza manuala — actualizata luna Mai 2026</p>
+          <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.07em',color:'rgba(255,255,255,.55)',margin:'0 0 4px'}}>Snapshot Search Console — actualizat din date live</p>
           <p style={{fontSize:13,color:'rgba(255,255,255,.8)',margin:0,lineHeight:1.5}}>
-            Pozitia medie actuala: <strong style={{color:'#FCD34D'}}>84</strong> · 104 impressions · HomePitch nu apare pe niciun query relevant. Aceste cuvinte cheie reprezinta oportunitatea de crestere organica.
+            {seoSnapshot}
           </p>
         </div>
 

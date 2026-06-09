@@ -1,15 +1,20 @@
-const SUPABASE_URL = 'https://rstihjcnuazzyksdwczp.supabase.co'
-// Anon key — ref corespunde cu proiectul, RLS dezactivat pe hp_analytics_*
-const SUPABASE_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJzdGloamNudWF6enlrc2R3Y3pwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NjI2NTIsImV4cCI6MjA5MTIzODY1Mn0.gTdYMDD81KbidsfUeOmh0rw7h-radqlsniJDJItdaVg'
+import { requireEnv } from './env'
+
+function getSupabaseConfig() {
+  return {
+    url: requireEnv('SUPABASE_URL'),
+    key: requireEnv('SUPABASE_SERVICE_KEY'),
+  }
+}
 
 async function sbFetch(path, opts = {}) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1${path}`, {
+  const { url, key } = getSupabaseConfig()
+  const res = await fetch(`${url}/rest/v1${path}`, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
       'Prefer': opts.prefer !== undefined ? opts.prefer : 'return=representation',
       ...(opts.headers || {}),
     },
@@ -23,7 +28,7 @@ async function sbFetch(path, opts = {}) {
 }
 
 export async function upsertSnapshot(snapshotDate, periodDays, payload) {
-  return sbFetch('/hp_analytics_snapshots', {
+  return sbFetch('/hp_analytics_snapshots?on_conflict=snapshot_date,period_days', {
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify({
@@ -65,7 +70,7 @@ export async function logSync(params) {
 }
 
 export async function upsertWeeklyReport(weekStart, weekEnd, payload) {
-  return sbFetch('/hp_analytics_weekly_reports', {
+  return sbFetch('/hp_analytics_weekly_reports?on_conflict=week_start', {
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify({
@@ -90,4 +95,36 @@ export async function getWeeklyReport(weekStart) {
     { prefer: '' }
   )
   return rows?.[0] || null
+}
+
+export async function getActionBacklog() {
+  return sbFetch(
+    '/hp_action_backlog?select=recommendation_id,status,owner,ignored,verification,type,title,body,fix,metric,urgency,created_at,updated_at&order=updated_at.desc',
+    { prefer: '' }
+  )
+}
+
+export async function upsertActionBacklogItems(items) {
+  if (!items.length) return []
+  return sbFetch('/hp_action_backlog?on_conflict=recommendation_id', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=representation',
+    body: JSON.stringify(items),
+  })
+}
+
+export async function getTabDailyRows(startDate, endDate) {
+  return sbFetch(
+    `/hp_tab_data_daily?data_date=gte.${startDate}&data_date=lte.${endDate}&order=data_date.asc`,
+    { prefer: '' }
+  )
+}
+
+export async function upsertTabDailyRows(rows) {
+  if (!rows.length) return []
+  return sbFetch('/hp_tab_data_daily?on_conflict=data_date', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=representation',
+    body: JSON.stringify(rows),
+  })
 }

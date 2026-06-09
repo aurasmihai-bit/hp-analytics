@@ -148,7 +148,7 @@ function TabPagini({ data }) {
               // Smart annotations per page type
               const path = p.page_path
               const annotation = (()=>{
-                if(path==='/resetare-parola') return {col:C.red,  text:'Bounce 28% + 402s — flux probabil broken. Testeaza email reset manual.'}
+                if(path==='/resetare-parola') return {col:C.red,  text:'Bounce si durata ridicate — flux probabil broken. Testeaza email reset manual.'}
                 if(path==='/auth')            return {col:C.amber,text:'Pagina de redirect — bounce mare e normal aici.'}
                 if(path==='/bun-venit-cumparator'||path==='/bun-venit-proprietar'||path==='/bun-venit-agent') return {col:C.blue,text:'Pagina post-inregistrare — userii pleaca intentionat dupa confirmare.'}
                 if(path==='/logare'||path==='/login') return {col:C.blue,text:'Redirect rapid daca userul e deja logat — normal.'}
@@ -198,14 +198,17 @@ function TabPagini({ data }) {
               const path=p.page_path
 
               const note=(()=>{
-                if(path==='/proprietati/nou')   return {col:C.green,  text:'Formular adaugare proprietate — 534s e pozitiv, userii completeaza cu atentie.'}
+                if(path==='/proprietati/nou')   return {col:C.green,  text:'Formular adaugare proprietate — durata mare poate fi pozitiva daca userii completeaza cu atentie.'}
                 if(path==='/setari-crm')        return {col:C.green,  text:'Sectiune CRM — timp mare = agentii configureaza activ.'}
-                if(path==='/resetare-parola')   return {col:C.red,    text:'402s si bounce 28% — userii nu gasesc ce cauta. Verifica fluxul email.'}
-                if(path==='/cereri/nou')        return {col:C.blue,   text:'Formular cerere noua — 303s dar 0 conversii GA4. Posibil Key Event nesetat.'}
-                if(path==='/vreau')             return {col:C.green,  text:'284s si 3.7% conv rate — pagina eficienta, merit scalata.'}
-                if(path==='/beneficii-vip')     return {col:C.green,  text:'Pagina beneficii abonament — 311s indica interes activ in upgrade.'}
+                if(path==='/resetare-parola')   return {col:C.red,    text:'Durata si bounce ridicate — userii pot fi blocati in flux. Verifica emailul si tokenul de reset.'}
+                if(path==='/cereri/nou')        return {col:C.blue,   text:'Formular cerere noua — daca durata e mare dar conversiile GA4 sunt 0, verifica Key Event-ul.'}
+                if(path==='/vreau') {
+                  const convRate = p.screen_page_views > 0 ? p.conversions / p.screen_page_views * 100 : 0
+                  return {col:C.green, text:`${Math.round(dur)}s si ${convRate.toFixed(1)}% conv rate — pagina de intent, merita scalata daca mentine performanta.`}
+                }
+                if(path==='/beneficii-vip')     return {col:C.green,  text:'Pagina beneficii abonament — durata mare indica interes activ in upgrade.'}
                 if(path==='/dashboard/vip')     return {col:C.green,  text:'Dashboard VIP — userii activi exploreaza beneficiile.'}
-                if(path==='/abonamente')        return {col:C.green,  text:'Pagina preturi/abonamente — 294s si 100% eng, interes ridicat.'}
+                if(path==='/abonamente')        return {col:C.green,  text:'Pagina preturi/abonamente — durata si engagement ridicate indica interes comercial.'}
                 if(path==='/scor-cumparator')   return {col:C.blue,   text:'Userii citesc cu atentie scorul. Oportunitate de upsell catre VIP.'}
                 if(path.includes('/edit'))      return {col:C.blue,   text:'Pagina editare — timp mare e normal.'}
                 if(dur>400)                     return {col:C.green,  text:'Timp exceptional de mare — continut valoros sau formular complex.'}
@@ -247,10 +250,10 @@ function TabPagini({ data }) {
               const path=p.page_path
 
               const note=(()=>{
-                if(path==='/bun-venit-cumparator') return {col:C.green, text:'8s — redirect automat dupa inregistrare. Normal si intentionat.'}
+                if(path==='/bun-venit-cumparator') return {col:C.green, text:'Timp mic — redirect automat dupa inregistrare. Normal si intentionat.'}
                 if(path==='/bun-venit-proprietar') return {col:C.green, text:'Redirect post-inregistrare — normal.'}
-                if(path==='/logare')               return {col:C.blue,  text:'16s — redirect rapid daca userul e deja autentificat. Verifica daca cei nelogati vad formular.'}
-                if(path==='/auth')                 return {col:C.blue,  text:'12s — pagina de autentificare cu redirect. Normal.'}
+                if(path==='/logare')               return {col:C.blue,  text:'Timp mic — redirect rapid daca userul e deja autentificat. Verifica daca cei nelogati vad formular.'}
+                if(path==='/auth')                 return {col:C.blue,  text:'Pagina de autentificare cu redirect. Normal.'}
                 if(path.includes('/cereri/')&&dur<20) return {col:C.amber,text:'Sub 20s pe o pagina de detalii cerere — posibil continutul nu se incarca sau nu corespunde asteptarilor.'}
                 if(path.includes('/proprietati/')&&dur<20) return {col:C.amber,text:'Sub 20s pe pagina proprietate — verifica calitatea listing-ului si pozele.'}
                 if(path.includes('/oferte'))       return {col:C.amber, text:'Timp mic pe pagina oferte — verifica daca datele se incarca corect.'}

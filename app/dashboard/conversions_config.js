@@ -44,7 +44,7 @@ export const CONV_DEFINITIONS = [
   {
     id: 'cerere_noua_page',
     label: 'Vizita /cerere-noua',
-    description: 'Formularul clasic de cerere noua — 301 views, 1% conv rate GA4',
+    description: 'Formularul clasic de cerere noua; valorile curente vin din GA4 in tabul de analiza LP.',
     category: 'Cereri noi',
     page: '/cerere-noua',
     value: 8, icon: '📝', defaultOn: true, isPageView: true,
@@ -52,7 +52,7 @@ export const CONV_DEFINITIONS = [
   {
     id: 'cereri_nou_page',
     label: 'Vizita /cereri/nou',
-    description: 'Ruta alternativa pentru cerere noua — 83 views, 0 conv (posibil bug tracking)',
+    description: 'Ruta alternativa pentru cerere noua; verifica separat conversiile GA4 si cererile reale din platforma.',
     category: 'Cereri noi',
     page: '/cereri/nou',
     value: 8, icon: '📄', defaultOn: true, isPageView: true,
@@ -60,7 +60,7 @@ export const CONV_DEFINITIONS = [
   {
     id: 'vreau_page',
     label: 'Vizita /vreau',
-    description: 'Pagina de intent — 107 views, 3.7% conv rate — cel mai eficient',
+    description: 'Pagina de intent rapid; compara performanta curenta cu celelalte rute de cerere.',
     category: 'Cereri noi',
     page: '/vreau',
     value: 12, icon: '🎯', defaultOn: true, isPageView: true,
