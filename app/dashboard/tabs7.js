@@ -23,6 +23,29 @@ const PAYMENT_LABELS = {
   failed: 'Eroare',
 }
 
+const PAYMENT_OPTIONS = [
+  ['not_created', PAYMENT_LABELS.not_created],
+  ['pending', PAYMENT_LABELS.pending],
+  ['paid', PAYMENT_LABELS.paid],
+  ['expired', PAYMENT_LABELS.expired],
+  ['cancelled', PAYMENT_LABELS.cancelled],
+  ['failed', PAYMENT_LABELS.failed],
+]
+
+const SOURCE_OPTIONS = [
+  ['platform', 'HomePitch live'],
+  ['imported', 'Import email'],
+]
+
+const SORT_OPTIONS = [
+  ['newest', 'Cele mai noi'],
+  ['oldest', 'Cele mai vechi'],
+  ['updated', 'Actualizate recent'],
+  ['value_desc', 'Valoare descrescator'],
+  ['value_asc', 'Valoare crescator'],
+  ['payment_pending', 'Plati pending primele'],
+]
+
 const STANDARD_SERVICES = [
   'Vizionare delegata',
   'Analiza oferta primita',
@@ -36,6 +59,15 @@ const STANDARD_SERVICES = [
 function euro(value) {
   const n = Number(value || 0)
   return `${n.toLocaleString('ro-RO', { maximumFractionDigits: 2 })} EUR`
+}
+
+function rowTotal(row) {
+  return Number(row?.finalTotalEur || row?.estimatedTotalEur || 0)
+}
+
+function timestamp(value) {
+  const time = value ? new Date(value).getTime() : 0
+  return Number.isFinite(time) ? time : 0
 }
 
 function safeDate(value) {
@@ -65,6 +97,10 @@ function serviceSummary(row) {
   return `${titles.slice(0, 2).join(', ')} +${titles.length - 2}`
 }
 
+function sourceLabel(row) {
+  return row.source === 'imported' ? (row.sourceLabel || 'import email') : 'HomePitch live'
+}
+
 function RowButton({ row }) {
   return (
     <a href={`/dashboard/concierge/${encodeURIComponent(row.id)}`} style={{
@@ -76,13 +112,14 @@ function RowButton({ row }) {
       <div style={{minWidth:0}}>
         <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.name}</p>
         <p style={{fontSize:11,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.email}{row.customer.phone ? ` · ${row.customer.phone}` : ''}</p>
+        <p style={{fontSize:10,color:C.hint,margin:'3px 0 0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sourceLabel(row)}{row.owner ? ` · owner: ${row.owner}` : ''}</p>
       </div>
       <p style={{fontSize:12,color:C.muted,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{serviceSummary(row)}</p>
       <span style={{fontSize:11,fontWeight:600,color:stageColor(row.stage),background:C.input,border:`0.5px solid ${stageColor(row.stage)}55`,borderRadius:99,padding:'4px 8px',whiteSpace:'nowrap',textAlign:'center'}}>
           {STAGES.find(([id])=>id===row.stage)?.[1] || row.stage}
       </span>
       <span style={{fontSize:11,fontWeight:600,color:paymentColor(row.paymentStatus),textAlign:'center'}}>{PAYMENT_LABELS[row.paymentStatus] || row.paymentStatus}</span>
-      <span style={{fontSize:12,fontWeight:700,color:C.text,textAlign:'right'}}>{euro(row.finalTotalEur || row.estimatedTotalEur || 0)}</span>
+      <span style={{fontSize:12,fontWeight:700,color:C.text,textAlign:'right'}}>{euro(rowTotal(row))}</span>
       <span style={{fontSize:11,color:C.muted,textAlign:'right'}}>{safeDate(row.createdAt)}</span>
     </a>
   )
@@ -371,6 +408,12 @@ export function TabConcierge() {
   const [error, setError] = useState('')
   const [setupRequired, setSetupRequired] = useState({})
   const [stageFilter, setStageFilter] = useState('')
+  const [paymentFilter, setPaymentFilter] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [minValue, setMinValue] = useState('')
+  const [sortBy, setSortBy] = useState('newest')
   const [query, setQuery] = useState('')
   const [checking, setChecking] = useState(false)
 
@@ -407,21 +450,76 @@ export function TabConcierge() {
 
   useEffect(() => { load() }, [])
 
+  function resetFilters() {
+    setQuery('')
+    setStageFilter('')
+    setPaymentFilter('')
+    setSourceFilter('')
+    setDateFrom('')
+    setDateTo('')
+    setMinValue('')
+    setSortBy('newest')
+  }
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return rows.filter(row => {
+    const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : 0
+    const toTime = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : 0
+    const minTotal = Number(minValue)
+    const result = rows.filter(row => {
       if (stageFilter && row.stage !== stageFilter) return false
+      if (paymentFilter && row.paymentStatus !== paymentFilter) return false
+      if (sourceFilter && row.source !== sourceFilter) return false
+      const created = timestamp(row.createdAt)
+      if (fromTime && created < fromTime) return false
+      if (toTime && created > toTime) return false
+      if (Number.isFinite(minTotal) && minTotal > 0 && rowTotal(row) < minTotal) return false
       if (q) {
-        const haystack = [row.customer.name, row.customer.email, row.customer.phone, serviceSummary(row), row.rawMessage].join(' ').toLowerCase()
+        const stageLabel = STAGES.find(([id]) => id === row.stage)?.[1] || row.stage
+        const haystack = [
+          row.customer.name,
+          row.customer.email,
+          row.customer.phone,
+          row.owner,
+          row.contactStatus,
+          stageLabel,
+          PAYMENT_LABELS[row.paymentStatus],
+          sourceLabel(row),
+          serviceSummary(row),
+          row.finalNotes,
+          row.rawMessage,
+        ].join(' ').toLowerCase()
         if (!haystack.includes(q)) return false
       }
       return true
     })
-  }, [rows, stageFilter, query])
+    return result.sort((a, b) => {
+      if (sortBy === 'oldest') return timestamp(a.createdAt) - timestamp(b.createdAt)
+      if (sortBy === 'updated') return timestamp(b.updatedAt) - timestamp(a.updatedAt)
+      if (sortBy === 'value_desc') return rowTotal(b) - rowTotal(a)
+      if (sortBy === 'value_asc') return rowTotal(a) - rowTotal(b)
+      if (sortBy === 'payment_pending') {
+        const score = row => row.paymentStatus === 'pending' ? 0 : row.paymentStatus === 'not_created' ? 1 : 2
+        return score(a) - score(b) || timestamp(b.createdAt) - timestamp(a.createdAt)
+      }
+      return timestamp(b.createdAt) - timestamp(a.createdAt)
+    })
+  }, [rows, stageFilter, paymentFilter, sourceFilter, dateFrom, dateTo, minValue, sortBy, query])
 
   const paid = rows.filter(row => row.paymentStatus === 'paid').length
   const pendingPayment = rows.filter(row => row.paymentStatus === 'pending').length
   const totalValue = rows.reduce((sum, row) => sum + Number(row.finalTotalEur || 0), 0)
+  const filteredValue = filtered.reduce((sum, row) => sum + rowTotal(row), 0)
+  const activeFilters = [
+    query.trim(),
+    stageFilter,
+    paymentFilter,
+    sourceFilter,
+    dateFrom,
+    dateTo,
+    minValue,
+    sortBy !== 'newest' ? sortBy : '',
+  ].filter(Boolean).length
 
   if (loading) return <div style={{textAlign:'center',padding:'70px 0',color:C.muted,fontSize:14}}>Se incarca cererile concierge...</div>
 
@@ -460,25 +558,44 @@ export function TabConcierge() {
       </Grid>
 
       <Card style={{padding:'12px',marginBottom:12}}>
-        <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) 220px',gap:10}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}>
+          <div style={{gridColumn:'span 2'}}>
           <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon, serviciu"/>
+          </div>
           <SelectInput label="Etapa" value={stageFilter} onChange={setStageFilter} options={[['','Toate'], ...STAGES]}/>
+          <SelectInput label="Plata" value={paymentFilter} onChange={setPaymentFilter} options={[['','Toate'], ...PAYMENT_OPTIONS]}/>
+          <SelectInput label="Sursa" value={sourceFilter} onChange={setSourceFilter} options={[['','Toate'], ...SOURCE_OPTIONS]}/>
+          <SelectInput label="Sortare" value={sortBy} onChange={setSortBy} options={SORT_OPTIONS}/>
+          <TextInput label="De la" type="date" value={dateFrom} onChange={setDateFrom}/>
+          <TextInput label="Pana la" type="date" value={dateTo} onChange={setDateTo}/>
+          <TextInput label="Valoare min. EUR" type="number" value={minValue} onChange={setMinValue} placeholder="ex: 100"/>
+        </div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:10,flexWrap:'wrap'}}>
+          <p style={{fontSize:12,color:C.muted,margin:0}}>
+            {filtered.length} din {rows.length} cereri · pipeline filtrat {fmtN(filteredValue)} EUR
+          </p>
+          <button onClick={resetFilters} disabled={!activeFilters} style={{padding:'7px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:activeFilters?C.blue:C.hint,cursor:activeFilters?'pointer':'not-allowed'}}>
+            Reseteaza filtre
+          </button>
         </div>
       </Card>
 
       <Card style={{padding:'12px'}}>
-        <div style={{
-          display:'grid',gridTemplateColumns:'minmax(190px,1.4fr) minmax(180px,1.3fr) 112px 112px 96px 88px',
-          gap:12,alignItems:'center',padding:'0 13px 9px',borderBottom:`0.5px solid ${C.border}`,marginBottom:8,
-        }}>
-          {['Client','Servicii','Etapa','Plata','Total','Trimis la'].map(label => (
-            <span key={label} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',textAlign:['Total','Trimis la'].includes(label)?'right':'left'}}>{label}</span>
-          ))}
-        </div>
-        <p style={{fontSize:11,color:C.hint,margin:'0 0 8px'}}>{filtered.length} din {rows.length} cereri</p>
-        <div>
-          {filtered.map(row => <RowButton key={row.id} row={row}/>)}
-          {!filtered.length && <p style={{fontSize:13,color:C.hint,textAlign:'center',padding:'24px 0'}}>Nu exista cereri pentru filtrele curente.</p>}
+        <div style={{overflowX:'auto'}}>
+          <div style={{minWidth:860}}>
+            <div style={{
+              display:'grid',gridTemplateColumns:'minmax(190px,1.4fr) minmax(180px,1.3fr) 112px 112px 96px 88px',
+              gap:12,alignItems:'center',padding:'0 13px 9px',borderBottom:`0.5px solid ${C.border}`,marginBottom:8,
+            }}>
+              {['Client','Servicii','Etapa','Plata','Total','Trimis la'].map(label => (
+                <span key={label} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',textAlign:['Total','Trimis la'].includes(label)?'right':'left'}}>{label}</span>
+              ))}
+            </div>
+            <div>
+              {filtered.map(row => <RowButton key={row.id} row={row}/>)}
+              {!filtered.length && <p style={{fontSize:13,color:C.hint,textAlign:'center',padding:'24px 0'}}>Nu exista cereri pentru filtrele curente.</p>}
+            </div>
+          </div>
         </div>
       </Card>
     </div>
