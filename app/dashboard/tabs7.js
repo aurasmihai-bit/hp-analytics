@@ -876,7 +876,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
             />
             <StageButtons value={draft.stage} onChange={changeStage} savingStage={stageSaving}/>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
-              <TextInput label="Contactare" value={draft.contactStatus} onChange={contactStatus=>patch({contactStatus})} placeholder="ex: sunat, astept raspuns"/>
               <TextInput label="Owner intern" value={draft.owner} onChange={owner=>patch({owner})} placeholder="ex: Auras"/>
             </div>
           </Card>
