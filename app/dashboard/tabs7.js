@@ -816,12 +816,57 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
 
       <div style={{
         display:'grid',
-        gridTemplateColumns:wideLayout ? 'minmax(0,1fr) minmax(300px,340px)' : 'minmax(0,1fr)',
+        gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',
+        gap:14,
+        width:'100%',
+        maxWidth:'100%',
+      }}>
+        <Card>
+          <SectionHeader title="Actiune urmatoare"/>
+          <div style={{border:`0.5px solid ${nextAction.color}66`,background:C.softPanel,borderRadius:10,padding:'12px 13px',marginBottom:12}}>
+            <p style={{fontSize:13,fontWeight:700,color:nextAction.color,margin:'0 0 5px'}}>{nextAction.title}</p>
+            <p style={{fontSize:12,color:C.muted,margin:0,lineHeight:1.5}}>{nextAction.body}</p>
+          </div>
+          <div style={{display:'grid',gap:8}}>
+            <button onClick={createPayment} disabled={busy==='payment' || finalTotal <= 0} style={{...primaryButton,background:(busy==='payment' || finalTotal <= 0)?'#64748b':'#15803d',cursor:(busy==='payment' || finalTotal <= 0)?'not-allowed':'pointer'}}>
+              {busy==='payment'?'Se creeaza...':'Creeaza link Stripe'}
+            </button>
+            {error && <div style={{padding:'9px 10px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:12,lineHeight:1.4}}>{error}</div>}
+            {notice && <div style={{padding:'9px 10px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:12,lineHeight:1.4}}>{notice}</div>}
+            <button onClick={sendReminder} disabled={busy==='reminder' || !draft.stripePaymentUrl} style={{...secondaryButton,color:C.amber,border:`0.5px solid ${C.amber}`}}>
+              {busy==='reminder'?'Se trimite...':'Reminder plata email'}
+            </button>
+            <button onClick={onCheckPayments} style={{...secondaryButton,color:C.blue,border:`0.5px solid ${C.blue}`,background:C.softBlue}}>Verifica plati</button>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionHeader title="Plata" description="Linkul generat ramane independent de contul HomePitch."/>
+          <TextInput label="Link plata Stripe" value={draft.stripePaymentUrl} onChange={stripePaymentUrl=>patch({stripePaymentUrl})} placeholder="se genereaza automat"/>
+          {draft.stripePaymentUrl && (
+            <a href={draft.stripePaymentUrl} target="_blank" rel="noopener noreferrer" style={{...primaryButton,display:'block',marginTop:10}}>Deschide link plata</a>
+          )}
+          <FieldRow label="Status" value={PAYMENT_LABELS[draft.paymentStatus] || draft.paymentStatus}/>
+          <FieldRow label="Sesiune Stripe" value={draft.stripeSessionId ? `${draft.stripeSessionId.slice(0, 18)}...` : '—'}/>
+        </Card>
+
+        <Card>
+          <SectionHeader title="Date caz"/>
+          <FieldRow label="Creat" value={safeDate(draft.createdAt)}/>
+          <FieldRow label="Actualizat" value={safeDate(draft.updatedAt)}/>
+          <FieldRow label="Sursa" value={sourceLabel(draft)}/>
+          <FieldRow label="Email audit" value={draft.email?.status || '—'}/>
+          <FieldRow label="ID cerere" value={draft.requestId ? `${String(draft.requestId).slice(0, 8)}...` : '—'}/>
+        </Card>
+      </div>
+
+      <div style={{
+        display:'grid',
+        gridTemplateColumns:'minmax(0,1fr)',
         gap:14,
         alignItems:'start',
         width:'100%',
         maxWidth:'100%',
-        overflow:'visible',
       }}>
         <div style={{display:'grid',gap:14,minWidth:0}}>
           <Card>
@@ -884,54 +929,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
                 <p style={{fontSize:13,color:C.hint,margin:'12px 0 0'}}>Nu exista comentarii interne inca.</p>
               )}
             </div>
-          </Card>
-        </div>
-
-        <div style={{
-          display:'grid',
-          gap:14,
-          position:wideLayout ? 'sticky' : 'static',
-          top:wideLayout ? 68 : 'auto',
-          width:'100%',
-          maxWidth:'100%',
-          minWidth:0,
-        }}>
-          <Card>
-            <SectionHeader title="Actiune urmatoare"/>
-            <div style={{border:`0.5px solid ${nextAction.color}66`,background:C.softPanel,borderRadius:10,padding:'12px 13px',marginBottom:12}}>
-              <p style={{fontSize:13,fontWeight:700,color:nextAction.color,margin:'0 0 5px'}}>{nextAction.title}</p>
-              <p style={{fontSize:12,color:C.muted,margin:0,lineHeight:1.5}}>{nextAction.body}</p>
-            </div>
-            <div style={{display:'grid',gap:8}}>
-              <button onClick={createPayment} disabled={busy==='payment' || finalTotal <= 0} style={{...primaryButton,background:(busy==='payment' || finalTotal <= 0)?'#64748b':'#15803d',cursor:(busy==='payment' || finalTotal <= 0)?'not-allowed':'pointer'}}>
-                {busy==='payment'?'Se creeaza...':'Creeaza link Stripe'}
-              </button>
-              {error && <div style={{padding:'9px 10px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:12,lineHeight:1.4}}>{error}</div>}
-              {notice && <div style={{padding:'9px 10px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:12,lineHeight:1.4}}>{notice}</div>}
-              <button onClick={sendReminder} disabled={busy==='reminder' || !draft.stripePaymentUrl} style={{...secondaryButton,color:C.amber,border:`0.5px solid ${C.amber}`}}>
-                {busy==='reminder'?'Se trimite...':'Reminder plata email'}
-              </button>
-              <button onClick={onCheckPayments} style={{...secondaryButton,color:C.blue,border:`0.5px solid ${C.blue}`,background:C.softBlue}}>Verifica plati</button>
-            </div>
-          </Card>
-
-          <Card>
-            <SectionHeader title="Plata" description="Linkul generat ramane independent de contul HomePitch."/>
-            <TextInput label="Link plata Stripe" value={draft.stripePaymentUrl} onChange={stripePaymentUrl=>patch({stripePaymentUrl})} placeholder="se genereaza automat"/>
-            {draft.stripePaymentUrl && (
-              <a href={draft.stripePaymentUrl} target="_blank" rel="noopener noreferrer" style={{...primaryButton,display:'block',marginTop:10}}>Deschide link plata</a>
-            )}
-            <FieldRow label="Status" value={PAYMENT_LABELS[draft.paymentStatus] || draft.paymentStatus}/>
-            <FieldRow label="Sesiune Stripe" value={draft.stripeSessionId ? `${draft.stripeSessionId.slice(0, 18)}...` : '—'}/>
-          </Card>
-
-          <Card>
-            <SectionHeader title="Date caz"/>
-            <FieldRow label="Creat" value={safeDate(draft.createdAt)}/>
-            <FieldRow label="Actualizat" value={safeDate(draft.updatedAt)}/>
-            <FieldRow label="Sursa" value={sourceLabel(draft)}/>
-            <FieldRow label="Email audit" value={draft.email?.status || '—'}/>
-            <FieldRow label="ID cerere" value={draft.requestId ? `${String(draft.requestId).slice(0, 8)}...` : '—'}/>
           </Card>
         </div>
       </div>
