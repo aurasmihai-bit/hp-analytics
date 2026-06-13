@@ -154,6 +154,35 @@ function SelectInput({ label, value, onChange, options }) {
   )
 }
 
+function StageButtons({ value, onChange }) {
+  return (
+    <div style={{marginBottom:14}}>
+      <span style={{display:'block',fontSize:10,color:C.hint,marginBottom:7,textTransform:'uppercase',letterSpacing:'.04em'}}>Etapa cererii</span>
+      <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+        {STAGES.map(([id, label]) => {
+          const active = value === id
+          const color = stageColor(id)
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onChange(id)}
+              style={{
+                padding:'7px 10px',borderRadius:999,border:`0.5px solid ${active ? color : C.border}`,
+                background:active ? color : C.input,color:active ? '#fff' : C.muted,fontSize:12,
+                fontWeight:active ? 700 : 500,cursor:'pointer',whiteSpace:'nowrap',
+                boxShadow:active ? `0 1px 5px ${color}33` : 'none',
+              }}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function ServicesEditor({ services, onChange }) {
   const [adding, setAdding] = useState(false)
   const [selectedService, setSelectedService] = useState(STANDARD_SERVICES[0])
@@ -350,8 +379,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       </Card>
 
       <Card>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10,marginBottom:14}}>
-          <SelectInput label="Etapa" value={draft.stage} onChange={stage=>patch({stage})} options={STAGES}/>
+        <StageButtons value={draft.stage} onChange={stage=>patch({stage})}/>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:10,marginBottom:14}}>
           <TextInput label="Contactare" value={draft.contactStatus} onChange={contactStatus=>patch({contactStatus})} placeholder="ex: sunat, astept raspuns"/>
           <TextInput label="Owner intern" value={draft.owner} onChange={owner=>patch({owner})} placeholder="ex: Auras"/>
         </div>
