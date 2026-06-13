@@ -269,14 +269,16 @@ function RowButton({ row }) {
   )
 }
 
-function TextInput({ label, value, onChange, type = 'text', multiline = false, placeholder = '' }) {
+function TextInput({ label, value, onChange, type = 'text', multiline = false, placeholder = '', disabled = false }) {
   const common = {
     value: value || '',
-    onChange: e => onChange(e.target.value),
+    onChange: e => !disabled && onChange(e.target.value),
     placeholder,
+    disabled,
     style: {
       width:'100%',boxSizing:'border-box',padding:'8px 10px',border:`0.5px solid ${C.border}`,
-      borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit',
+      borderRadius:7,fontSize:12,color:disabled ? C.muted : C.text,background:disabled ? C.softPanel : C.input,
+      fontFamily:'inherit',cursor:disabled ? 'not-allowed' : 'text',
     },
   }
   return (
@@ -825,12 +827,13 @@ function ConciergeReports({ rows }) {
   )
 }
 
-function ServicesEditor({ services, onChange }) {
+function ServicesEditor({ services, onChange, disabled = false }) {
   const [adding, setAdding] = useState(false)
   const [selectedService, setSelectedService] = useState(STANDARD_SERVICES[0])
   const wideLayout = useWideLayout(760)
 
   function update(index, patch) {
+    if (disabled) return
     const next = services.map((service, i) => i === index ? { ...service, ...patch } : service)
       .map(service => {
         const quantity = Number(service.quantity || 0)
@@ -840,9 +843,11 @@ function ServicesEditor({ services, onChange }) {
     onChange(next)
   }
   function remove(index) {
+    if (disabled) return
     onChange(services.filter((_, i) => i !== index))
   }
   function add() {
+    if (disabled) return
     const title = selectedService === 'Serviciu extra' ? 'Serviciu extra' : selectedService
     onChange([...services, { id:`custom-${Date.now()}`, title, quantity:1, unit_price_eur:0, subtotal_eur:0 }])
     setSelectedService(STANDARD_SERVICES[0])
@@ -856,14 +861,14 @@ function ServicesEditor({ services, onChange }) {
       </div>
       {services.map((service, index) => (
         <div key={service.id || index} style={{display:'grid',gridTemplateColumns:wideLayout ? '1fr 58px 82px 88px 34px' : 'minmax(180px,1fr) 54px 74px 82px 32px',gap:6,alignItems:'center',marginBottom:6,overflowX:'auto'}}>
-          <input value={service.title || ''} onChange={e=>update(index,{title:e.target.value})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
-          <input type="number" min="0" value={service.quantity || 0} onChange={e=>update(index,{quantity:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
-          <input type="number" min="0" step="0.01" value={service.unit_price_eur || 0} onChange={e=>update(index,{unit_price_eur:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
+          <input disabled={disabled} value={service.title || ''} onChange={e=>update(index,{title:e.target.value})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:disabled?C.muted:C.text,background:disabled?C.softPanel:C.input,cursor:disabled?'not-allowed':'text'}}/>
+          <input disabled={disabled} type="number" min="0" value={service.quantity || 0} onChange={e=>update(index,{quantity:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:disabled?C.muted:C.text,background:disabled?C.softPanel:C.input,cursor:disabled?'not-allowed':'text'}}/>
+          <input disabled={disabled} type="number" min="0" step="0.01" value={service.unit_price_eur || 0} onChange={e=>update(index,{unit_price_eur:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:disabled?C.muted:C.text,background:disabled?C.softPanel:C.input,cursor:disabled?'not-allowed':'text'}}/>
           <span style={{fontSize:12,fontWeight:600,color:C.text,textAlign:'right'}}>{euro(service.subtotal_eur)}</span>
-          <button onClick={()=>remove(index)} style={{height:30,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.red,cursor:'pointer'}}>×</button>
+          <button disabled={disabled} onClick={()=>remove(index)} style={{height:30,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:disabled?C.hint:C.red,cursor:disabled?'not-allowed':'pointer'}}>×</button>
         </div>
       ))}
-      {adding ? (
+      {!disabled && (adding ? (
         <div style={{display:'grid',gridTemplateColumns:wideLayout ? 'minmax(0,1fr) auto auto' : 'minmax(0,1fr)',gap:8,alignItems:'center',marginTop:8}}>
           <select value={selectedService} onChange={e=>setSelectedService(e.target.value)} style={{width:'100%',padding:'8px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit'}}>
             {STANDARD_SERVICES.map(service => <option key={service} value={service}>{service}</option>)}
@@ -873,7 +878,7 @@ function ServicesEditor({ services, onChange }) {
         </div>
       ) : (
         <button onClick={()=>setAdding(true)} style={{marginTop:4,padding:'7px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.blue,cursor:'pointer'}}>+ Adauga serviciu</button>
-      )}
+      ))}
     </div>
   )
 }
@@ -886,6 +891,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [servicesExpanded, setServicesExpanded] = useState(false)
   const wideLayout = useWideLayout(1120)
 
   useEffect(() => {
@@ -894,6 +900,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setStageSaving('')
     setError('')
     setNotice('')
+    setServicesExpanded(false)
   }, [row?.id])
 
   const servicesTotal = useMemo(() => (draft.services || []).reduce((sum, service) => sum + Number(service.subtotal_eur || 0), 0), [draft.services])
@@ -1032,6 +1039,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const tasks = serviceTasks(draft.services, meta.service_tasks || [])
   const paymentFinalized = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
   const tasksReady = paymentFinalized
+  const servicesPanelOpen = !paymentFinalized || servicesExpanded
   const timelineEvents = automaticTimeline(draft, meta)
   const primaryButton = {
     padding:'9px 12px',border:'none',borderRadius:8,background:'#15803d',color:'#fff',
@@ -1258,20 +1266,48 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
 
           <Card>
             <SectionHeader
-              title="Servicii si oferta"
-              description="Ajusteaza serviciile, cantitatile si suma finala inainte de trimiterea linkului de plata."
-              right={<StatusPill label={euro(finalTotal)} color={C.green}/>}
+              title={paymentFinalized ? 'Servicii si oferta finala' : 'Servicii si oferta'}
+              description={paymentFinalized ? 'Oferta este blocata dupa plata finalizata.' : 'Ajusteaza serviciile, cantitatile si suma finala inainte de trimiterea linkului de plata.'}
+              right={(
+                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  <StatusPill label={euro(finalTotal)} color={C.green}/>
+                  {paymentFinalized && (
+                    <button
+                      type="button"
+                      onClick={()=>setServicesExpanded(open => !open)}
+                      style={{padding:'6px 9px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,color:C.text,fontSize:11,fontWeight:700,cursor:'pointer'}}
+                    >
+                      {servicesExpanded ? 'Ascunde' : 'Vezi detalii'}
+                    </button>
+                  )}
+                </div>
+              )}
             />
-            <ServicesEditor services={draft.services || []} onChange={services=>patch({services, finalTotalEur: services.reduce((sum,s)=>sum+Number(s.subtotal_eur||0),0)})}/>
-            <div style={{display:'grid',gridTemplateColumns:wideLayout ? 'minmax(0,1fr) 160px' : 'minmax(0,1fr)',gap:10,marginTop:14}}>
-              <TextInput label="Observatii oferta finala" value={draft.finalNotes} onChange={finalNotes=>patch({finalNotes})} multiline/>
-              <TextInput label="Total final EUR" type="number" value={String(finalTotal)} onChange={value=>patch({finalTotalEur:Number(value)})}/>
-            </div>
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
-              <button onClick={()=>save()} disabled={saving} style={{...primaryButton,background:saving?'#64748b':'#15803d',cursor:saving?'not-allowed':'pointer'}}>
-                {saving?'Se salveaza...':'Salveaza cerere finala'}
-              </button>
-            </div>
+            {servicesPanelOpen ? (
+              <>
+                {paymentFinalized && (
+                  <div style={{padding:'9px 10px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:12,lineHeight:1.45,marginBottom:10}}>
+                    Editarea serviciilor, preturilor si totalului este dezactivata pentru aceasta etapa.
+                  </div>
+                )}
+                <ServicesEditor disabled={paymentFinalized} services={draft.services || []} onChange={services=>patch({services, finalTotalEur: services.reduce((sum,s)=>sum+Number(s.subtotal_eur||0),0)})}/>
+                <div style={{display:'grid',gridTemplateColumns:wideLayout ? 'minmax(0,1fr) 160px' : 'minmax(0,1fr)',gap:10,marginTop:14}}>
+                  <TextInput disabled={paymentFinalized} label="Observatii oferta finala" value={draft.finalNotes} onChange={finalNotes=>patch({finalNotes})} multiline/>
+                  <TextInput disabled={paymentFinalized} label="Total final EUR" type="number" value={String(finalTotal)} onChange={value=>patch({finalTotalEur:Number(value)})}/>
+                </div>
+                {!paymentFinalized && (
+                  <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
+                    <button onClick={()=>save()} disabled={saving} style={{...primaryButton,background:saving?'#64748b':'#15803d',cursor:saving?'not-allowed':'pointer'}}>
+                      {saving?'Se salveaza...':'Salveaza cerere finala'}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p style={{fontSize:12,color:C.muted,margin:0,lineHeight:1.45}}>
+                Detaliile serviciilor sunt inchise dupa plata finalizata. Le poti deschide pentru verificare, fara editare.
+              </p>
+            )}
           </Card>
 
           <Card>
