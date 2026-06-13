@@ -126,10 +126,18 @@ export function parseConciergeMessage(message) {
 
     if (/mesaj client|customer message/i.test(line)) {
       inCustomerMessage = true
+      const inlineMessage = line.split(/mesaj client:?|customer message:?/i).slice(1).join('').trim()
+      if (inlineMessage) customerLines.push(inlineMessage)
       continue
     }
 
-    if (inCustomerMessage) customerLines.push(line)
+    if (inCustomerMessage) {
+      if (/disclaimer acceptat|disclaimer accepted/i.test(line)) {
+        inCustomerMessage = false
+        continue
+      }
+      customerLines.push(line)
+    }
   }
 
   if (!estimatedTotal && services.length) {

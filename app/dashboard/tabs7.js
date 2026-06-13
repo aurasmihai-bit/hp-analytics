@@ -224,20 +224,6 @@ function FieldRow({ label, value }) {
   )
 }
 
-function BriefPreview({ text }) {
-  if (!text) {
-    return <p style={{fontSize:12,color:C.hint,margin:'8px 0 0'}}>Nu exista mesaj separat de la client.</p>
-  }
-  return (
-    <div style={{padding:'8px 0',borderBottom:`0.5px solid ${C.border}`}}>
-      <p style={{fontSize:11,color:C.hint,margin:'0 0 6px',textTransform:'uppercase',letterSpacing:'.04em'}}>Brief client</p>
-      <p style={{fontSize:12,color:C.text,margin:0,lineHeight:1.5,whiteSpace:'pre-wrap',display:'-webkit-box',WebkitLineClamp:5,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
-        {text}
-      </p>
-    </div>
-  )
-}
-
 function useWideLayout(minWidth = 1080) {
   const [wide, setWide] = useState(true)
 
@@ -779,6 +765,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
 
   const stageLabel = STAGES.find(([id]) => id === draft.stage)?.[1] || draft.stage
   const nextAction = getNextAction(draft, finalTotal)
+  const briefText = draft.customerMessage || draft.rawMessage || ''
   const primaryButton = {
     padding:'9px 12px',border:'none',borderRadius:8,background:'#15803d',color:'#fff',
     fontSize:12,fontWeight:700,cursor:'pointer',textDecoration:'none',textAlign:'center',
@@ -828,7 +815,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       <FieldRow label="Creat" value={safeDate(draft.createdAt)}/>
       <FieldRow label="Actualizat" value={safeDate(draft.updatedAt)}/>
       <FieldRow label="Sursa" value={sourceLabel(draft)}/>
-      <BriefPreview text={draft.customerMessage}/>
     </Card>
   )
 
@@ -913,6 +899,17 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           </Card>
 
           <Card>
+            <SectionHeader title="Brief client" description="Contextul original primit din formular sau din importul de email."/>
+            {briefText ? (
+              <div style={{background:C.softPanel,border:`0.5px solid ${C.border}`,borderRadius:9,padding:'12px 14px'}}>
+                <p style={{fontSize:13,color:C.text,margin:0,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{briefText}</p>
+              </div>
+            ) : (
+              <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista mesaj separat de la client.</p>
+            )}
+          </Card>
+
+          <Card>
             <SectionHeader
               title="Servicii si oferta"
               description="Ajusteaza serviciile, cantitatile si suma finala inainte de trimiterea linkului de plata."
@@ -928,17 +925,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
                 {saving?'Se salveaza...':'Salveaza cerere finala'}
               </button>
             </div>
-          </Card>
-
-          <Card>
-            <SectionHeader title="Brief client" description="Contextul original primit din formular sau din importul de email."/>
-            {draft.customerMessage ? (
-              <div style={{background:C.softPanel,border:`0.5px solid ${C.border}`,borderRadius:9,padding:'12px 14px'}}>
-                <p style={{fontSize:13,color:C.text,margin:0,lineHeight:1.6,whiteSpace:'pre-wrap'}}>{draft.customerMessage}</p>
-              </div>
-            ) : (
-              <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista mesaj separat de la client.</p>
-            )}
           </Card>
 
           <Card>
