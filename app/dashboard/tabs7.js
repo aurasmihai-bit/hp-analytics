@@ -224,6 +224,21 @@ function FieldRow({ label, value }) {
   )
 }
 
+function useWideLayout(minWidth = 1080) {
+  const [wide, setWide] = useState(true)
+
+  useEffect(() => {
+    function update() {
+      setWide(window.innerWidth >= minWidth)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [minWidth])
+
+  return wide
+}
+
 function getNextAction(draft, finalTotal) {
   if (!draft.owner) {
     return {
@@ -457,6 +472,7 @@ function ConciergeReports({ rows }) {
 function ServicesEditor({ services, onChange }) {
   const [adding, setAdding] = useState(false)
   const [selectedService, setSelectedService] = useState(STANDARD_SERVICES[0])
+  const wideLayout = useWideLayout(760)
 
   function update(index, patch) {
     const next = services.map((service, i) => i === index ? { ...service, ...patch } : service)
@@ -479,11 +495,11 @@ function ServicesEditor({ services, onChange }) {
 
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 58px 82px 88px 34px',gap:6,alignItems:'center',marginBottom:6}}>
+      <div style={{display:'grid',gridTemplateColumns:wideLayout ? '1fr 58px 82px 88px 34px' : 'minmax(180px,1fr) 54px 74px 82px 32px',gap:6,alignItems:'center',marginBottom:6,overflowX:'auto'}}>
         {['Serviciu','Nr','Pret','Subtotal',''].map(h => <span key={h} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em'}}>{h}</span>)}
       </div>
       {services.map((service, index) => (
-        <div key={service.id || index} style={{display:'grid',gridTemplateColumns:'1fr 58px 82px 88px 34px',gap:6,alignItems:'center',marginBottom:6}}>
+        <div key={service.id || index} style={{display:'grid',gridTemplateColumns:wideLayout ? '1fr 58px 82px 88px 34px' : 'minmax(180px,1fr) 54px 74px 82px 32px',gap:6,alignItems:'center',marginBottom:6,overflowX:'auto'}}>
           <input value={service.title || ''} onChange={e=>update(index,{title:e.target.value})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
           <input type="number" min="0" value={service.quantity || 0} onChange={e=>update(index,{quantity:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
           <input type="number" min="0" step="0.01" value={service.unit_price_eur || 0} onChange={e=>update(index,{unit_price_eur:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
@@ -492,7 +508,7 @@ function ServicesEditor({ services, onChange }) {
         </div>
       ))}
       {adding ? (
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto auto',gap:8,alignItems:'center',marginTop:8}}>
+        <div style={{display:'grid',gridTemplateColumns:wideLayout ? 'minmax(0,1fr) auto auto' : 'minmax(0,1fr)',gap:8,alignItems:'center',marginTop:8}}>
           <select value={selectedService} onChange={e=>setSelectedService(e.target.value)} style={{width:'100%',padding:'8px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit'}}>
             {STANDARD_SERVICES.map(service => <option key={service} value={service}>{service}</option>)}
           </select>
@@ -514,6 +530,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const wideLayout = useWideLayout(1120)
 
   useEffect(() => {
     setDraft(row)
@@ -530,10 +547,12 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setDraft(current => ({ ...current, ...updates }))
   }
 
-  async function save(extra = {}) {
+  async function save(extra = {}, options = {}) {
+    const refresh = options.refresh !== false
+    const showNotice = options.showNotice !== false
     setSaving(true)
     setError('')
-    setNotice('')
+    if (showNotice) setNotice('')
     try {
       const payload = {
         requestId: draft.requestId,
@@ -553,8 +572,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       const res = await fetch('/api/concierge', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
-      setNotice('Salvat.')
-      await onSaved()
+      if (showNotice) setNotice(options.notice || 'Salvat.')
+      if (refresh) await onSaved()
       return true
     } catch (e) {
       setError(e.message || 'Nu am putut salva')
@@ -569,7 +588,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     const previousStage = draft.stage
     setStageSaving(stage)
     patch({ stage })
-    const ok = await save({ stage })
+    const ok = await save({ stage }, { refresh:false, notice:'Etapa salvata.' })
     if (!ok) patch({ stage: previousStage })
     setStageSaving('')
   }
@@ -692,7 +711,15 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       {notice && <div style={{padding:'10px 12px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:13}}>{notice}</div>}
       {error && <div style={{padding:'10px 12px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:13}}>{error}</div>}
 
-      <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(290px,340px)',gap:14,alignItems:'start'}}>
+      <div style={{
+        display:'grid',
+        gridTemplateColumns:wideLayout ? 'minmax(0,1fr) minmax(300px,340px)' : 'minmax(0,1fr)',
+        gap:14,
+        alignItems:'start',
+        width:'100%',
+        maxWidth:'100%',
+        overflow:'visible',
+      }}>
         <div style={{display:'grid',gap:14,minWidth:0}}>
           <Card>
             <SectionHeader
@@ -713,7 +740,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
               right={<StatusPill label={euro(finalTotal)} color={C.green}/>}
             />
             <ServicesEditor services={draft.services || []} onChange={services=>patch({services, finalTotalEur: services.reduce((sum,s)=>sum+Number(s.subtotal_eur||0),0)})}/>
-            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 160px',gap:10,marginTop:14}}>
+            <div style={{display:'grid',gridTemplateColumns:wideLayout ? 'minmax(0,1fr) 160px' : 'minmax(0,1fr)',gap:10,marginTop:14}}>
               <TextInput label="Observatii oferta finala" value={draft.finalNotes} onChange={finalNotes=>patch({finalNotes})} multiline/>
               <TextInput label="Total final EUR" type="number" value={String(finalTotal)} onChange={value=>patch({finalTotalEur:Number(value)})}/>
             </div>
@@ -757,7 +784,15 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           </Card>
         </div>
 
-        <div style={{display:'grid',gap:14,position:'sticky',top:68}}>
+        <div style={{
+          display:'grid',
+          gap:14,
+          position:wideLayout ? 'sticky' : 'static',
+          top:wideLayout ? 68 : 'auto',
+          width:'100%',
+          maxWidth:'100%',
+          minWidth:0,
+        }}>
           <Card>
             <SectionHeader title="Actiune urmatoare"/>
             <div style={{border:`0.5px solid ${nextAction.color}66`,background:C.softPanel,borderRadius:10,padding:'12px 13px',marginBottom:12}}>
