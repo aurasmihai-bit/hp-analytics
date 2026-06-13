@@ -864,33 +864,42 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       {error && <div style={{padding:'10px 12px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:13}}>{error}</div>}
 
       <div style={{
-        display:'flex',
-        flexDirection:wideLayout ? 'row' : 'column',
+        display:'grid',
+        gridTemplateColumns:wideLayout ? 'minmax(0,1fr) minmax(0,1fr) minmax(360px,.9fr)' : 'minmax(0,1fr)',
         gap:14,
         alignItems:'start',
         width:'100%',
         maxWidth:'100%',
-        overflow:'hidden',
+      }}>
+        {paymentCard}
+        {caseDataCard}
+        <aside style={{
+          display:'grid',
+          gap:14,
+          position:wideLayout ? 'sticky' : 'static',
+          top:wideLayout ? 76 : 'auto',
+          alignSelf:'start',
+          minWidth:0,
+          width:'100%',
+          maxWidth:'100%',
+        }}>
+          {nextActionCard}
+        </aside>
+      </div>
+
+      <div style={{
+        display:'grid',
+        gridTemplateColumns:'minmax(0,1fr)',
+        gap:14,
+        width:'100%',
+        maxWidth:'100%',
       }}>
         <div style={{
           display:'grid',
           gap:14,
           minWidth:0,
-          width:wideLayout ? 'calc(56% - 7px)' : '100%',
-          flex:wideLayout ? '0 1 calc(56% - 7px)' : '1 1 auto',
-          maxWidth:wideLayout ? 'calc(56% - 7px)' : '100%',
-          overflow:'hidden',
+          maxWidth:'100%',
         }}>
-          <div style={{
-            display:'grid',
-            gridTemplateColumns:'minmax(0,1fr)',
-            gap:14,
-            minWidth:0,
-          }}>
-            {paymentCard}
-            {caseDataCard}
-          </div>
-
           <Card>
             <SectionHeader
               title="Workflow"
@@ -954,19 +963,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
             </div>
           </Card>
         </div>
-        <aside style={{
-          display:'grid',
-          gap:14,
-          position:wideLayout ? 'sticky' : 'static',
-          top:wideLayout ? 76 : 'auto',
-          alignSelf:'start',
-          minWidth:0,
-          width:wideLayout ? 'calc(44% - 7px)' : '100%',
-          flex:wideLayout ? '0 0 calc(44% - 7px)' : '1 1 auto',
-          maxWidth:wideLayout ? 'calc(44% - 7px)' : '100%',
-        }}>
-          {nextActionCard}
-        </aside>
       </div>
     </div>
   )
