@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import {
+  appendCrmActivity,
+  getConciergeCrmCases,
   createStripeConciergeSession,
   getConciergeRequestById,
   isMissingConciergeCrmTable,
@@ -46,9 +48,17 @@ export async function POST(request) {
       finalNotes,
     })
 
+    const existingCrm = (await getConciergeCrmCases([requestId]))?.[0]
+    const comments = appendCrmActivity(existingCrm?.comments, {
+      event: 'stripe_link_created',
+      text: `Link Stripe creat pentru ${amountEur.toLocaleString('ro-RO')} EUR.`,
+      meta: { sessionId: session.id, paymentUrl: session.url },
+    })
+
     await upsertConciergeCrmCase({
       requestId,
-      stage: 'plata_trimis',
+      stage: 'plata_pending',
+      comments,
       services,
       finalTotalEur: amountEur,
       finalNotes,

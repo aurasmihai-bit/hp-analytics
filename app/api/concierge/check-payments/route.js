@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import {
+  appendCrmActivity,
   getPendingConciergePayments,
   isMissingConciergeCrmTable,
   retrieveStripeSession,
@@ -34,13 +35,21 @@ async function checkPayments() {
     try {
       const session = await retrieveStripeSession(row.stripe_session_id)
       const paymentStatus = crmStatusFromStripe(session)
-      const stage = paymentStatus === 'paid' ? 'platit' : row.stage
-      await updateConciergeCrmCase(row.request_id, {
+      const stage = paymentStatus === 'paid' ? 'oferta_platita' : row.stage
+      const updates = {
         payment_status: paymentStatus,
         payment_checked_at: new Date().toISOString(),
         stage,
         after_payment_status: paymentStatus === 'paid' ? (row.after_payment_status || 'de_contactat_dupa_plata') : row.after_payment_status,
-      })
+      }
+      if (paymentStatus !== row.payment_status || stage !== row.stage) {
+        updates.comments = appendCrmActivity(row.comments, {
+          event: paymentStatus === 'paid' ? 'payment_confirmed' : 'payment_status_updated',
+          text: paymentStatus === 'paid' ? 'Plata a fost confirmata in Stripe.' : `Status plata actualizat: ${paymentStatus}.`,
+          meta: { sessionId: row.stripe_session_id, paymentStatus },
+        })
+      }
+      await updateConciergeCrmCase(row.request_id, updates)
       results.push({ requestId: row.request_id, sessionId: row.stripe_session_id, status: paymentStatus })
     } catch (error) {
       results.push({ requestId: row.request_id, sessionId: row.stripe_session_id, status: 'error', error: error.message || String(error) })

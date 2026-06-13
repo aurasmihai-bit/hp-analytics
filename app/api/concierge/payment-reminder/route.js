@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import {
+  appendCrmActivity,
   getConciergeCrmCases,
   getConciergeRequestById,
   isMissingConciergeCrmTable,
@@ -27,6 +28,8 @@ export async function POST(request) {
   }
 
   const requestId = body?.requestId
+  const subject = typeof body?.subject === 'string' ? body.subject : ''
+  const message = typeof body?.message === 'string' ? body.message : ''
   if (!requestId) return NextResponse.json({ error: 'Missing requestId' }, { status: 400 })
 
   try {
@@ -38,8 +41,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Nu exista link de plata pentru aceasta cerere' }, { status: 400 })
     }
 
-    const providerResponse = await sendConciergePaymentReminder({ request: conciergeRequest, crm })
+    const providerResponse = await sendConciergePaymentReminder({ request: conciergeRequest, crm, subject, message })
+    const comments = appendCrmActivity(crm.comments, {
+      event: 'payment_email_sent',
+      text: 'Emailul cu linkul de plata a fost trimis clientului.',
+      meta: { subject: subject || 'Link plata servicii HomePitch Concierge' },
+    })
     await updateConciergeCrmCase(requestId, {
+      comments,
       reminder_sent_at: new Date().toISOString(),
       reminder_count: Number(crm.reminder_count || 0) + 1,
     })

@@ -6,15 +6,54 @@ const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 
 export const CONCIERGE_STAGES = new Set([
   'nou',
-  'contactare',
-  'consultanta',
-  'oferta_finala',
-  'plata_trimis',
-  'platit',
-  'livrare',
-  'inchis',
-  'pierdut',
+  'contactat',
+  'nu_a_raspuns',
+  'discutie_consultanta',
+  'refuz',
+  'modificare_oferta',
+  'oferta_trimisa',
+  'oferta_platita',
+  'plata_pending',
 ])
+
+const STAGE_ALIASES = {
+  new: 'nou',
+  contactare: 'contactat',
+  consultanta: 'discutie_consultanta',
+  oferta_finala: 'oferta_trimisa',
+  plata_trimis: 'plata_pending',
+  platit: 'oferta_platita',
+  livrare: 'oferta_platita',
+  inchis: 'oferta_platita',
+  pierdut: 'refuz',
+}
+
+const LEGACY_STAGE_FALLBACKS = {
+  contactat: 'contactare',
+  nu_a_raspuns: 'contactare',
+  discutie_consultanta: 'consultanta',
+  refuz: 'pierdut',
+  modificare_oferta: 'oferta_finala',
+  oferta_trimisa: 'oferta_finala',
+  oferta_platita: 'platit',
+  plata_pending: 'plata_trimis',
+}
+
+export function normalizeConciergeStage(value) {
+  const clean = cleanString(value, 80) || 'nou'
+  const normalized = STAGE_ALIASES[clean] || clean
+  return CONCIERGE_STAGES.has(normalized) ? normalized : 'nou'
+}
+
+function isStageConstraintError(error) {
+  const message = String(error?.message || error)
+  return message.includes('hp_concierge_crm_stage_check') || message.includes('violates check constraint')
+}
+
+function withLegacyStageFallback(row) {
+  const legacyStage = LEGACY_STAGE_FALLBACKS[row?.stage]
+  return legacyStage ? { ...row, stage: legacyStage } : row
+}
 
 export const PAYMENT_STATUSES = new Set([
   'not_created',
@@ -273,25 +312,47 @@ function cleanServices(value) {
 
 function cleanComments(value) {
   if (!Array.isArray(value)) return []
-  return value.slice(0, 100).map(comment => ({
-    id: cleanString(comment?.id, 80) || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    text: cleanString(comment?.text, 2000) || '',
-    author: cleanString(comment?.author, 120) || 'Dashboard',
-    created_at: cleanString(comment?.created_at, 40) || new Date().toISOString(),
-  })).filter(comment => comment.text)
+  return value.slice(0, 150).map(comment => {
+    const type = cleanString(comment?.type, 40) || 'comment'
+    const clean = {
+      id: cleanString(comment?.id, 80) || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      type: ['comment', 'activity', 'meta'].includes(type) ? type : 'comment',
+      text: cleanString(comment?.text, 3000) || '',
+      author: cleanString(comment?.author, 120) || (type === 'activity' ? 'Sistem' : 'Dashboard'),
+      created_at: cleanString(comment?.created_at, 40) || new Date().toISOString(),
+    }
+    if (comment?.meta && typeof comment.meta === 'object' && !Array.isArray(comment.meta)) {
+      clean.meta = JSON.parse(JSON.stringify(comment.meta))
+    }
+    return clean
+  }).filter(comment => comment.text || comment.type === 'meta')
+}
+
+export function appendCrmActivity(comments, { event, text, meta = {}, created_at = new Date().toISOString() }) {
+  return cleanComments([
+    ...(Array.isArray(comments) ? comments : []),
+    {
+      id: `a-${event || 'event'}-${Date.now()}`,
+      type: 'activity',
+      text: text || 'Actualizare CRM',
+      author: 'Sistem',
+      created_at,
+      meta: { event, ...meta },
+    },
+  ])
 }
 
 export function cleanCrmInput(input) {
   const requestId = cleanString(input?.requestId || input?.request_id, 80)
   if (!requestId) throw new Error('Missing requestId')
 
-  const stage = cleanString(input?.stage, 80) || 'nou'
+  const stage = normalizeConciergeStage(input?.stage)
   const paymentStatus = cleanString(input?.paymentStatus || input?.payment_status, 80) || 'not_created'
   const finalTotal = Number(input?.finalTotalEur ?? input?.final_total_eur)
 
   return {
     request_id: requestId,
-    stage: CONCIERGE_STAGES.has(stage) ? stage : 'nou',
+    stage,
     contact_status: cleanString(input?.contactStatus || input?.contact_status, 120) || null,
     owner: cleanString(input?.owner, 180),
     comments: cleanComments(input?.comments),
@@ -308,11 +369,22 @@ export function cleanCrmInput(input) {
 
 export async function upsertConciergeCrmCase(input) {
   const row = cleanCrmInput(input)
-  return sbFetch('/hp_concierge_crm?on_conflict=request_id', {
-    method: 'POST',
-    prefer: 'resolution=merge-duplicates,return=representation',
-    body: JSON.stringify(row),
-  })
+  try {
+    return await sbFetch('/hp_concierge_crm?on_conflict=request_id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=representation',
+      body: JSON.stringify(row),
+    })
+  } catch (error) {
+    if (!isStageConstraintError(error)) throw error
+    const fallbackRow = withLegacyStageFallback(row)
+    if (fallbackRow === row) throw error
+    return sbFetch('/hp_concierge_crm?on_conflict=request_id', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=representation',
+      body: JSON.stringify(fallbackRow),
+    })
+  }
 }
 
 export async function getPendingConciergePayments() {
@@ -323,14 +395,26 @@ export async function getPendingConciergePayments() {
 }
 
 export async function updateConciergeCrmCase(requestId, updates) {
-  return sbFetch(`/hp_concierge_crm?request_id=eq.${encodeValue(requestId)}`, {
-    method: 'PATCH',
-    prefer: 'return=representation',
-    body: JSON.stringify({
-      ...updates,
-      updated_at: new Date().toISOString(),
-    }),
-  })
+  const body = {
+    ...updates,
+    updated_at: new Date().toISOString(),
+  }
+  try {
+    return await sbFetch(`/hp_concierge_crm?request_id=eq.${encodeValue(requestId)}`, {
+      method: 'PATCH',
+      prefer: 'return=representation',
+      body: JSON.stringify(body),
+    })
+  } catch (error) {
+    if (!isStageConstraintError(error)) throw error
+    const fallbackBody = withLegacyStageFallback(body)
+    if (fallbackBody === body) throw error
+    return sbFetch(`/hp_concierge_crm?request_id=eq.${encodeValue(requestId)}`, {
+      method: 'PATCH',
+      prefer: 'return=representation',
+      body: JSON.stringify(fallbackBody),
+    })
+  }
 }
 
 export async function createStripeConciergeSession({ request, services, amountEur, finalNotes }) {
@@ -395,7 +479,7 @@ export async function retrieveStripeSession(sessionId) {
   return json
 }
 
-export async function sendConciergePaymentReminder({ request, crm }) {
+export async function sendConciergePaymentReminder({ request, crm, subject, message }) {
   const brevoApiKey = requireEnv('BREVO_API_KEY')
   const paymentUrl = crm?.stripe_payment_url
   if (!paymentUrl) throw new Error('Lipseste linkul de plata')
@@ -403,6 +487,9 @@ export async function sendConciergePaymentReminder({ request, crm }) {
   const amount = Number(crm.final_total_eur || 0)
   const fromEmail = getOptionalEnv('CONCIERGE_FROM_EMAIL') || 'contact@homepitch.ro'
   const senderName = getOptionalEnv('CONCIERGE_FROM_NAME') || 'HomePitch'
+  const emailSubject = cleanString(subject, 180) || 'Link plata servicii HomePitch Concierge'
+  const emailMessage = cleanString(message, 4000) || `Am pregatit linkul de plata pentru serviciile discutate. Suma finala este ${amount.toLocaleString('ro-RO')} EUR.`
+  const messageHtml = escapeHtml(emailMessage).replace(/\n/g, '<br>')
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -413,12 +500,12 @@ export async function sendConciergePaymentReminder({ request, crm }) {
     body: JSON.stringify({
       sender: { name: senderName, email: fromEmail },
       to: [{ email: request.email, name: request.full_name }],
-      subject: 'Link plata servicii HomePitch Concierge',
+      subject: emailSubject,
       htmlContent: `
         <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.55;max-width:640px;margin:0 auto;">
           <h2 style="margin:0 0 14px;color:#0f1e35;">Plata servicii HomePitch Concierge</h2>
           <p>Buna, ${escapeHtml(request.full_name)},</p>
-          <p>Am pregatit linkul de plata pentru serviciile discutate. Suma finala este <strong>${amount.toLocaleString('ro-RO')} EUR</strong>.</p>
+          <p>${messageHtml}</p>
           <p style="margin:22px 0;">
             <a href="${paymentUrl}" style="display:inline-block;background:#16a34a;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700;">Plateste serviciile</a>
           </p>

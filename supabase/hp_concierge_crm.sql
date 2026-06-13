@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.hp_concierge_crm (
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT hp_concierge_crm_request_unique UNIQUE (request_id),
   CONSTRAINT hp_concierge_crm_stage_check CHECK (
-    stage IN ('nou','contactare','consultanta','oferta_finala','plata_trimis','platit','livrare','inchis','pierdut')
+    stage IN ('nou','contactat','nu_a_raspuns','discutie_consultanta','refuz','modificare_oferta','oferta_trimisa','oferta_platita','plata_pending')
   ),
   CONSTRAINT hp_concierge_crm_payment_status_check CHECK (
     payment_status IN ('not_created','pending','paid','expired','cancelled','failed')

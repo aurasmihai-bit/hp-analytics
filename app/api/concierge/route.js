@@ -9,6 +9,7 @@ import {
   isMissingConciergeEmailLogTable,
   isMissingConciergeImportedRequestsTable,
   isPlatformServiceUnavailable,
+  normalizeConciergeStage,
   parseConciergeMessage,
   updateConciergeRequest,
   upsertConciergeCrmCase,
@@ -31,11 +32,6 @@ function latestByRequestId(rows) {
     if (!acc[row.request_id]) acc[row.request_id] = row
     return acc
   }, {})
-}
-
-function normalizeStage(value) {
-  if (value === 'new') return 'nou'
-  return value || 'nou'
 }
 
 function sourceDedupeKey(row) {
@@ -67,7 +63,7 @@ function mapRequestToRow(request, crm, emailLog) {
     },
     originalStatus: request.status,
     originalAdminNotes: request.admin_notes || '',
-    stage: normalizeStage(crm?.stage || request.status),
+    stage: normalizeConciergeStage(crm?.stage || request.status),
     contactStatus: crm?.contact_status || 'necontactat',
     owner: crm?.owner || '',
     comments: Array.isArray(crm?.comments) ? crm.comments : [],

@@ -4,14 +4,14 @@ import { C, KPI, Sec, Grid, Card, fmtN } from './components'
 
 const STAGES = [
   ['nou', 'Nou'],
-  ['contactare', 'Contactare'],
-  ['consultanta', 'Consultanta'],
-  ['oferta_finala', 'Oferta finala'],
-  ['plata_trimis', 'Plata trimisa'],
-  ['platit', 'Platit'],
-  ['livrare', 'Livrare'],
-  ['inchis', 'Inchis'],
-  ['pierdut', 'Pierdut'],
+  ['contactat', 'Contactat'],
+  ['nu_a_raspuns', 'Nu a raspuns'],
+  ['discutie_consultanta', 'Discutie consultanta'],
+  ['refuz', 'Refuz'],
+  ['modificare_oferta', 'Modificare oferta'],
+  ['oferta_trimisa', 'Oferta trimisa'],
+  ['oferta_platita', 'Oferta platita'],
+  ['plata_pending', 'Plata pending'],
 ]
 
 const PAYMENT_LABELS = {
@@ -56,6 +56,22 @@ const STANDARD_SERVICES = [
   'Serviciu extra',
 ]
 
+const CRM_META_ID = 'crm-meta'
+const POST_PAYMENT_CHECKLIST = [
+  ['client_contactat', 'Client contactat dupa plata'],
+  ['serviciu_programat', 'Serviciu programat'],
+  ['informatii_primite', 'Informatii/documente primite'],
+  ['serviciu_livrat', 'Serviciu livrat'],
+  ['feedback_cerut', 'Feedback cerut'],
+  ['caz_inchis', 'Caz inchis'],
+]
+
+const TASK_STATUSES = [
+  ['nou', 'Nou'],
+  ['in_lucru', 'In lucru'],
+  ['finalizat', 'Finalizat'],
+]
+
 function euro(value) {
   const n = Number(value || 0)
   return `${n.toLocaleString('ro-RO', { maximumFractionDigits: 2 })} EUR`
@@ -75,11 +91,121 @@ function safeDate(value) {
   return new Date(value).toLocaleString('ro-RO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
 }
 
+function datetimeLocal(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
+function fromDatetimeLocal(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  return Number.isFinite(date.getTime()) ? date.toISOString() : ''
+}
+
+function crmMeta(comments) {
+  return (comments || []).find(item => item?.type === 'meta' && item?.id === CRM_META_ID)?.meta || {}
+}
+
+function withCrmMeta(comments, updates) {
+  const current = crmMeta(comments)
+  const nextMeta = { ...current, ...updates }
+  const rest = (comments || []).filter(item => !(item?.type === 'meta' && item?.id === CRM_META_ID))
+  return [
+    ...rest,
+    {
+      id: CRM_META_ID,
+      type: 'meta',
+      text: 'CRM meta',
+      author: 'Dashboard',
+      created_at: current.created_at || new Date().toISOString(),
+      meta: { ...nextMeta, updated_at: new Date().toISOString() },
+    },
+  ]
+}
+
+function appendActivity(comments, event, text, meta = {}) {
+  return [
+    ...(comments || []),
+    {
+      id: `a-${event}-${Date.now()}`,
+      type: 'activity',
+      text,
+      author: 'Sistem',
+      created_at: new Date().toISOString(),
+      meta: { event, ...meta },
+    },
+  ]
+}
+
+function visibleComments(comments) {
+  return (comments || []).filter(item => !item?.type || item.type === 'comment')
+}
+
+function storedActivities(comments) {
+  return (comments || []).filter(item => item?.type === 'activity')
+}
+
+function defaultPaymentEmail(draft, finalTotal) {
+  const name = draft.customer?.name || 'Buna'
+  const services = (draft.services || []).map(service => `${service.quantity} x ${service.title}`).join(', ')
+  return {
+    subject: 'Link plata servicii HomePitch Concierge',
+    body: `Buna, ${name},\n\nAm pregatit linkul de plata pentru serviciile HomePitch Concierge${services ? `: ${services}` : ''}.\n\nSuma finala este ${euro(finalTotal)}.\n\nPoti face plata folosind linkul de mai jos.\n\nMultumim,\nEchipa HomePitch`,
+  }
+}
+
+function serviceTaskId(service, index) {
+  return `${service.id || service.title || 'serviciu'}-${index}`.replace(/[^a-zA-Z0-9_-]+/g, '-')
+}
+
+function serviceTasks(services, existingTasks = []) {
+  const byId = (existingTasks || []).reduce((acc, task) => {
+    if (task?.id) acc[task.id] = task
+    return acc
+  }, {})
+  return (services || []).map((service, index) => {
+    const id = serviceTaskId(service, index)
+    const existing = byId[id] || {}
+    return {
+      id,
+      title: service.title || 'Serviciu concierge',
+      quantity: Number(service.quantity || 1),
+      status: TASK_STATUSES.some(([status]) => status === existing.status) ? existing.status : 'nou',
+      comments: Array.isArray(existing.comments) ? existing.comments : [],
+    }
+  })
+}
+
+function automaticTimeline(draft, meta) {
+  const events = [
+    { id:'created', created_at:draft.createdAt, text:'Cererea concierge a fost primita.', author:'Sistem' },
+    ...storedActivities(draft.comments),
+  ]
+  if (draft.stripePaymentUrl) {
+    events.push({ id:'stripe-current', created_at:draft.updatedAt, text:'Exista link Stripe generat pentru aceasta cerere.', author:'Sistem' })
+  }
+  if (draft.reminderSentAt) {
+    events.push({ id:'reminder-current', created_at:draft.reminderSentAt, text:`Reminder plata trimis clientului (${draft.reminderCount || 1}).`, author:'Sistem' })
+  }
+  if (draft.paymentStatus === 'paid') {
+    events.push({ id:'paid-current', created_at:draft.paymentCheckedAt || draft.updatedAt, text:'Plata este confirmata.', author:'Sistem' })
+  }
+  if (meta.next_action_at) {
+    events.push({ id:'next-action', created_at:meta.next_action_at, text:`Urmatoarea actiune planificata${meta.next_action_note ? `: ${meta.next_action_note}` : '.'}`, author:'Dashboard' })
+  }
+  return events
+    .filter(event => event.created_at || event.text)
+    .sort((a, b) => timestamp(b.created_at) - timestamp(a.created_at))
+}
+
 function stageColor(stage) {
-  if (stage === 'platit' || stage === 'inchis') return C.green
-  if (stage === 'plata_trimis' || stage === 'oferta_finala') return C.blue
-  if (stage === 'pierdut') return C.red
-  if (stage === 'contactare' || stage === 'consultanta') return C.amber
+  if (stage === 'oferta_platita') return C.green
+  if (stage === 'oferta_trimisa' || stage === 'modificare_oferta') return C.blue
+  if (stage === 'refuz') return C.red
+  if (stage === 'contactat' || stage === 'nu_a_raspuns' || stage === 'discutie_consultanta' || stage === 'plata_pending') return C.amber
   return C.gray
 }
 
@@ -162,7 +288,7 @@ function StageButtons({ value, onChange, savingStage = '' }) {
         {savingStage && <span style={{fontSize:11,color:C.amber}}>Se salveaza etapa...</span>}
       </div>
       <div style={{overflowX:'auto',border:`0.5px solid ${C.border}`,borderRadius:10,background:C.softPanel}}>
-        <div style={{display:'grid',gridTemplateColumns:`repeat(${STAGES.length}, minmax(112px,1fr))`,minWidth:940}}>
+        <div style={{display:'grid',gridTemplateColumns:`repeat(${STAGES.length}, minmax(128px,1fr))`,minWidth:STAGES.length * 128}}>
           {STAGES.map(([id, label], index) => {
             const active = value === id
             const color = stageColor(id)
@@ -271,11 +397,11 @@ function getNextAction(draft, finalTotal) {
   if (draft.paymentStatus === 'paid') {
     return {
       title: 'Continua livrarea',
-      body: 'Plata este confirmata. Actualizeaza etapa spre livrare si noteaza urmatorul pas operational.',
+      body: 'Plata este confirmata. Urmareste task-urile pentru serviciile cumparate.',
       color: C.green,
     }
   }
-  if (draft.stage === 'nou' || draft.stage === 'contactare') {
+  if (draft.stage === 'nou' || draft.stage === 'contactat' || draft.stage === 'nu_a_raspuns') {
     return {
       title: 'Confirma cererea cu clientul',
       body: 'Contacteaza clientul, valideaza nevoia si transforma cererea intr-o oferta finala clara.',
@@ -302,6 +428,100 @@ function CaseSignals({ draft, finalTotal }) {
     <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
       {signals.map(([label, color]) => <StatusPill key={label} label={label} color={color}/>)}
     </div>
+  )
+}
+
+function PaymentStatusPanel({ draft }) {
+  const color = paymentColor(draft.paymentStatus)
+  return (
+    <div style={{border:`0.5px solid ${color}55`,background:C.softPanel,borderRadius:10,padding:'11px 12px',margin:'10px 0'}}>
+      <p style={{fontSize:10,color:C.hint,margin:'0 0 5px',textTransform:'uppercase',letterSpacing:'.05em'}}>Status plata</p>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}>
+        <strong style={{fontSize:18,color,margin:0}}>{PAYMENT_LABELS[draft.paymentStatus] || draft.paymentStatus}</strong>
+        <StatusPill label={draft.paymentCheckedAt ? `Verificat ${safeDate(draft.paymentCheckedAt)}` : 'Neverificat'} color={color}/>
+      </div>
+    </div>
+  )
+}
+
+function ActivityTimeline({ events }) {
+  return (
+    <Card>
+      <SectionHeader title="Timeline automat" description="Evenimente generate automat de CRM, afisate la finalul cererii."/>
+      {events.length ? events.map(event => (
+        <div key={event.id} style={{display:'grid',gridTemplateColumns:'10px minmax(0,1fr)',gap:10,borderTop:`0.5px solid ${C.border}`,padding:'12px 0'}}>
+          <span style={{width:8,height:8,borderRadius:'50%',background:C.green,marginTop:5}}/>
+          <div>
+            <p style={{fontSize:11,color:C.hint,margin:'0 0 4px'}}>{event.author || 'Sistem'} · {safeDate(event.created_at)}</p>
+            <p style={{fontSize:13,color:C.text,margin:0,lineHeight:1.5}}>{event.text}</p>
+          </div>
+        </div>
+      )) : (
+        <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista evenimente automate inca.</p>
+      )}
+    </Card>
+  )
+}
+
+function PostPaymentChecklist({ items, onToggle }) {
+  return (
+    <Card>
+      <SectionHeader title="Checklist dupa plata" description="Pasii operationali dupa confirmarea platii."/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
+        {POST_PAYMENT_CHECKLIST.map(([id, label]) => (
+          <label key={id} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 10px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,cursor:'pointer'}}>
+            <input type="checkbox" checked={!!items?.[id]} onChange={() => onToggle(id)} />
+            <span style={{fontSize:12,color:items?.[id] ? C.green : C.text,fontWeight:items?.[id] ? 700 : 500}}>{label}</span>
+          </label>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function TaskBoard({ tasks, onStatusChange, onAddComment }) {
+  const [draftComments, setDraftComments] = useState({})
+  return (
+    <Card>
+      <SectionHeader title="Task-uri" description="Fiecare serviciu cumparat devine task operational dupa plata."/>
+      <div style={{display:'grid',gap:10}}>
+        {tasks.length ? tasks.map(task => (
+          <div key={task.id} style={{border:`0.5px solid ${C.border}`,borderRadius:10,padding:12,background:C.softPanel}}>
+            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 150px',gap:10,alignItems:'center'}}>
+              <div>
+                <p style={{fontSize:13,fontWeight:700,color:C.text,margin:'0 0 3px'}}>{task.quantity} x {task.title}</p>
+                <p style={{fontSize:11,color:C.hint,margin:0}}>{(task.comments || []).length} comentarii</p>
+              </div>
+              <SelectInput label="Status" value={task.status} onChange={status => onStatusChange(task.id, status)} options={TASK_STATUSES}/>
+            </div>
+            <div style={{marginTop:10}}>
+              {(task.comments || []).map(item => (
+                <div key={item.id} style={{borderTop:`0.5px solid ${C.border}`,padding:'8px 0'}}>
+                  <p style={{fontSize:11,color:C.hint,margin:'0 0 3px'}}>{safeDate(item.created_at)}</p>
+                  <p style={{fontSize:12,color:C.text,margin:0,lineHeight:1.45}}>{item.text}</p>
+                </div>
+              ))}
+              <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:8,alignItems:'end',marginTop:8}}>
+                <TextInput label="Comentariu task" value={draftComments[task.id] || ''} onChange={value => setDraftComments(current => ({ ...current, [task.id]: value }))} placeholder="Adauga update operational"/>
+                <button
+                  onClick={() => {
+                    const text = (draftComments[task.id] || '').trim()
+                    if (!text) return
+                    onAddComment(task.id, text)
+                    setDraftComments(current => ({ ...current, [task.id]: '' }))
+                  }}
+                  style={{padding:'8px 10px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,cursor:'pointer'}}
+                >
+                  Adauga
+                </button>
+              </div>
+            </div>
+          </div>
+        )) : (
+          <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista servicii cumparate pentru task-uri.</p>
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -634,6 +854,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [detailTab, setDetailTab] = useState('detalii')
   const wideLayout = useWideLayout(1120)
 
   useEffect(() => {
@@ -642,6 +863,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setStageSaving('')
     setError('')
     setNotice('')
+    setDetailTab('detalii')
   }, [row?.id])
 
   const servicesTotal = useMemo(() => (draft.services || []).reduce((sum, service) => sum + Number(service.subtotal_eur || 0), 0), [draft.services])
@@ -690,10 +912,12 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   async function changeStage(stage) {
     if (!stage || stage === draft.stage || stageSaving) return
     const previousStage = draft.stage
+    const stageLabel = STAGES.find(([id]) => id === stage)?.[1] || stage
+    const nextComments = appendActivity(draft.comments, 'stage_changed', `Etapa schimbata in ${stageLabel}.`, { stage })
     setStageSaving(stage)
-    patch({ stage })
-    const ok = await save({ stage }, { refresh:false, notice:'Etapa salvata.' })
-    if (!ok) patch({ stage: previousStage })
+    patch({ stage, comments: nextComments })
+    const ok = await save({ stage, comments: nextComments }, { refresh:false, notice:'Etapa salvata.' })
+    if (!ok) patch({ stage: previousStage, comments: draft.comments })
     setStageSaving('')
   }
 
@@ -733,7 +957,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
-      patch({ stripePaymentUrl: json.url, stripeSessionId: json.sessionId, paymentStatus:'pending', stage:'plata_trimis' })
+      const nextComments = appendActivity(draft.comments, 'stripe_link_created', `Link Stripe creat pentru ${euro(finalTotal)}.`, { sessionId: json.sessionId, paymentUrl: json.url })
+      patch({ stripePaymentUrl: json.url, stripeSessionId: json.sessionId, paymentStatus:'pending', stage:'plata_pending', comments: nextComments })
       setNotice('Link Stripe creat.')
     } catch (e) {
       setError(e.message || 'Nu am putut crea linkul Stripe')
@@ -747,10 +972,16 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setError('')
     setNotice('')
     try {
+      const meta = crmMeta(draft.comments)
+      const fallback = defaultPaymentEmail(draft, finalTotal)
       const res = await fetch('/api/concierge/payment-reminder', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ requestId: draft.requestId }),
+        body:JSON.stringify({
+          requestId: draft.requestId,
+          subject: meta.payment_email_subject || fallback.subject,
+          message: meta.payment_email_body || fallback.body,
+        }),
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
@@ -766,6 +997,12 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const stageLabel = STAGES.find(([id]) => id === draft.stage)?.[1] || draft.stage
   const nextAction = getNextAction(draft, finalTotal)
   const briefText = draft.customerMessage || draft.rawMessage || ''
+  const meta = crmMeta(draft.comments)
+  const paymentEmail = defaultPaymentEmail(draft, finalTotal)
+  const checklist = meta.post_payment_checklist || {}
+  const tasks = serviceTasks(draft.services, meta.service_tasks || [])
+  const showTasks = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
+  const timelineEvents = automaticTimeline(draft, meta)
   const primaryButton = {
     padding:'9px 12px',border:'none',borderRadius:8,background:'#15803d',color:'#fff',
     fontSize:12,fontWeight:700,cursor:'pointer',textDecoration:'none',textAlign:'center',
@@ -774,6 +1011,61 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const secondaryButton = {
     padding:'8px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:8,
     background:C.input,color:C.text,cursor:'pointer',textDecoration:'none',textAlign:'center',
+  }
+
+  function patchMeta(updates) {
+    patch({ comments: withCrmMeta(draft.comments, updates) })
+  }
+
+  async function saveMeta(updates, noticeText, activity) {
+    const withMeta = withCrmMeta(draft.comments, updates)
+    const nextComments = activity ? appendActivity(withMeta, activity.event, activity.text, activity.meta) : withMeta
+    patch({ comments: nextComments })
+    return save({ comments: nextComments }, { refresh:false, notice:noticeText })
+  }
+
+  async function saveNextAction() {
+    await saveMeta(
+      {
+        next_action_at: meta.next_action_at || '',
+        next_action_note: meta.next_action_note || '',
+      },
+      'Urmatoarea actiune a fost salvata.',
+      { event:'next_action_saved', text:'Urmatoarea actiune a fost actualizata.', meta:{ nextActionAt: meta.next_action_at || '' } }
+    )
+  }
+
+  async function toggleChecklistItem(id) {
+    const nextChecklist = { ...checklist, [id]: !checklist[id] }
+    await saveMeta(
+      { post_payment_checklist: nextChecklist },
+      'Checklist salvat.',
+      { event:'post_payment_checklist_updated', text:`Checklist dupa plata actualizat: ${POST_PAYMENT_CHECKLIST.find(([key]) => key === id)?.[1] || id}.`, meta:{ checklistItem:id, checked:nextChecklist[id] } }
+    )
+  }
+
+  async function updateTaskStatus(taskId, status) {
+    const nextTasks = tasks.map(task => task.id === taskId ? { ...task, status } : task)
+    await saveMeta(
+      { service_tasks: nextTasks },
+      'Task salvat.',
+      { event:'task_status_updated', text:`Task actualizat: ${nextTasks.find(task => task.id === taskId)?.title || taskId} -> ${TASK_STATUSES.find(([key]) => key === status)?.[1] || status}.`, meta:{ taskId, status } }
+    )
+  }
+
+  async function addTaskComment(taskId, text) {
+    const nextTasks = tasks.map(task => task.id === taskId ? {
+      ...task,
+      comments: [
+        ...(task.comments || []),
+        { id:`tc-${Date.now()}`, text, author:'Dashboard', created_at:new Date().toISOString() },
+      ],
+    } : task)
+    await saveMeta(
+      { service_tasks: nextTasks },
+      'Comentariu task salvat.',
+      { event:'task_comment_added', text:`Comentariu adaugat pe task: ${nextTasks.find(task => task.id === taskId)?.title || taskId}.`, meta:{ taskId } }
+    )
   }
 
   const nextActionCard = (
@@ -800,12 +1092,33 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const paymentCard = (
     <Card>
       <SectionHeader title="Plata" description="Linkul generat ramane independent de contul HomePitch."/>
+      <PaymentStatusPanel draft={draft}/>
       <TextInput label="Link plata Stripe" value={draft.stripePaymentUrl} onChange={stripePaymentUrl=>patch({stripePaymentUrl})} placeholder="se genereaza automat"/>
       {draft.stripePaymentUrl && (
         <a href={draft.stripePaymentUrl} target="_blank" rel="noopener noreferrer" style={{...primaryButton,display:'block',marginTop:10}}>Deschide link plata</a>
       )}
-      <FieldRow label="Status" value={PAYMENT_LABELS[draft.paymentStatus] || draft.paymentStatus}/>
       <FieldRow label="Sesiune Stripe" value={draft.stripeSessionId ? `${draft.stripeSessionId.slice(0, 18)}...` : '—'}/>
+      {draft.stripePaymentUrl && (
+        <div style={{marginTop:12,borderTop:`0.5px solid ${C.border}`,paddingTop:12}}>
+          <SectionHeader title="Email plata" description="Mesaj precompletat pentru trimiterea linkului catre client."/>
+          <div style={{display:'grid',gap:8}}>
+            <TextInput
+              label="Subiect email"
+              value={meta.payment_email_subject || paymentEmail.subject}
+              onChange={value=>patchMeta({ payment_email_subject:value })}
+            />
+            <TextInput
+              label="Mesaj email"
+              value={meta.payment_email_body || paymentEmail.body}
+              onChange={value=>patchMeta({ payment_email_body:value })}
+              multiline
+            />
+            <button onClick={sendReminder} disabled={busy==='reminder'} style={{...primaryButton,background:busy==='reminder'?'#64748b':'#15803d',cursor:busy==='reminder'?'not-allowed':'pointer'}}>
+              {busy==='reminder'?'Se trimite...':'Trimite email plata'}
+            </button>
+          </div>
+        </div>
+      )}
     </Card>
   )
 
@@ -874,6 +1187,28 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
         {caseDataCard}
       </div>
 
+      {showTasks && (
+        <div style={{display:'flex',gap:8,borderBottom:`0.5px solid ${C.border}`,paddingTop:2}}>
+          {[
+            ['detalii', 'Detalii'],
+            ['taskuri', 'Task-uri'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              onClick={()=>setDetailTab(id)}
+              style={{
+                padding:'9px 12px',border:'none',borderBottom:`2px solid ${detailTab === id ? C.blue : 'transparent'}`,
+                background:'transparent',color:detailTab === id ? C.blue : C.muted,fontSize:12,fontWeight:detailTab === id ? 700 : 500,
+                cursor:'pointer',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(!showTasks || detailTab === 'detalii') ? (
       <div style={{
         display:'grid',
         gridTemplateColumns:'minmax(0,1fr)',
@@ -895,6 +1230,13 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
             <StageButtons value={draft.stage} onChange={changeStage} savingStage={stageSaving}/>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
               <TextInput label="Owner intern" value={draft.owner} onChange={owner=>patch({owner})} placeholder="ex: Auras"/>
+              <TextInput label="Urmatoarea actiune" type="datetime-local" value={datetimeLocal(meta.next_action_at)} onChange={value=>patchMeta({ next_action_at:fromDatetimeLocal(value) })}/>
+              <TextInput label="Nota actiune" value={meta.next_action_note || ''} onChange={value=>patchMeta({ next_action_note:value })} placeholder="ex: revin cu oferta revizuita"/>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end',marginTop:10}}>
+              <button onClick={saveNextAction} disabled={saving} style={{...secondaryButton,color:C.blue,border:`0.5px solid ${C.blue}`,background:C.softBlue}}>
+                Salveaza urmatoarea actiune
+              </button>
             </div>
           </Card>
 
@@ -927,6 +1269,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
             </div>
           </Card>
 
+          {showTasks && <PostPaymentChecklist items={checklist} onToggle={toggleChecklistItem}/>}
+
           <Card>
             <SectionHeader title="Timeline si comentarii" description="Pastreaza istoricul discutiilor si deciziilor interne."/>
             <TextInput label="Comentariu nou" value={comment} onChange={setComment} multiline placeholder="Note despre discutie, follow-up, preferinte client..."/>
@@ -936,7 +1280,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
               </button>
             </div>
             <div style={{marginTop:12}}>
-              {(draft.comments || []).length ? (draft.comments || []).slice().reverse().map(item => (
+              {visibleComments(draft.comments).length ? visibleComments(draft.comments).slice().reverse().map(item => (
                 <div key={item.id} style={{display:'grid',gridTemplateColumns:'10px minmax(0,1fr)',gap:10,borderTop:`0.5px solid ${C.border}`,padding:'12px 0'}}>
                   <span style={{width:8,height:8,borderRadius:'50%',background:C.blue,marginTop:5}}/>
                   <div>
@@ -949,8 +1293,13 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
               )}
             </div>
           </Card>
+
+          <ActivityTimeline events={timelineEvents}/>
         </div>
       </div>
+      ) : (
+        <TaskBoard tasks={tasks} onStatusChange={updateTaskStatus} onAddComment={addTaskComment}/>
+      )}
     </div>
   )
 }
