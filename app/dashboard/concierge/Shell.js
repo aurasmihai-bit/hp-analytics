@@ -6,9 +6,14 @@ import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from '../them
 
 export function ConciergeShell({ children, maxWidth = 1180 }) {
   const [darkMode, setDarkMode] = useState(false)
+  const [session, setSession] = useState({ canAccessAll: false })
 
   useEffect(() => {
     setDarkMode(localStorage.getItem(THEME_STORAGE_KEY) === 'dark' || localStorage.getItem('hp_concierge_theme') === 'dark')
+    fetch('/api/concierge/session', { cache:'no-store' })
+      .then(res => res.ok ? res.json() : null)
+      .then(json => json && setSession(json))
+      .catch(() => {})
   }, [])
 
   function toggleTheme() {
@@ -36,8 +41,12 @@ export function ConciergeShell({ children, maxWidth = 1180 }) {
         </div>
         <div style={{flex:1}}/>
         <ThemeSwitch darkMode={darkMode} onToggle={toggleTheme}/>
-        <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Dashboard</a>
-        <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
+        {session.canAccessAll && (
+          <>
+            <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
+            <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
+          </>
+        )}
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
       </div>
       <main style={{maxWidth,margin:'0 auto',padding:'20px 16px'}}>

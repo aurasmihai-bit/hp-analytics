@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isConciergeAuthorized } from '../../../lib/auth'
 import {
   appendCrmActivity,
   getPendingConciergePayments,
@@ -12,11 +13,10 @@ export const maxDuration = 60
 
 function isAuthorized(request) {
   const cronSecret = process.env.CRON_SECRET
-  const sessionSecret = process.env.SESSION_SECRET
   const authHeader = request.headers.get('authorization')
   return (
     (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
-    (!!sessionSecret && request.cookies.get('hp_session')?.value === sessionSecret)
+    isConciergeAuthorized(request)
   )
 }
 

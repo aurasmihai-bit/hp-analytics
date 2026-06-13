@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation'
+import { CrmLoginForm } from './CrmLoginForm'
 
 export default function Home() {
-  redirect('/dashboard')
+  return <CrmLoginForm />
 }

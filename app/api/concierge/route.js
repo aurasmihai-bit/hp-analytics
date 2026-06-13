@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isConciergeAuthorized } from '../../lib/auth'
 import {
   cleanCrmInput,
   getConciergeCrmCases,
@@ -19,12 +20,8 @@ export const dynamic = 'force-dynamic'
 
 function isAuthorized(request) {
   const cronSecret = process.env.CRON_SECRET
-  const sessionSecret = process.env.SESSION_SECRET
   const authHeader = request.headers.get('authorization')
-  return (
-    (cronSecret && authHeader === `Bearer ${cronSecret}`) ||
-    (!!sessionSecret && request.cookies.get('hp_session')?.value === sessionSecret)
-  )
+  return (cronSecret && authHeader === `Bearer ${cronSecret}`) || isConciergeAuthorized(request)
 }
 
 function latestByRequestId(rows) {

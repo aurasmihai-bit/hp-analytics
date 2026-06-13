@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isConciergeAuthorized } from '../../../lib/auth'
 import {
   appendCrmActivity,
   getConciergeCrmCases,
@@ -10,13 +11,8 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-function isAuthorized(request) {
-  const sessionSecret = process.env.SESSION_SECRET
-  return !!sessionSecret && request.cookies.get('hp_session')?.value === sessionSecret
-}
-
 export async function POST(request) {
-  if (!isAuthorized(request)) {
+  if (!isConciergeAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

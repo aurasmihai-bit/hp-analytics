@@ -113,7 +113,7 @@ export default function CereriPiataPage() {
         <div style={{flex:1}}/>
         <ThemeSwitch darkMode={darkMode} onToggle={toggleTheme}/>
         <PeriodControls days={days} customFrom={customFrom} customTo={customTo} onDays={selectDays} onCustom={selectCustom}/>
-        <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Dashboard</a>
+        <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
       </div>
       <div style={{width:'100%',boxSizing:'border-box',padding:'20px 16px'}}>
         <TabCereriPiata days={days} customFrom={customFrom} customTo={customTo}/>

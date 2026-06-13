@@ -62,6 +62,10 @@ const TASK_STATUSES = [
   ['in_lucru', 'In lucru'],
   ['finalizat', 'Finalizat'],
 ]
+const CRM_USER_ROLES = [
+  ['admin', 'Admin'],
+  ['asistent', 'Asistent'],
+]
 const CONCIERGE_LIST_GRID = 'minmax(180px,1.15fr) minmax(190px,1.25fr) 104px minmax(160px,1fr) 112px 112px 78px 96px 88px'
 
 function euro(value) {
@@ -236,12 +240,18 @@ function caseInfo(row) {
   return row.customerMessage || row.finalNotes || row.rawMessage || 'Fara brief'
 }
 
+function ownerDisplay(owner, users = []) {
+  if (!owner) return 'Fara asistent'
+  const user = users.find(item => item.username === owner)
+  return user ? (user.display_name || user.displayName || user.username) : owner
+}
+
 function sourceLabel(row) {
   return row.source === 'imported' ? (row.sourceLabel || 'import email') : 'HomePitch live'
 }
 
-function RowButton({ row }) {
-  const owner = row.owner || 'Fara owner'
+function RowButton({ row, users = [] }) {
+  const owner = ownerDisplay(row.owner, users)
   const hasOwner = Boolean(row.owner)
   return (
     <a href={`/dashboard/concierge/${encodeURIComponent(row.id)}`} style={{
@@ -296,6 +306,32 @@ function SelectInput({ label, value, onChange, options }) {
       <select value={value || ''} onChange={e=>onChange(e.target.value)} style={{width:'100%',padding:'8px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit'}}>
         {options.map(([id,label]) => <option key={id} value={id}>{label}</option>)}
       </select>
+    </label>
+  )
+}
+
+function MultiChoiceFilter({ label, value, onChange, options }) {
+  const selected = new Set(value || [])
+  function toggle(id) {
+    const next = new Set(selected)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange(Array.from(next))
+  }
+
+  return (
+    <label style={{display:'block'}}>
+      <span style={{display:'block',fontSize:10,color:C.hint,marginBottom:4,textTransform:'uppercase',letterSpacing:'.04em'}}>{label}</span>
+      <div style={{border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,padding:'7px 8px',minHeight:37,maxHeight:92,overflowY:'auto'}}>
+        {options.length ? options.map(([id, optionLabel]) => (
+          <label key={id} style={{display:'inline-flex',alignItems:'center',gap:5,margin:'0 8px 5px 0',fontSize:12,color:C.text,cursor:'pointer'}}>
+            <input type="checkbox" checked={selected.has(id)} onChange={()=>toggle(id)} style={{accentColor:C.blue}}/>
+            <span>{optionLabel}</span>
+          </label>
+        )) : (
+          <span style={{fontSize:12,color:C.hint}}>Fara optiuni</span>
+        )}
+      </div>
     </label>
   )
 }
@@ -388,8 +424,8 @@ function useWideLayout(minWidth = 1080) {
 function getNextAction(draft, finalTotal) {
   if (!draft.owner) {
     return {
-      title: 'Atribuie un owner',
-      body: 'Seteaza persoana responsabila inainte de follow-up, ca sa fie clar cine continua cazul.',
+      title: 'Atribuie un asistent',
+      body: 'Seteaza asistentul responsabil inainte de follow-up, ca sa fie clar cine continua cazul.',
       color: C.amber,
     }
   }
@@ -437,7 +473,7 @@ function getNextAction(draft, finalTotal) {
 
 function CaseSignals({ draft, finalTotal }) {
   const signals = []
-  if (!draft.owner) signals.push(['Owner lipsa', C.amber])
+  if (!draft.owner) signals.push(['Asistent lipsa', C.amber])
   if (!(draft.services || []).length) signals.push(['Servicii lipsa', C.amber])
   if (finalTotal <= 0) signals.push(['Total lipsa', C.red])
   if (draft.paymentStatus === 'pending') signals.push(['Plata pending', C.amber])
@@ -673,7 +709,7 @@ function ConciergeReports({ rows }) {
   const total = rows.length
   const paid = rows.filter(row => row.paymentStatus === 'paid').length
   const pending = rows.filter(row => row.paymentStatus === 'pending').length
-  const noOwner = rows.filter(row => !row.owner).length
+  const noAssistant = rows.filter(row => !row.owner).length
   const noPaymentLink = rows.filter(row => !row.stripePaymentUrl && row.paymentStatus !== 'paid').length
   const taskRows = rows
     .map(row => ({ row, progress: taskProgress(row) }))
@@ -769,7 +805,7 @@ function ConciergeReports({ rows }) {
         <Card>
           <SectionHeader title="Semnale operationale" description="Zone care cer follow-up rapid."/>
           <div style={{display:'grid',gap:8}}>
-            <StatusPill label={`${noOwner} fara owner`} color={noOwner ? C.amber : C.green}/>
+            <StatusPill label={`${noAssistant} fara asistent`} color={noAssistant ? C.amber : C.green}/>
             <StatusPill label={`${noPaymentLink} fara link de plata`} color={noPaymentLink ? C.amber : C.green}/>
             <StatusPill label={`${pending} plati pending`} color={pending ? C.amber : C.green}/>
             <StatusPill label={`${unfinishedTaskRequests} cereri cu task-uri nefinalizate`} color={unfinishedTaskRequests ? C.amber : C.green}/>
@@ -823,6 +859,157 @@ function ConciergeReports({ rows }) {
           />
         </Card>
       </div>
+    </div>
+  )
+}
+
+function ConciergeUsersPanel({ users, setupRequired, error, onReload }) {
+  const emptyDraft = {
+    id: '',
+    username: '',
+    displayName: '',
+    email: '',
+    role: 'asistent',
+    active: true,
+    password: '',
+  }
+  const [draft, setDraft] = useState(emptyDraft)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [localError, setLocalError] = useState('')
+
+  function patch(updates) {
+    setDraft(current => ({ ...current, ...updates }))
+  }
+
+  function startCreate() {
+    setDraft(emptyDraft)
+    setEditing(true)
+    setNotice('')
+    setLocalError('')
+  }
+
+  function startEdit(user) {
+    setDraft({
+      id: user.id,
+      username: user.username || '',
+      displayName: user.display_name || user.displayName || '',
+      email: user.email || '',
+      role: user.role || 'asistent',
+      active: user.active !== false,
+      password: '',
+    })
+    setEditing(true)
+    setNotice('')
+    setLocalError('')
+  }
+
+  async function saveUser(e) {
+    e.preventDefault()
+    setSaving(true)
+    setLocalError('')
+    setNotice('')
+    try {
+      const method = draft.id ? 'PATCH' : 'POST'
+      const res = await fetch('/api/concierge/users', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
+      setNotice(draft.id ? 'User actualizat.' : 'User creat.')
+      setEditing(false)
+      setDraft(emptyDraft)
+      await onReload()
+    } catch (e) {
+      setLocalError(e.message || 'Nu am putut salva userul')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deleteUser(user) {
+    if (!window.confirm(`Stergi userul ${user.username}?`)) return
+    setSaving(true)
+    setLocalError('')
+    setNotice('')
+    try {
+      const res = await fetch('/api/concierge/users', {
+        method:'DELETE',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ id:user.id }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
+      setNotice('User sters.')
+      await onReload()
+    } catch (e) {
+      setLocalError(e.message || 'Nu am putut sterge userul')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{display:'grid',gap:14}}>
+      {setupRequired && (
+        <div style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:10,padding:'12px 14px',color:C.amber,fontSize:13,lineHeight:1.5}}>
+          Lipseste tabela hp_concierge_users. Ruleaza `supabase/hp_concierge_users.sql` in Supabase analytics.
+        </div>
+      )}
+      {(error || localError) && <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',color:C.red,fontSize:13}}>{localError || error}</div>}
+      {notice && <div style={{background:C.softGreen,border:`0.5px solid ${C.green}`,borderRadius:10,padding:'12px 14px',color:C.green,fontSize:13}}>{notice}</div>}
+
+      <Card>
+        <SectionHeader
+          title="Useri CRM Concierge"
+          description="Userii activi pot fi alocati ca asistenti pe cereri. Adminii au acces complet; asistentii doar la Concierge CRM."
+          right={<button onClick={startCreate} style={{padding:'8px 11px',border:'none',borderRadius:8,background:C.blue,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Adauga user</button>}
+        />
+
+        {editing && (
+          <form onSubmit={saveUser} style={{border:`0.5px solid ${C.border}`,borderRadius:10,padding:12,background:C.softPanel,marginBottom:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
+              <TextInput label="Username" value={draft.username} onChange={username=>patch({username})} disabled={!!draft.id} placeholder="ex: asistent1"/>
+              <TextInput label="Nume afisat" value={draft.displayName} onChange={displayName=>patch({displayName})} placeholder="ex: Andrei Popescu"/>
+              <TextInput label="Email" value={draft.email} onChange={email=>patch({email})} placeholder="email optional"/>
+              <SelectInput label="Rol" value={draft.role} onChange={role=>patch({role})} options={CRM_USER_ROLES}/>
+              <SelectInput label="Status" value={draft.active ? 'active' : 'inactive'} onChange={value=>patch({active:value === 'active'})} options={[['active','Activ'],['inactive','Inactiv']]}/>
+              <TextInput label={draft.id ? 'Parola noua optionala' : 'Parola'} type="password" value={draft.password} onChange={password=>patch({password})} placeholder={draft.id ? 'lasa gol daca nu schimbi' : 'min. 4 caractere'}/>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:12}}>
+              <button type="button" onClick={()=>setEditing(false)} style={{padding:'8px 11px',border:`0.5px solid ${C.border}`,borderRadius:8,background:'transparent',color:C.muted,fontSize:12,cursor:'pointer'}}>Renunta</button>
+              <button type="submit" disabled={saving || !draft.username || (!draft.id && !draft.password)} style={{padding:'8px 12px',border:'none',borderRadius:8,background:saving?'#64748b':C.green,color:'#fff',fontSize:12,fontWeight:700,cursor:saving?'not-allowed':'pointer'}}>
+                {saving ? 'Se salveaza...' : 'Salveaza user'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        <ReportTable
+          empty="Nu exista useri CRM."
+          columns={[
+            { key:'display_name', label:'User', render:row => (
+              <div>
+                <p style={{fontSize:12,fontWeight:700,color:C.text,margin:'0 0 2px'}}>{row.display_name || row.username}</p>
+                <p style={{fontSize:11,color:C.hint,margin:0}}>@{row.username}{row.email ? ` · ${row.email}` : ''}</p>
+              </div>
+            ) },
+            { key:'role', label:'Rol', render:row => <StatusPill label={row.role === 'admin' ? 'Admin' : 'Asistent'} color={row.role === 'admin' ? C.blue : C.gray}/> },
+            { key:'active', label:'Status', render:row => <StatusPill label={row.active ? 'Activ' : 'Inactiv'} color={row.active ? C.green : C.red}/> },
+            { key:'last_login_at', label:'Ultima logare', align:'right', render:row => safeDate(row.last_login_at) },
+            { key:'actions', label:'Actiuni', align:'right', render:row => (
+              <div style={{display:'flex',justifyContent:'flex-end',gap:6}}>
+                <button onClick={()=>startEdit(row)} style={{padding:'6px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,background:C.input,color:C.blue,fontSize:11,cursor:'pointer'}}>Editeaza</button>
+                <button onClick={()=>deleteUser(row)} style={{padding:'6px 8px',border:`0.5px solid ${C.red}`,borderRadius:7,background:'transparent',color:C.red,fontSize:11,cursor:'pointer'}}>Sterge</button>
+              </div>
+            ) },
+          ]}
+          rows={users}
+        />
+      </Card>
     </div>
   )
 }
@@ -883,7 +1070,7 @@ function ServicesEditor({ services, onChange, disabled = false }) {
   )
 }
 
-export function DetailsPanel({ row, onSaved, onCheckPayments }) {
+export function DetailsPanel({ row, onSaved, onCheckPayments, users = [] }) {
   const [draft, setDraft] = useState(row)
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
@@ -1049,6 +1236,17 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const secondaryButton = {
     padding:'8px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:8,
     background:C.input,color:C.text,cursor:'pointer',textDecoration:'none',textAlign:'center',
+  }
+  const activeAssistants = users.filter(user => user.active !== false)
+  const assistantOptions = [
+    ['', 'Fara asistent'],
+    ...activeAssistants.map(user => [
+      user.username,
+      `${user.display_name || user.displayName || user.username}${user.role === 'admin' ? ' · admin' : ''}`,
+    ]),
+  ]
+  if (draft.owner && !assistantOptions.some(([value]) => value === draft.owner)) {
+    assistantOptions.push([draft.owner, `${draft.owner} (manual)`])
   }
 
   function patchMeta(updates) {
@@ -1242,7 +1440,11 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
             />
             <StageButtons value={draft.stage} onChange={changeStage} savingStage={stageSaving}/>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
-              <TextInput label="Owner intern" value={draft.owner} onChange={owner=>patch({owner})} placeholder="ex: Auras"/>
+              {users.length ? (
+                <SelectInput label="Asistent CRM" value={draft.owner} onChange={owner=>patch({owner})} options={assistantOptions}/>
+              ) : (
+                <TextInput label="Asistent CRM" value={draft.owner} onChange={owner=>patch({owner})} placeholder="ex: auras"/>
+              )}
               <TextInput label="Urmatoarea actiune" type="datetime-local" value={datetimeLocal(meta.next_action_at)} onChange={value=>patchMeta({ next_action_at:fromDatetimeLocal(value) })}/>
               <TextInput label="Nota actiune" value={meta.next_action_note || ''} onChange={value=>patchMeta({ next_action_note:value })} placeholder="ex: revin cu oferta revizuita"/>
             </div>
@@ -1348,6 +1550,7 @@ export function TabConcierge() {
   const [stageFilter, setStageFilter] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('')
   const [sourceFilter, setSourceFilter] = useState('')
+  const [assistantFilter, setAssistantFilter] = useState([])
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [minValue, setMinValue] = useState('')
@@ -1355,6 +1558,10 @@ export function TabConcierge() {
   const [crmView, setCrmView] = useState('cereri')
   const [query, setQuery] = useState('')
   const [checking, setChecking] = useState(false)
+  const [users, setUsers] = useState([])
+  const [usersSetupRequired, setUsersSetupRequired] = useState(false)
+  const [usersError, setUsersError] = useState('')
+  const [session, setSession] = useState({ canManageUsers: false })
 
   async function load() {
     setLoading(true)
@@ -1387,13 +1594,45 @@ export function TabConcierge() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  async function loadUsers() {
+    setUsersError('')
+    try {
+      const res = await fetch('/api/concierge/users', { cache:'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (json.setupRequired) {
+        setUsersSetupRequired(true)
+        setUsers([])
+        return
+      }
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
+      setUsers(json.users || [])
+      setUsersSetupRequired(false)
+    } catch (e) {
+      setUsersError(e.message || 'Nu am putut incarca userii CRM')
+      setUsers([])
+    }
+  }
+
+  async function loadSession() {
+    try {
+      const res = await fetch('/api/concierge/session', { cache:'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (res.ok) setSession(json)
+    } catch {}
+  }
+
+  useEffect(() => {
+    load()
+    loadSession()
+    loadUsers()
+  }, [])
 
   function resetFilters() {
     setQuery('')
     setStageFilter('')
     setPaymentFilter('')
     setSourceFilter('')
+    setAssistantFilter([])
     setDateFrom('')
     setDateTo('')
     setMinValue('')
@@ -1409,6 +1648,7 @@ export function TabConcierge() {
       if (stageFilter && row.stage !== stageFilter) return false
       if (paymentFilter && row.paymentStatus !== paymentFilter) return false
       if (sourceFilter && row.source !== sourceFilter) return false
+      if (assistantFilter.length && !assistantFilter.includes(row.owner || '__none__')) return false
       const created = timestamp(row.createdAt)
       if (fromTime && created < fromTime) return false
       if (toTime && created > toTime) return false
@@ -1420,6 +1660,7 @@ export function TabConcierge() {
           row.customer.email,
           row.customer.phone,
           row.owner,
+          ownerDisplay(row.owner, users),
           row.contactStatus,
           stageLabel,
           PAYMENT_LABELS[row.paymentStatus],
@@ -1446,7 +1687,21 @@ export function TabConcierge() {
       }
       return timestamp(b.createdAt) - timestamp(a.createdAt)
     })
-  }, [rows, stageFilter, paymentFilter, sourceFilter, dateFrom, dateTo, minValue, sortBy, query])
+  }, [rows, users, stageFilter, paymentFilter, sourceFilter, assistantFilter, dateFrom, dateTo, minValue, sortBy, query])
+
+  const assistantFilterOptions = useMemo(() => {
+    const map = new Map()
+    map.set('__none__', 'Fara asistent')
+    users.forEach(user => {
+      if (user.active !== false && user.username) {
+        map.set(user.username, user.display_name || user.displayName || user.username)
+      }
+    })
+    rows.forEach(row => {
+      if (row.owner && !map.has(row.owner)) map.set(row.owner, ownerDisplay(row.owner, users))
+    })
+    return Array.from(map.entries())
+  }, [rows, users])
 
   const paid = rows.filter(row => row.paymentStatus === 'paid').length
   const pendingPayment = rows.filter(row => row.paymentStatus === 'pending').length
@@ -1457,6 +1712,7 @@ export function TabConcierge() {
     stageFilter,
     paymentFilter,
     sourceFilter,
+    assistantFilter.length ? assistantFilter.join(',') : '',
     dateFrom,
     dateTo,
     minValue,
@@ -1496,6 +1752,7 @@ export function TabConcierge() {
         {[
           ['cereri', 'Cereri'],
           ['rapoarte', 'Rapoarte'],
+          ...(session.canManageUsers ? [['useri', 'Useri']] : []),
         ].map(([id, label]) => (
           <button
             key={id}
@@ -1513,6 +1770,8 @@ export function TabConcierge() {
 
       {crmView === 'rapoarte' ? (
         <ConciergeReports rows={rows}/>
+      ) : crmView === 'useri' ? (
+        <ConciergeUsersPanel users={users} setupRequired={usersSetupRequired} error={usersError} onReload={loadUsers}/>
       ) : (
         <>
           <Grid>
@@ -1524,16 +1783,21 @@ export function TabConcierge() {
 
           <Card style={{padding:'12px',marginBottom:12}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}>
-              <div style={{gridColumn:'span 2'}}>
-              <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon, owner, brief, serviciu"/>
+              <div style={{gridColumn:'1 / -1'}}>
+              <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon, asistent, brief, serviciu"/>
               </div>
               <SelectInput label="Etapa" value={stageFilter} onChange={setStageFilter} options={[['','Toate'], ...STAGES]}/>
               <SelectInput label="Plata" value={paymentFilter} onChange={setPaymentFilter} options={[['','Toate'], ...PAYMENT_OPTIONS]}/>
               <SelectInput label="Sursa" value={sourceFilter} onChange={setSourceFilter} options={[['','Toate'], ...SOURCE_OPTIONS]}/>
-              <SelectInput label="Sortare" value={sortBy} onChange={setSortBy} options={SORT_OPTIONS}/>
+              <div style={{gridColumn:'span 2'}}>
+                <MultiChoiceFilter label="Asistent" value={assistantFilter} onChange={setAssistantFilter} options={assistantFilterOptions}/>
+              </div>
               <TextInput label="De la" type="date" value={dateFrom} onChange={setDateFrom}/>
               <TextInput label="Pana la" type="date" value={dateTo} onChange={setDateTo}/>
               <TextInput label="Valoare min. EUR" type="number" value={minValue} onChange={setMinValue} placeholder="ex: 100"/>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'minmax(180px,260px)',gap:10,marginTop:10}}>
+              <SelectInput label="Sortare" value={sortBy} onChange={setSortBy} options={SORT_OPTIONS}/>
             </div>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:10,flexWrap:'wrap'}}>
               <p style={{fontSize:12,color:C.muted,margin:0}}>
@@ -1552,12 +1816,12 @@ export function TabConcierge() {
                   display:'grid',gridTemplateColumns:CONCIERGE_LIST_GRID,
                   gap:12,alignItems:'center',padding:'0 13px 9px',borderBottom:`0.5px solid ${C.border}`,marginBottom:8,
                 }}>
-                  {['Client','Info','Owner','Servicii','Etapa','Plata','Task-uri','Total','Trimis la'].map(label => (
+                  {['Client','Info','Asistent','Servicii','Etapa','Plata','Task-uri','Total','Trimis la'].map(label => (
                     <span key={label} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',textAlign:['Task-uri'].includes(label)?'center':['Total','Trimis la'].includes(label)?'right':'left'}}>{label}</span>
                   ))}
                 </div>
                 <div>
-                  {filtered.map(row => <RowButton key={row.id} row={row}/>)}
+                  {filtered.map(row => <RowButton key={row.id} row={row} users={users}/>)}
                   {!filtered.length && <p style={{fontSize:13,color:C.hint,textAlign:'center',padding:'24px 0'}}>Nu exista cereri pentru filtrele curente.</p>}
                 </div>
               </div>
@@ -1571,6 +1835,7 @@ export function TabConcierge() {
 
 export function ConciergeDetail({ requestId }) {
   const [rows, setRows] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [checking, setChecking] = useState(false)
@@ -1605,7 +1870,18 @@ export function ConciergeDetail({ requestId }) {
     }
   }
 
-  useEffect(() => { load() }, [requestId])
+  async function loadUsers() {
+    try {
+      const res = await fetch('/api/concierge/users', { cache:'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (res.ok) setUsers(json.users || [])
+    } catch {}
+  }
+
+  useEffect(() => {
+    load()
+    loadUsers()
+  }, [requestId])
 
   const row = rows.find(item => String(item.id) === String(requestId))
 
@@ -1625,7 +1901,7 @@ export function ConciergeDetail({ requestId }) {
       </div>
 
       {error && <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',marginBottom:14,color:C.red,fontSize:13}}>{error}</div>}
-      {row ? <DetailsPanel row={row} onSaved={load} onCheckPayments={checkPayments}/> : (
+      {row ? <DetailsPanel row={row} users={users} onSaved={load} onCheckPayments={checkPayments}/> : (
         <Card>
           <p style={{fontSize:13,color:C.muted,margin:'0 0 10px'}}>Nu am gasit aceasta cerere concierge.</p>
           <a href="/dashboard/concierge" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>Vezi lista de cereri</a>

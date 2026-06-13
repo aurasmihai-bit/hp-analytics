@@ -1,13 +1,8 @@
 import { NextResponse } from 'next/server'
+import { clearSessionCookies } from '../../../lib/auth'
 
 export async function POST() {
   const response = NextResponse.json({ ok: true })
-  response.cookies.set('hp_session', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 0,
-    path: '/',
-  })
+  clearSessionCookies(response)
   return response
 }
