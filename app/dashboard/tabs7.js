@@ -864,17 +864,26 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       {error && <div style={{padding:'10px 12px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:13}}>{error}</div>}
 
       <div style={{
-        display:'grid',
-        gridTemplateColumns:wideLayout ? 'minmax(0,56fr) minmax(360px,44fr)' : 'minmax(0,1fr)',
+        display:'flex',
+        flexDirection:wideLayout ? 'row' : 'column',
         gap:14,
         alignItems:'start',
         width:'100%',
         maxWidth:'100%',
+        overflow:'hidden',
       }}>
-        <div style={{display:'grid',gap:14,minWidth:0,maxWidth:'100%',overflowX:'auto'}}>
+        <div style={{
+          display:'grid',
+          gap:14,
+          minWidth:0,
+          width:wideLayout ? 'calc(56% - 7px)' : '100%',
+          flex:wideLayout ? '0 1 calc(56% - 7px)' : '1 1 auto',
+          maxWidth:wideLayout ? 'calc(56% - 7px)' : '100%',
+          overflow:'hidden',
+        }}>
           <div style={{
             display:'grid',
-            gridTemplateColumns:wideLayout ? 'repeat(2,minmax(0,1fr))' : 'minmax(0,1fr)',
+            gridTemplateColumns:'minmax(0,1fr)',
             gap:14,
             minWidth:0,
           }}>
@@ -952,9 +961,9 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           top:wideLayout ? 76 : 'auto',
           alignSelf:'start',
           minWidth:0,
-          width:'100%',
-          maxWidth:'100%',
-          zIndex:1,
+          width:wideLayout ? 'calc(44% - 7px)' : '100%',
+          flex:wideLayout ? '0 0 calc(44% - 7px)' : '1 1 auto',
+          maxWidth:wideLayout ? 'calc(44% - 7px)' : '100%',
         }}>
           {nextActionCard}
         </aside>
