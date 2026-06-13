@@ -62,6 +62,7 @@ const TASK_STATUSES = [
   ['in_lucru', 'In lucru'],
   ['finalizat', 'Finalizat'],
 ]
+const CONCIERGE_LIST_GRID = 'minmax(180px,1.15fr) minmax(190px,1.25fr) 104px minmax(160px,1fr) 112px 112px 78px 96px 88px'
 
 function euro(value) {
   const n = Number(value || 0)
@@ -170,6 +171,23 @@ function serviceTasks(services, existingTasks = []) {
   })
 }
 
+function isPaidForTasks(row) {
+  return row?.stage === 'oferta_platita' || row?.paymentStatus === 'paid'
+}
+
+function taskProgress(row) {
+  if (!isPaidForTasks(row)) return null
+  const tasks = serviceTasks(row.services, crmMeta(row.comments).service_tasks || [])
+  if (!tasks.length) return null
+  const completed = tasks.filter(task => task.status === 'finalizat').length
+  return { total: tasks.length, completed, open: Math.max(0, tasks.length - completed) }
+}
+
+function taskProgressLabel(row) {
+  const progress = taskProgress(row)
+  return progress ? `${progress.total}/${progress.completed}` : '-'
+}
+
 function automaticTimeline(draft, meta) {
   const events = [
     { id:'created', created_at:draft.createdAt, text:'Cererea concierge a fost primita.', author:'Sistem' },
@@ -214,14 +232,20 @@ function serviceSummary(row) {
   return `${titles.slice(0, 2).join(', ')} +${titles.length - 2}`
 }
 
+function caseInfo(row) {
+  return row.customerMessage || row.finalNotes || row.rawMessage || 'Fara brief'
+}
+
 function sourceLabel(row) {
   return row.source === 'imported' ? (row.sourceLabel || 'import email') : 'HomePitch live'
 }
 
 function RowButton({ row }) {
+  const owner = row.owner || 'Fara owner'
+  const hasOwner = Boolean(row.owner)
   return (
     <a href={`/dashboard/concierge/${encodeURIComponent(row.id)}`} style={{
-      display:'grid',gridTemplateColumns:'minmax(190px,1.4fr) minmax(180px,1.3fr) 112px 112px 96px 88px',
+      display:'grid',gridTemplateColumns:CONCIERGE_LIST_GRID,
       gap:12,alignItems:'center',width:'100%',boxSizing:'border-box',border:`0.5px solid ${C.border}`,
       borderRadius:10,background:C.card,padding:'12px 13px',textDecoration:'none',marginBottom:8,
       boxShadow:'0 1px 8px rgba(15,23,42,.04)',
@@ -229,13 +253,16 @@ function RowButton({ row }) {
       <div style={{minWidth:0}}>
         <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.name}</p>
         <p style={{fontSize:11,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.email}{row.customer.phone ? ` · ${row.customer.phone}` : ''}</p>
-        <p style={{fontSize:10,color:C.hint,margin:'3px 0 0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sourceLabel(row)}{row.owner ? ` · owner: ${row.owner}` : ''}</p>
+        <p style={{fontSize:10,color:C.hint,margin:'3px 0 0',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sourceLabel(row)}</p>
       </div>
+      <p style={{fontSize:12,color:C.muted,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={caseInfo(row)}>{caseInfo(row)}</p>
+      <span style={{fontSize:11,fontWeight:700,color:hasOwner ? C.text : C.amber,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={owner}>{owner}</span>
       <p style={{fontSize:12,color:C.muted,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{serviceSummary(row)}</p>
       <span style={{fontSize:11,fontWeight:600,color:stageColor(row.stage),background:C.input,border:`0.5px solid ${stageColor(row.stage)}55`,borderRadius:99,padding:'4px 8px',whiteSpace:'nowrap',textAlign:'center'}}>
           {STAGES.find(([id])=>id===row.stage)?.[1] || row.stage}
       </span>
       <span style={{fontSize:11,fontWeight:600,color:paymentColor(row.paymentStatus),textAlign:'center'}}>{PAYMENT_LABELS[row.paymentStatus] || row.paymentStatus}</span>
+      <span title="task-uri platite / task-uri rezolvate" style={{fontSize:12,fontWeight:700,color:taskProgress(row) ? C.text : C.hint,textAlign:'center'}}>{taskProgressLabel(row)}</span>
       <span style={{fontSize:12,fontWeight:700,color:C.text,textAlign:'right'}}>{euro(rowTotal(row))}</span>
       <span style={{fontSize:11,color:C.muted,textAlign:'right'}}>{safeDate(row.createdAt)}</span>
     </a>
@@ -646,6 +673,13 @@ function ConciergeReports({ rows }) {
   const pending = rows.filter(row => row.paymentStatus === 'pending').length
   const noOwner = rows.filter(row => !row.owner).length
   const noPaymentLink = rows.filter(row => !row.stripePaymentUrl && row.paymentStatus !== 'paid').length
+  const taskRows = rows
+    .map(row => ({ row, progress: taskProgress(row) }))
+    .filter(item => item.progress)
+  const paidTaskTotal = taskRows.reduce((sum, item) => sum + item.progress.total, 0)
+  const completedTaskTotal = taskRows.reduce((sum, item) => sum + item.progress.completed, 0)
+  const openTaskTotal = Math.max(0, paidTaskTotal - completedTaskTotal)
+  const unfinishedTaskRequests = taskRows.filter(item => item.progress.open > 0).length
   const totalValue = rows.reduce((sum, row) => sum + rowTotal(row), 0)
   const avgValue = total ? totalValue / total : 0
   const maxTime = rows.reduce((max, row) => Math.max(max, timestamp(row.createdAt)), 0) || Date.now()
@@ -663,6 +697,10 @@ function ConciergeReports({ rows }) {
     value: rows.filter(row => row.paymentStatus === id).length,
     color: paymentColor(id),
   })).filter(row => row.value > 0)
+  const taskStatusRows = [
+    { label:'Rezolvate', value:completedTaskTotal, color:C.green },
+    { label:'Nefinalizate', value:openTaskTotal, color:C.amber },
+  ].filter(row => row.value > 0)
   const serviceMap = new Map()
   rows.forEach(row => {
     ;(row.services || []).forEach(service => {
@@ -712,6 +750,13 @@ function ConciergeReports({ rows }) {
         <KPI label="Valoare medie" curr={avgValue} sub="EUR / cerere"/>
         <KPI label="Plati pending" curr={pending}/>
         <KPI label="Rata platite" curr={paidRate} type="pctN"/>
+        <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>
+          <p style={{fontSize:11,color:C.hint,margin:'0 0 6px',textTransform:'uppercase',letterSpacing:'.05em'}}>Task-uri platite / rezolvate</p>
+          <div style={{display:'flex',alignItems:'baseline',gap:2,flexWrap:'wrap'}}>
+            <span style={{fontSize:22,fontWeight:500,color:C.text}}>{paidTaskTotal ? `${paidTaskTotal}/${completedTaskTotal}` : '-'}</span>
+          </div>
+          <p style={{fontSize:11,color:C.hint,margin:'4px 0 0'}}>{unfinishedTaskRequests} cereri cu task-uri nefinalizate</p>
+        </div>
       </Grid>
 
       <div style={{display:'grid',gridTemplateColumns:'minmax(0,1.4fr) minmax(260px,.8fr)',gap:14,alignItems:'start'}}>
@@ -725,6 +770,7 @@ function ConciergeReports({ rows }) {
             <StatusPill label={`${noOwner} fara owner`} color={noOwner ? C.amber : C.green}/>
             <StatusPill label={`${noPaymentLink} fara link de plata`} color={noPaymentLink ? C.amber : C.green}/>
             <StatusPill label={`${pending} plati pending`} color={pending ? C.amber : C.green}/>
+            <StatusPill label={`${unfinishedTaskRequests} cereri cu task-uri nefinalizate`} color={unfinishedTaskRequests ? C.amber : C.green}/>
           </div>
         </Card>
       </div>
@@ -737,6 +783,10 @@ function ConciergeReports({ rows }) {
         <Card>
           <SectionHeader title="Status plata"/>
           <HorizontalBars rows={paymentRows.length ? paymentRows : [{ label:'Fara date', value:0 }]} color={C.green}/>
+        </Card>
+        <Card>
+          <SectionHeader title="Status task-uri" description="Task-uri generate pentru cererile platite."/>
+          <HorizontalBars rows={taskStatusRows.length ? taskStatusRows : [{ label:'Fara task-uri platite', value:0 }]} color={C.amber}/>
         </Card>
       </div>
 
@@ -836,7 +886,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [detailTab, setDetailTab] = useState('detalii')
   const wideLayout = useWideLayout(1120)
 
   useEffect(() => {
@@ -845,7 +894,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setStageSaving('')
     setError('')
     setNotice('')
-    setDetailTab('detalii')
   }, [row?.id])
 
   const servicesTotal = useMemo(() => (draft.services || []).reduce((sum, service) => sum + Number(service.subtotal_eur || 0), 0), [draft.services])
@@ -982,8 +1030,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const meta = crmMeta(draft.comments)
   const paymentEmail = defaultPaymentEmail(draft, finalTotal)
   const tasks = serviceTasks(draft.services, meta.service_tasks || [])
-  const showTasks = true
-  const tasksReady = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
+  const paymentFinalized = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
+  const tasksReady = paymentFinalized
   const timelineEvents = automaticTimeline(draft, meta)
   const primaryButton = {
     padding:'9px 12px',border:'none',borderRadius:8,background:'#15803d',color:'#fff',
@@ -1124,37 +1172,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           </div>
           <div style={{minWidth:260,display:'grid',gap:10,justifyItems:'end'}}>
             <CaseSignals draft={draft} finalTotal={finalTotal}/>
-            {showTasks && (
-              <div style={{display:'inline-flex',gap:6,padding:4,border:`0.5px solid ${C.border}`,borderRadius:10,background:C.input}}>
-                {[
-                  ['detalii', 'Detalii'],
-                  ['taskuri', 'Task-uri'],
-                ].map(([id, label]) => {
-                  const active = detailTab === id
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={()=>setDetailTab(id)}
-                      style={{
-                        minHeight:40,
-                        padding:id === 'taskuri' ? '10px 18px' : '10px 14px',
-                        border:'none',
-                        borderRadius:8,
-                        background:active ? C.blue : 'transparent',
-                        color:active ? '#fff' : C.text,
-                        fontSize:id === 'taskuri' ? 14 : 13,
-                        fontWeight:800,
-                        cursor:'pointer',
-                        boxShadow:active ? '0 2px 8px rgba(37,99,235,.25)' : 'none',
-                      }}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
             <button onClick={()=>save()} disabled={saving} style={{...primaryButton,background:saving?'#64748b':'#15803d',cursor:saving?'not-allowed':'pointer'}}>
               {saving?'Se salveaza...':'Salveaza modificari'}
             </button>
@@ -1179,19 +1196,20 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       {notice && <div style={{padding:'10px 12px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:13}}>{notice}</div>}
       {error && <div style={{padding:'10px 12px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:13}}>{error}</div>}
 
-      <div style={{
-        display:'grid',
-        gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',
-        gap:14,
-        width:'100%',
-        maxWidth:'100%',
-      }}>
-        {nextActionCard}
-        {paymentCard}
-        {caseDataCard}
-      </div>
+      {!paymentFinalized && (
+        <div style={{
+          display:'grid',
+          gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',
+          gap:14,
+          width:'100%',
+          maxWidth:'100%',
+        }}>
+          {nextActionCard}
+          {paymentCard}
+          {caseDataCard}
+        </div>
+      )}
 
-      {(!showTasks || detailTab === 'detalii') ? (
       <div style={{
         display:'grid',
         gridTemplateColumns:'minmax(0,1fr)',
@@ -1205,6 +1223,10 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           minWidth:0,
           maxWidth:'100%',
         }}>
+          {tasksReady && (
+            <TaskBoard tasks={tasks} enabled={tasksReady} onStatusChange={updateTaskStatus} onAddComment={addTaskComment}/>
+          )}
+
           <Card>
             <SectionHeader
               title="Workflow"
@@ -1278,9 +1300,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           <ActivityTimeline events={timelineEvents}/>
         </div>
       </div>
-      ) : (
-        <TaskBoard tasks={tasks} enabled={tasksReady} onStatusChange={updateTaskStatus} onAddComment={addTaskComment}/>
-      )}
     </div>
   )
 }
@@ -1370,7 +1389,10 @@ export function TabConcierge() {
           PAYMENT_LABELS[row.paymentStatus],
           sourceLabel(row),
           serviceSummary(row),
+          caseInfo(row),
+          taskProgressLabel(row),
           row.finalNotes,
+          row.customerMessage,
           row.rawMessage,
         ].join(' ').toLowerCase()
         if (!haystack.includes(q)) return false
@@ -1467,7 +1489,7 @@ export function TabConcierge() {
           <Card style={{padding:'12px',marginBottom:12}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:10}}>
               <div style={{gridColumn:'span 2'}}>
-              <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon, serviciu"/>
+              <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon, owner, brief, serviciu"/>
               </div>
               <SelectInput label="Etapa" value={stageFilter} onChange={setStageFilter} options={[['','Toate'], ...STAGES]}/>
               <SelectInput label="Plata" value={paymentFilter} onChange={setPaymentFilter} options={[['','Toate'], ...PAYMENT_OPTIONS]}/>
@@ -1489,13 +1511,13 @@ export function TabConcierge() {
 
           <Card style={{padding:'12px'}}>
             <div style={{overflowX:'auto'}}>
-              <div style={{minWidth:860}}>
+              <div style={{minWidth:1180}}>
                 <div style={{
-                  display:'grid',gridTemplateColumns:'minmax(190px,1.4fr) minmax(180px,1.3fr) 112px 112px 96px 88px',
+                  display:'grid',gridTemplateColumns:CONCIERGE_LIST_GRID,
                   gap:12,alignItems:'center',padding:'0 13px 9px',borderBottom:`0.5px solid ${C.border}`,marginBottom:8,
                 }}>
-                  {['Client','Servicii','Etapa','Plata','Total','Trimis la'].map(label => (
-                    <span key={label} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',textAlign:['Total','Trimis la'].includes(label)?'right':'left'}}>{label}</span>
+                  {['Client','Info','Owner','Servicii','Etapa','Plata','Task-uri','Total','Trimis la'].map(label => (
+                    <span key={label} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',textAlign:['Task-uri'].includes(label)?'center':['Total','Trimis la'].includes(label)?'right':'left'}}>{label}</span>
                   ))}
                 </div>
                 <div>
