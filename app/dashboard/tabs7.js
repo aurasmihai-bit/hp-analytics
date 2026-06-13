@@ -408,7 +408,7 @@ export function TabConcierge() {
         </button>
       </div>
 
-      {(setupRequired.crm || setupRequired.emailLog || setupRequired.importedRequests || setupRequired.platformServiceKey) && (
+      {(setupRequired.crm || setupRequired.emailLog || setupRequired.importedRequests) && (
         <div style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:10,padding:'12px 14px',marginBottom:14}}>
           <p style={{fontSize:13,fontWeight:600,color:C.amber,margin:'0 0 4px'}}>Setup Supabase pending</p>
           <p style={{fontSize:13,color:C.muted,margin:0}}>
@@ -416,7 +416,6 @@ export function TabConcierge() {
             {setupRequired.importedRequests ? 'Lipseste tabela hp_concierge_imported_requests. ' : ''}
             {setupRequired.emailLog ? 'Lipseste auditul hp_concierge_email_log. ' : ''}
             {setupRequired.crm || setupRequired.importedRequests ? 'Ruleaza `supabase/hp_concierge_crm.sql` in Supabase analytics. ' : ''}
-            {setupRequired.platformServiceKey ? 'PLATFORM_SUPABASE_SERVICE_KEY lipseste sau nu este cheia service_role corecta pentru HomePitch, deci cererile live nu pot fi citite direct. CRM-ul foloseste importurile din analytics; pentru sync automat din formular seteaza secretul HP_ANALYTICS_SUPABASE_SERVICE_KEY in Edge Function-ul HomePitch. ' : ''}
             {setupRequired.emailLog ? 'Ruleaza migrarea hp_concierge_email_log in Supabase HomePitch. ' : ''}
           </p>
         </div>
