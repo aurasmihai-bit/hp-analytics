@@ -7,11 +7,11 @@ const STAGES = [
   ['contactat', 'Contactat'],
   ['nu_a_raspuns', 'Nu a raspuns'],
   ['discutie_consultanta', 'Discutie consultanta'],
-  ['refuz', 'Refuz'],
   ['modificare_oferta', 'Modificare oferta'],
   ['oferta_trimisa', 'Oferta trimisa'],
   ['oferta_platita', 'Oferta platita'],
   ['plata_pending', 'Plata pending'],
+  ['refuz', 'Refuz'],
 ]
 
 const PAYMENT_LABELS = {
@@ -57,15 +57,6 @@ const STANDARD_SERVICES = [
 ]
 
 const CRM_META_ID = 'crm-meta'
-const POST_PAYMENT_CHECKLIST = [
-  ['client_contactat', 'Client contactat dupa plata'],
-  ['serviciu_programat', 'Serviciu programat'],
-  ['informatii_primite', 'Informatii/documente primite'],
-  ['serviciu_livrat', 'Serviciu livrat'],
-  ['feedback_cerut', 'Feedback cerut'],
-  ['caz_inchis', 'Caz inchis'],
-]
-
 const TASK_STATUSES = [
   ['nou', 'Nou'],
   ['in_lucru', 'In lucru'],
@@ -459,22 +450,6 @@ function ActivityTimeline({ events }) {
       )) : (
         <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista evenimente automate inca.</p>
       )}
-    </Card>
-  )
-}
-
-function PostPaymentChecklist({ items, onToggle }) {
-  return (
-    <Card>
-      <SectionHeader title="Checklist dupa plata" description="Pasii operationali dupa confirmarea platii."/>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:8}}>
-        {POST_PAYMENT_CHECKLIST.map(([id, label]) => (
-          <label key={id} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 10px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,cursor:'pointer'}}>
-            <input type="checkbox" checked={!!items?.[id]} onChange={() => onToggle(id)} />
-            <span style={{fontSize:12,color:items?.[id] ? C.green : C.text,fontWeight:items?.[id] ? 700 : 500}}>{label}</span>
-          </label>
-        ))}
-      </div>
     </Card>
   )
 }
@@ -999,7 +974,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const briefText = draft.customerMessage || draft.rawMessage || ''
   const meta = crmMeta(draft.comments)
   const paymentEmail = defaultPaymentEmail(draft, finalTotal)
-  const checklist = meta.post_payment_checklist || {}
   const tasks = serviceTasks(draft.services, meta.service_tasks || [])
   const showTasks = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
   const timelineEvents = automaticTimeline(draft, meta)
@@ -1032,15 +1006,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       },
       'Urmatoarea actiune a fost salvata.',
       { event:'next_action_saved', text:'Urmatoarea actiune a fost actualizata.', meta:{ nextActionAt: meta.next_action_at || '' } }
-    )
-  }
-
-  async function toggleChecklistItem(id) {
-    const nextChecklist = { ...checklist, [id]: !checklist[id] }
-    await saveMeta(
-      { post_payment_checklist: nextChecklist },
-      'Checklist salvat.',
-      { event:'post_payment_checklist_updated', text:`Checklist dupa plata actualizat: ${POST_PAYMENT_CHECKLIST.find(([key]) => key === id)?.[1] || id}.`, meta:{ checklistItem:id, checked:nextChecklist[id] } }
     )
   }
 
@@ -1151,6 +1116,37 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           </div>
           <div style={{minWidth:260,display:'grid',gap:10,justifyItems:'end'}}>
             <CaseSignals draft={draft} finalTotal={finalTotal}/>
+            {showTasks && (
+              <div style={{display:'inline-flex',gap:6,padding:4,border:`0.5px solid ${C.border}`,borderRadius:10,background:C.input}}>
+                {[
+                  ['detalii', 'Detalii'],
+                  ['taskuri', 'Task-uri'],
+                ].map(([id, label]) => {
+                  const active = detailTab === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={()=>setDetailTab(id)}
+                      style={{
+                        minHeight:40,
+                        padding:id === 'taskuri' ? '10px 18px' : '10px 14px',
+                        border:'none',
+                        borderRadius:8,
+                        background:active ? C.blue : 'transparent',
+                        color:active ? '#fff' : C.text,
+                        fontSize:id === 'taskuri' ? 14 : 13,
+                        fontWeight:800,
+                        cursor:'pointer',
+                        boxShadow:active ? '0 2px 8px rgba(37,99,235,.25)' : 'none',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             <button onClick={()=>save()} disabled={saving} style={{...primaryButton,background:saving?'#64748b':'#15803d',cursor:saving?'not-allowed':'pointer'}}>
               {saving?'Se salveaza...':'Salveaza modificari'}
             </button>
@@ -1186,27 +1182,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
         {paymentCard}
         {caseDataCard}
       </div>
-
-      {showTasks && (
-        <div style={{display:'flex',gap:8,borderBottom:`0.5px solid ${C.border}`,paddingTop:2}}>
-          {[
-            ['detalii', 'Detalii'],
-            ['taskuri', 'Task-uri'],
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              onClick={()=>setDetailTab(id)}
-              style={{
-                padding:'9px 12px',border:'none',borderBottom:`2px solid ${detailTab === id ? C.blue : 'transparent'}`,
-                background:'transparent',color:detailTab === id ? C.blue : C.muted,fontSize:12,fontWeight:detailTab === id ? 700 : 500,
-                cursor:'pointer',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
 
       {(!showTasks || detailTab === 'detalii') ? (
       <div style={{
@@ -1268,8 +1243,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
               </button>
             </div>
           </Card>
-
-          {showTasks && <PostPaymentChecklist items={checklist} onToggle={toggleChecklistItem}/>}
 
           <Card>
             <SectionHeader title="Timeline si comentarii" description="Pastreaza istoricul discutiilor si deciziilor interne."/>
