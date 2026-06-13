@@ -224,6 +224,20 @@ function FieldRow({ label, value }) {
   )
 }
 
+function BriefPreview({ text }) {
+  if (!text) {
+    return <p style={{fontSize:12,color:C.hint,margin:'8px 0 0'}}>Nu exista mesaj separat de la client.</p>
+  }
+  return (
+    <div style={{padding:'8px 0',borderBottom:`0.5px solid ${C.border}`}}>
+      <p style={{fontSize:11,color:C.hint,margin:'0 0 6px',textTransform:'uppercase',letterSpacing:'.04em'}}>Brief client</p>
+      <p style={{fontSize:12,color:C.text,margin:0,lineHeight:1.5,whiteSpace:'pre-wrap',display:'-webkit-box',WebkitLineClamp:5,WebkitBoxOrient:'vertical',overflow:'hidden'}}>
+        {text}
+      </p>
+    </div>
+  )
+}
+
 function useWideLayout(minWidth = 1080) {
   const [wide, setWide] = useState(true)
 
@@ -814,8 +828,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       <FieldRow label="Creat" value={safeDate(draft.createdAt)}/>
       <FieldRow label="Actualizat" value={safeDate(draft.updatedAt)}/>
       <FieldRow label="Sursa" value={sourceLabel(draft)}/>
-      <FieldRow label="Email audit" value={draft.email?.status || '—'}/>
-      <FieldRow label="ID cerere" value={draft.requestId ? `${String(draft.requestId).slice(0, 8)}...` : '—'}/>
+      <BriefPreview text={draft.customerMessage}/>
     </Card>
   )
 
