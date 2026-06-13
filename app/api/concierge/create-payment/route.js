@@ -72,7 +72,12 @@ export async function POST(request) {
       }, { status: 503 })
     }
     const message = error.message || 'Nu am putut crea linkul Stripe'
-    const status = message.includes('STRIPE_SECRET_KEY') ? 503 : 500
+    if (message.includes('STRIPE_SECRET_KEY')) {
+      return NextResponse.json({
+        error: 'Lipseste cheia Stripe in Vercel. Seteaza variabila STRIPE_SECRET_KEY in proiectul hp-analytics si redeploy aplicatia.',
+      }, { status: 503 })
+    }
+    const status = 500
     return NextResponse.json({ error: message }, { status })
   }
 }
