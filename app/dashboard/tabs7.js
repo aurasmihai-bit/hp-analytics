@@ -697,16 +697,21 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setStageSaving('')
   }
 
-  function addComment() {
+  async function addComment() {
     const text = comment.trim()
-    if (!text) return
-    patch({
-      comments: [
-        ...(draft.comments || []),
-        { id:`c-${Date.now()}`, text, author:'Dashboard', created_at:new Date().toISOString() },
-      ],
-    })
+    if (!text || saving) return
+    const previousComments = draft.comments || []
+    const nextComments = [
+      ...previousComments,
+      { id:`c-${Date.now()}`, text, author:'Dashboard', created_at:new Date().toISOString() },
+    ]
+    patch({ comments: nextComments })
     setComment('')
+    const ok = await save({ comments: nextComments }, { refresh:false, notice:'Comentariu salvat.' })
+    if (!ok) {
+      patch({ comments: previousComments })
+      setComment(text)
+    }
   }
 
   async function createPayment() {
@@ -860,13 +865,13 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
 
       <div style={{
         display:'grid',
-        gridTemplateColumns:wideLayout ? 'minmax(0,7fr) minmax(280px,3fr)' : 'minmax(0,1fr)',
+        gridTemplateColumns:wideLayout ? 'minmax(0,56fr) minmax(360px,44fr)' : 'minmax(0,1fr)',
         gap:14,
         alignItems:'start',
         width:'100%',
         maxWidth:'100%',
       }}>
-        <div style={{display:'grid',gap:14,minWidth:0}}>
+        <div style={{display:'grid',gap:14,minWidth:0,maxWidth:'100%',overflowX:'auto'}}>
           <div style={{
             display:'grid',
             gridTemplateColumns:wideLayout ? 'repeat(2,minmax(0,1fr))' : 'minmax(0,1fr)',
@@ -921,7 +926,9 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
             <SectionHeader title="Timeline si comentarii" description="Pastreaza istoricul discutiilor si deciziilor interne."/>
             <TextInput label="Comentariu nou" value={comment} onChange={setComment} multiline placeholder="Note despre discutie, follow-up, preferinte client..."/>
             <div style={{display:'flex',justifyContent:'flex-end',marginTop:8}}>
-              <button onClick={addComment} style={{...secondaryButton,color:C.blue}}>Adauga comentariu</button>
+              <button onClick={addComment} disabled={saving || !comment.trim()} style={{...secondaryButton,color:C.blue,opacity:(saving || !comment.trim())?0.55:1,cursor:(saving || !comment.trim())?'not-allowed':'pointer'}}>
+                {saving?'Se salveaza...':'Adauga comentariu'}
+              </button>
             </div>
             <div style={{marginTop:12}}>
               {(draft.comments || []).length ? (draft.comments || []).slice().reverse().map(item => (
@@ -947,6 +954,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
           minWidth:0,
           width:'100%',
           maxWidth:'100%',
+          zIndex:1,
         }}>
           {nextActionCard}
         </aside>
