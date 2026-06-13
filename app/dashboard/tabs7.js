@@ -610,7 +610,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
     setError('')
     setNotice('')
     try {
-      const saved = await save()
+      const saved = await save({}, { refresh:false, showNotice:false })
       if (!saved) return
       const res = await fetch('/api/concierge/create-payment', {
         method:'POST',
@@ -626,7 +626,6 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
       patch({ stripePaymentUrl: json.url, stripeSessionId: json.sessionId, paymentStatus:'pending', stage:'plata_trimis' })
       setNotice('Link Stripe creat.')
-      await onSaved()
     } catch (e) {
       setError(e.message || 'Nu am putut crea linkul Stripe')
     } finally {
@@ -803,6 +802,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
               <button onClick={createPayment} disabled={busy==='payment' || finalTotal <= 0} style={{...primaryButton,background:(busy==='payment' || finalTotal <= 0)?'#64748b':'#15803d',cursor:(busy==='payment' || finalTotal <= 0)?'not-allowed':'pointer'}}>
                 {busy==='payment'?'Se creeaza...':'Creeaza link Stripe'}
               </button>
+              {error && <div style={{padding:'9px 10px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:12,lineHeight:1.4}}>{error}</div>}
+              {notice && <div style={{padding:'9px 10px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:12,lineHeight:1.4}}>{notice}</div>}
               <button onClick={sendReminder} disabled={busy==='reminder' || !draft.stripePaymentUrl} style={{...secondaryButton,color:C.amber,border:`0.5px solid ${C.amber}`}}>
                 {busy==='reminder'?'Se trimite...':'Reminder plata email'}
               </button>
