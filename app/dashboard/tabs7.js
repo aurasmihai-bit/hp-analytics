@@ -23,6 +23,16 @@ const PAYMENT_LABELS = {
   failed: 'Eroare',
 }
 
+const STANDARD_SERVICES = [
+  'Vizionare delegata',
+  'Analiza oferta primita',
+  'Comparare proprietati',
+  'Verificare acte',
+  'Strategie de ofertare',
+  'Discutie cu expert, 30 min',
+  'Serviciu extra',
+]
+
 function euro(value) {
   const n = Number(value || 0)
   return `${n.toLocaleString('ro-RO', { maximumFractionDigits: 2 })} EUR`
@@ -48,27 +58,33 @@ function paymentColor(status) {
   return C.gray
 }
 
-function RowButton({ row, selected, onClick }) {
+function serviceSummary(row) {
+  const titles = (row.services || []).map(service => service.title).filter(Boolean)
+  if (!titles.length) return 'Fara servicii selectate'
+  if (titles.length <= 2) return titles.join(', ')
+  return `${titles.slice(0, 2).join(', ')} +${titles.length - 2}`
+}
+
+function RowButton({ row }) {
   return (
-    <button onClick={onClick} style={{
-      width:'100%',textAlign:'left',border:`0.5px solid ${selected?C.blue:C.border}`,borderRadius:10,
-      background:selected?C.softBlue:C.card,padding:'12px 13px',cursor:'pointer',marginBottom:8,
+    <a href={`/dashboard/concierge/${encodeURIComponent(row.id)}`} style={{
+      display:'grid',gridTemplateColumns:'minmax(190px,1.4fr) minmax(180px,1.3fr) 112px 112px 96px 88px',
+      gap:12,alignItems:'center',width:'100%',boxSizing:'border-box',border:`0.5px solid ${C.border}`,
+      borderRadius:10,background:C.card,padding:'12px 13px',textDecoration:'none',marginBottom:8,
+      boxShadow:'0 1px 8px rgba(15,23,42,.04)',
     }}>
-      <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}>
-        <div style={{minWidth:0}}>
-          <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.name}</p>
-          <p style={{fontSize:11,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.email}</p>
-          {row.source === 'imported' && <p style={{fontSize:10,color:C.amber,margin:'3px 0 0'}}>import email</p>}
-        </div>
-        <span style={{fontSize:10,fontWeight:600,color:stageColor(row.stage),background:C.input,border:`0.5px solid ${stageColor(row.stage)}55`,borderRadius:99,padding:'2px 7px',whiteSpace:'nowrap'}}>
+      <div style={{minWidth:0}}>
+        <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.name}</p>
+        <p style={{fontSize:11,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.email}{row.customer.phone ? ` · ${row.customer.phone}` : ''}</p>
+      </div>
+      <p style={{fontSize:12,color:C.muted,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{serviceSummary(row)}</p>
+      <span style={{fontSize:11,fontWeight:600,color:stageColor(row.stage),background:C.input,border:`0.5px solid ${stageColor(row.stage)}55`,borderRadius:99,padding:'4px 8px',whiteSpace:'nowrap',textAlign:'center'}}>
           {STAGES.find(([id])=>id===row.stage)?.[1] || row.stage}
-        </span>
-      </div>
-      <div style={{display:'flex',justifyContent:'space-between',gap:8,marginTop:9}}>
-        <span style={{fontSize:11,color:C.muted}}>{safeDate(row.createdAt)}</span>
-        <span style={{fontSize:11,fontWeight:600,color:paymentColor(row.paymentStatus)}}>{PAYMENT_LABELS[row.paymentStatus] || row.paymentStatus}</span>
-      </div>
-    </button>
+      </span>
+      <span style={{fontSize:11,fontWeight:600,color:paymentColor(row.paymentStatus),textAlign:'center'}}>{PAYMENT_LABELS[row.paymentStatus] || row.paymentStatus}</span>
+      <span style={{fontSize:12,fontWeight:700,color:C.text,textAlign:'right'}}>{euro(row.finalTotalEur || row.estimatedTotalEur || 0)}</span>
+      <span style={{fontSize:11,color:C.muted,textAlign:'right'}}>{safeDate(row.createdAt)}</span>
+    </a>
   )
 }
 
@@ -102,6 +118,9 @@ function SelectInput({ label, value, onChange, options }) {
 }
 
 function ServicesEditor({ services, onChange }) {
+  const [adding, setAdding] = useState(false)
+  const [selectedService, setSelectedService] = useState(STANDARD_SERVICES[0])
+
   function update(index, patch) {
     const next = services.map((service, i) => i === index ? { ...service, ...patch } : service)
       .map(service => {
@@ -115,7 +134,10 @@ function ServicesEditor({ services, onChange }) {
     onChange(services.filter((_, i) => i !== index))
   }
   function add() {
-    onChange([...services, { id:`custom-${Date.now()}`, title:'Serviciu nou', quantity:1, unit_price_eur:0, subtotal_eur:0 }])
+    const title = selectedService === 'Serviciu extra' ? 'Serviciu extra' : selectedService
+    onChange([...services, { id:`custom-${Date.now()}`, title, quantity:1, unit_price_eur:0, subtotal_eur:0 }])
+    setSelectedService(STANDARD_SERVICES[0])
+    setAdding(false)
   }
 
   return (
@@ -132,12 +154,22 @@ function ServicesEditor({ services, onChange }) {
           <button onClick={()=>remove(index)} style={{height:30,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.red,cursor:'pointer'}}>×</button>
         </div>
       ))}
-      <button onClick={add} style={{marginTop:4,padding:'7px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.blue,cursor:'pointer'}}>+ Adauga serviciu</button>
+      {adding ? (
+        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto auto',gap:8,alignItems:'center',marginTop:8}}>
+          <select value={selectedService} onChange={e=>setSelectedService(e.target.value)} style={{width:'100%',padding:'8px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit'}}>
+            {STANDARD_SERVICES.map(service => <option key={service} value={service}>{service}</option>)}
+          </select>
+          <button onClick={add} style={{padding:'8px 11px',fontSize:12,border:'none',borderRadius:7,background:'#15803d',color:'#fff',fontWeight:700,cursor:'pointer'}}>Adauga</button>
+          <button onClick={()=>setAdding(false)} style={{padding:'8px 11px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.muted,cursor:'pointer'}}>Renunta</button>
+        </div>
+      ) : (
+        <button onClick={()=>setAdding(true)} style={{marginTop:4,padding:'7px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.blue,cursor:'pointer'}}>+ Adauga serviciu</button>
+      )}
     </div>
   )
 }
 
-function DetailsPanel({ row, onSaved, onCheckPayments }) {
+export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const [draft, setDraft] = useState(row)
   const [comment, setComment] = useState('')
   const [saving, setSaving] = useState(false)
@@ -292,7 +324,7 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
           <TextInput label="Total final EUR" type="number" value={String(finalTotal)} onChange={value=>patch({finalTotalEur:Number(value)})}/>
         </div>
         <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:12}}>
-          <button onClick={()=>save()} disabled={saving} style={{padding:'8px 13px',border:'none',borderRadius:8,background:C.navy,color:'#fff',fontSize:12,fontWeight:600,cursor:saving?'not-allowed':'pointer'}}>{saving?'Se salveaza...':'Salveaza cerere finala'}</button>
+          <button onClick={()=>save()} disabled={saving} style={{padding:'8px 13px',border:'none',borderRadius:8,background:saving?'#64748b':'#15803d',color:'#fff',fontSize:12,fontWeight:700,cursor:saving?'not-allowed':'pointer',boxShadow:'0 1px 5px rgba(21,128,61,.25)'}}>{saving?'Se salveaza...':'Salveaza cerere finala'}</button>
         </div>
       </Card>
 
@@ -335,7 +367,6 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
 
 export function TabConcierge() {
   const [rows, setRows] = useState([])
-  const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [setupRequired, setSetupRequired] = useState({})
@@ -352,7 +383,6 @@ export function TabConcierge() {
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
       setRows(json.rows || [])
       setSetupRequired(json.setupRequired || {})
-      setSelectedId(current => current || json.rows?.[0]?.id || '')
     } catch (e) {
       setError(e.message || 'Nu am putut incarca concierge CRM')
     } finally {
@@ -382,14 +412,13 @@ export function TabConcierge() {
     return rows.filter(row => {
       if (stageFilter && row.stage !== stageFilter) return false
       if (q) {
-        const haystack = [row.customer.name, row.customer.email, row.customer.phone, row.rawMessage].join(' ').toLowerCase()
+        const haystack = [row.customer.name, row.customer.email, row.customer.phone, serviceSummary(row), row.rawMessage].join(' ').toLowerCase()
         if (!haystack.includes(q)) return false
       }
       return true
     })
   }, [rows, stageFilter, query])
 
-  const selected = rows.find(row => row.id === selectedId) || filtered[0] || rows[0]
   const paid = rows.filter(row => row.paymentStatus === 'paid').length
   const pendingPayment = rows.filter(row => row.paymentStatus === 'pending').length
   const totalValue = rows.reduce((sum, row) => sum + Number(row.finalTotalEur || 0), 0)
@@ -430,28 +459,94 @@ export function TabConcierge() {
         <KPI label="Valoare pipeline" curr={fmtN(totalValue)} sub="EUR"/>
       </Grid>
 
-      <div style={{display:'grid',gridTemplateColumns:'280px minmax(0,1fr)',gap:14,alignItems:'start'}}>
-        <div>
-          <Card style={{padding:'12px'}}>
-            <div style={{display:'grid',gap:8,marginBottom:10}}>
-              <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon"/>
-              <SelectInput label="Etapa" value={stageFilter} onChange={setStageFilter} options={[['','Toate'], ...STAGES]}/>
-            </div>
-            <p style={{fontSize:11,color:C.hint,margin:'0 0 8px'}}>{filtered.length} din {rows.length} cereri</p>
-            <div style={{maxHeight:680,overflowY:'auto',paddingRight:2}}>
-              {filtered.map(row => (
-                <RowButton key={row.id} row={row} selected={selected?.id === row.id} onClick={()=>setSelectedId(row.id)}/>
-              ))}
-              {!filtered.length && <p style={{fontSize:13,color:C.hint,textAlign:'center',padding:'24px 0'}}>Nu exista cereri pentru filtrele curente.</p>}
-            </div>
-          </Card>
+      <Card style={{padding:'12px',marginBottom:12}}>
+        <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) 220px',gap:10}}>
+          <TextInput label="Cauta" value={query} onChange={setQuery} placeholder="nume, email, telefon, serviciu"/>
+          <SelectInput label="Etapa" value={stageFilter} onChange={setStageFilter} options={[['','Toate'], ...STAGES]}/>
         </div>
-        <div>
-          {selected ? <DetailsPanel row={selected} onSaved={load} onCheckPayments={checkPayments}/> : (
-            <Card><p style={{fontSize:13,color:C.muted,margin:0}}>Selecteaza o cerere concierge.</p></Card>
-          )}
+      </Card>
+
+      <Card style={{padding:'12px'}}>
+        <div style={{
+          display:'grid',gridTemplateColumns:'minmax(190px,1.4fr) minmax(180px,1.3fr) 112px 112px 96px 88px',
+          gap:12,alignItems:'center',padding:'0 13px 9px',borderBottom:`0.5px solid ${C.border}`,marginBottom:8,
+        }}>
+          {['Client','Servicii','Etapa','Plata','Total','Trimis la'].map(label => (
+            <span key={label} style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',textAlign:['Total','Trimis la'].includes(label)?'right':'left'}}>{label}</span>
+          ))}
         </div>
+        <p style={{fontSize:11,color:C.hint,margin:'0 0 8px'}}>{filtered.length} din {rows.length} cereri</p>
+        <div>
+          {filtered.map(row => <RowButton key={row.id} row={row}/>)}
+          {!filtered.length && <p style={{fontSize:13,color:C.hint,textAlign:'center',padding:'24px 0'}}>Nu exista cereri pentru filtrele curente.</p>}
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+export function ConciergeDetail({ requestId }) {
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [checking, setChecking] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/concierge?limit=500', { cache:'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
+      setRows(json.rows || [])
+    } catch (e) {
+      setError(e.message || 'Nu am putut incarca cererea concierge')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function checkPayments() {
+    setChecking(true)
+    setError('')
+    try {
+      const res = await fetch('/api/concierge/check-payments', { method:'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
+      await load()
+    } catch (e) {
+      setError(e.message || 'Nu am putut verifica platile')
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  useEffect(() => { load() }, [requestId])
+
+  const row = rows.find(item => String(item.id) === String(requestId))
+
+  if (loading) return <div style={{textAlign:'center',padding:'70px 0',color:C.muted,fontSize:14}}>Se incarca cererea concierge...</div>
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
+        <div>
+          <a href="/dashboard/concierge" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>← Inapoi la cereri</a>
+          <h2 style={{fontSize:18,fontWeight:600,color:C.text,margin:'8px 0 4px'}}>Detalii cerere concierge</h2>
+          <p style={{fontSize:13,color:C.muted,margin:0}}>Editare servicii, comentarii, suma finala si link de plata.</p>
+        </div>
+        <button onClick={checkPayments} disabled={checking} style={{padding:'8px 12px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,cursor:checking?'not-allowed':'pointer'}}>
+          {checking?'Verific...':'Verifica platile Stripe'}
+        </button>
       </div>
+
+      {error && <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',marginBottom:14,color:C.red,fontSize:13}}>{error}</div>}
+      {row ? <DetailsPanel row={row} onSaved={load} onCheckPayments={checkPayments}/> : (
+        <Card>
+          <p style={{fontSize:13,color:C.muted,margin:'0 0 10px'}}>Nu am gasit aceasta cerere concierge.</p>
+          <a href="/dashboard/concierge" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>Vezi lista de cereri</a>
+        </Card>
+      )}
     </div>
   )
 }

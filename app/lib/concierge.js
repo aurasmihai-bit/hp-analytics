@@ -343,6 +343,7 @@ export async function createStripeConciergeSession({ request, services, amountEu
   const params = new URLSearchParams()
   params.set('mode', 'payment')
   params.set('customer_email', request.email)
+  params.set('client_reference_id', request.id)
   params.set('success_url', successUrl)
   params.set('cancel_url', cancelUrl)
   params.set('line_items[0][quantity]', '1')
@@ -353,6 +354,7 @@ export async function createStripeConciergeSession({ request, services, amountEu
   params.set('metadata[source]', 'hp_analytics_concierge_crm')
   params.set('metadata[concierge_request_id]', request.id)
   params.set('metadata[customer_email]', request.email)
+  params.set('metadata[customer_phone]', request.phone || '')
   params.set('metadata[services]', serviceSummary)
   if (finalNotes) params.set('metadata[final_notes]', String(finalNotes).slice(0, 480))
 
