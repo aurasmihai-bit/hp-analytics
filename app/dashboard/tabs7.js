@@ -405,6 +405,39 @@ function HorizontalBars({ rows, color = C.blue }) {
   )
 }
 
+function ReportTable({ columns, rows, empty = 'Fara date' }) {
+  if (!rows.length) {
+    return <p style={{fontSize:13,color:C.hint,margin:0,padding:'8px 0'}}>{empty}</p>
+  }
+
+  return (
+    <div style={{overflowX:'auto'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',minWidth:420}}>
+        <thead>
+          <tr>
+            {columns.map(column => (
+              <th key={column.key} style={{textAlign:column.align || 'left',fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.05em',fontWeight:700,padding:'0 8px 8px',borderBottom:`0.5px solid ${C.border}`}}>
+                {column.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={row.key || index}>
+              {columns.map(column => (
+                <td key={column.key} style={{textAlign:column.align || 'left',fontSize:12,color:C.text,padding:'10px 8px',borderBottom:`0.5px solid ${C.border}`,verticalAlign:'top'}}>
+                  {column.render ? column.render(row, index) : row[column.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function ConciergeReports({ rows }) {
   const total = rows.length
   const paid = rows.filter(row => row.paymentStatus === 'paid').length
@@ -428,6 +461,45 @@ function ConciergeReports({ rows }) {
     value: rows.filter(row => row.paymentStatus === id).length,
     color: paymentColor(id),
   })).filter(row => row.value > 0)
+  const serviceMap = new Map()
+  rows.forEach(row => {
+    ;(row.services || []).forEach(service => {
+      const title = service.title || 'Serviciu fara nume'
+      const current = serviceMap.get(title) || { key:title, title, quantity:0, value:0, requests:new Set(), clients:new Set() }
+      current.quantity += Number(service.quantity || 0)
+      current.value += Number(service.subtotal_eur || 0)
+      current.requests.add(row.id)
+      current.clients.add(row.customer?.email || row.customer?.phone || row.id)
+      serviceMap.set(title, current)
+    })
+  })
+  const topServices = Array.from(serviceMap.values())
+    .map(item => ({ ...item, requestCount:item.requests.size, clientCount:item.clients.size }))
+    .sort((a, b) => b.value - a.value || b.quantity - a.quantity)
+    .slice(0, 8)
+  const clientMap = new Map()
+  rows.forEach(row => {
+    const email = row.customer?.email || ''
+    const key = email.toLowerCase() || row.customer?.phone || row.id
+    const current = clientMap.get(key) || {
+      key,
+      name: row.customer?.name || 'Client fara nume',
+      email,
+      phone: row.customer?.phone || '',
+      value: 0,
+      requests: 0,
+      services: 0,
+      lastRequest: row.createdAt,
+    }
+    current.value += rowTotal(row)
+    current.requests += 1
+    current.services += (row.services || []).reduce((sum, service) => sum + Number(service.quantity || 0), 0)
+    if (timestamp(row.createdAt) > timestamp(current.lastRequest)) current.lastRequest = row.createdAt
+    clientMap.set(key, current)
+  })
+  const topClients = Array.from(clientMap.values())
+    .sort((a, b) => b.value - a.value || timestamp(b.lastRequest) - timestamp(a.lastRequest))
+    .slice(0, 8)
 
   return (
     <div style={{display:'grid',gap:14}}>
@@ -463,6 +535,38 @@ function ConciergeReports({ rows }) {
         <Card>
           <SectionHeader title="Status plata"/>
           <HorizontalBars rows={paymentRows.length ? paymentRows : [{ label:'Fara date', value:0 }]} color={C.green}/>
+        </Card>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(360px,1fr))',gap:14}}>
+        <Card>
+          <SectionHeader title="Top servicii" description="Serviciile ordonate dupa valoarea totala din CRM."/>
+          <ReportTable
+            columns={[
+              { key:'title', label:'Serviciu', render:row => <span style={{fontWeight:700}}>{row.title}</span> },
+              { key:'quantity', label:'Cant.', align:'right' },
+              { key:'value', label:'Valoare', align:'right', render:row => euro(row.value) },
+              { key:'clientCount', label:'Clienti', align:'right' },
+            ]}
+            rows={topServices}
+          />
+        </Card>
+        <Card>
+          <SectionHeader title="Top clienti" description="Clientii ordonati dupa valoarea estimata/finala a cererilor."/>
+          <ReportTable
+            columns={[
+              { key:'name', label:'Client', render:row => (
+                <div>
+                  <p style={{fontSize:12,fontWeight:700,color:C.text,margin:'0 0 2px'}}>{row.name}</p>
+                  <p style={{fontSize:11,color:C.hint,margin:0}}>{row.email || row.phone || 'fara contact'}</p>
+                </div>
+              ) },
+              { key:'value', label:'Valoare', align:'right', render:row => euro(row.value) },
+              { key:'requests', label:'Cereri', align:'right' },
+              { key:'lastRequest', label:'Ultima', align:'right', render:row => safeDate(row.lastRequest) },
+            ]}
+            rows={topClients}
+          />
         </Card>
       </div>
     </div>
