@@ -1,9 +1,10 @@
 -- HomePitch Analytics: Concierge CRM storage.
--- Ruleaza acest SQL in proiectul HomePitch Supabase (bwfexvoapabfvkmmnxkg).
+-- Ruleaza acest SQL in proiectul Supabase al dashboardului hp-analytics (rstihjcnuazzyksdwczp).
+-- Datele brute ale cererii raman in Supabase HomePitch; aici salvam doar statusul CRM intern.
 
 CREATE TABLE IF NOT EXISTS public.hp_concierge_crm (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  request_id uuid NOT NULL REFERENCES public.concierge_requests(id) ON DELETE CASCADE,
+  request_id uuid NOT NULL,
   stage text NOT NULL DEFAULT 'nou',
   contact_status text,
   owner text,
@@ -36,6 +37,24 @@ CREATE INDEX IF NOT EXISTS hp_concierge_crm_stage_idx ON public.hp_concierge_crm
 CREATE INDEX IF NOT EXISTS hp_concierge_crm_payment_status_idx ON public.hp_concierge_crm(payment_status);
 CREATE INDEX IF NOT EXISTS hp_concierge_crm_updated_at_idx ON public.hp_concierge_crm(updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS public.hp_concierge_imported_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name text NOT NULL,
+  email text NOT NULL,
+  phone text,
+  message text NOT NULL,
+  status text NOT NULL DEFAULT 'nou',
+  admin_notes text,
+  source_label text NOT NULL DEFAULT 'email_import',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS hp_concierge_imported_requests_email_idx
+  ON public.hp_concierge_imported_requests(email);
+CREATE INDEX IF NOT EXISTS hp_concierge_imported_requests_created_at_idx
+  ON public.hp_concierge_imported_requests(created_at DESC);
+
 CREATE OR REPLACE FUNCTION public.hp_concierge_crm_set_updated_at()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -52,42 +71,24 @@ CREATE TRIGGER hp_concierge_crm_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION public.hp_concierge_crm_set_updated_at();
 
-ALTER TABLE public.hp_concierge_crm ENABLE ROW LEVEL SECURITY;
+DROP TRIGGER IF EXISTS hp_concierge_imported_requests_updated_at ON public.hp_concierge_imported_requests;
+CREATE TRIGGER hp_concierge_imported_requests_updated_at
+  BEFORE UPDATE ON public.hp_concierge_imported_requests
+  FOR EACH ROW
+  EXECUTE FUNCTION public.hp_concierge_crm_set_updated_at();
 
-DROP POLICY IF EXISTS "Admins can manage concierge crm" ON public.hp_concierge_crm;
-CREATE POLICY "Admins can manage concierge crm"
+ALTER TABLE public.hp_concierge_crm ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hp_concierge_imported_requests ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT, INSERT, UPDATE, DELETE
   ON public.hp_concierge_crm
-  FOR ALL TO authenticated
-  USING (public.is_admin(auth.uid()))
-  WITH CHECK (public.is_admin(auth.uid()));
+  TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON public.hp_concierge_imported_requests
+  TO service_role;
 
 COMMENT ON TABLE public.hp_concierge_crm IS
   'Internal CRM state for /concierge requests: contact flow, edited services, final price, Stripe link, payment checks and post-payment status.';
 
-CREATE TABLE IF NOT EXISTS public.hp_concierge_email_log (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  request_id uuid REFERENCES public.concierge_requests(id) ON DELETE CASCADE,
-  email_type text NOT NULL DEFAULT 'admin_notification',
-  recipient text,
-  status text NOT NULL,
-  provider text NOT NULL DEFAULT 'brevo',
-  provider_message_id text,
-  error text,
-  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT hp_concierge_email_log_status_check CHECK (status IN ('sent','failed','skipped'))
-);
-
-CREATE INDEX IF NOT EXISTS hp_concierge_email_log_request_idx ON public.hp_concierge_email_log(request_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS hp_concierge_email_log_status_idx ON public.hp_concierge_email_log(status);
-
-ALTER TABLE public.hp_concierge_email_log ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Admins can view concierge email log" ON public.hp_concierge_email_log;
-CREATE POLICY "Admins can view concierge email log"
-  ON public.hp_concierge_email_log
-  FOR SELECT TO authenticated
-  USING (public.is_admin(auth.uid()));
-
-COMMENT ON TABLE public.hp_concierge_email_log IS
-  'Audit log for concierge notification/reminder emails. Used by hp-analytics Concierge CRM to verify whether email sending was accepted by provider.';
+COMMENT ON TABLE public.hp_concierge_imported_requests IS
+  'Manual imports for /concierge requests received by email when direct HomePitch platform access is not available.';

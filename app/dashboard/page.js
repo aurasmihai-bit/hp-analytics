@@ -8,7 +8,6 @@ import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
 import { TabExitIntent } from './tabs6'
-import { TabConcierge } from './tabs7'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -300,7 +299,6 @@ const TABS=[
   {id:'tracking',  label:'Tracking cereri'},
   {id:'conversii', label:'Conversii'},
   {id:'raport',    label:'📅 Raport sapt.'},
-  {id:'concierge', label:'Concierge'},
   {id:'recomandari',label:'Recomandari'},
   {id:'actiuni',   label:'Actiuni'},
 ]
@@ -389,6 +387,7 @@ export default function Dashboard() {
         <div style={{flex:1}}/>
         {data&&<PeriodBar days={days} customFrom={customFrom} customTo={customTo} onDays={onDays} onCustom={onCustom}/>}
         <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:'#F0FDF4',color:C.green,textDecoration:'none'}}>Cereri piata</a>
+        <a href="/dashboard/concierge" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.amber}`,borderRadius:6,background:'#FFF7ED',color:C.amber,textDecoration:'none'}}>Concierge CRM</a>
         <button onClick={()=>customFrom?load(null,customFrom,customTo):load(days)} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>↻</button>
         <button onClick={forceSync} disabled={syncing} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${syncing?C.border:C.blue}`,borderRadius:6,background:syncing?'transparent':'#EBF4FC',color:syncing?C.hint:C.blue,cursor:syncing?'not-allowed':'pointer'}} title="Forteaza sync din GA4 si salveaza in Supabase">{syncing?'sync...':'⬇ sync'}</button>
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
@@ -403,7 +402,7 @@ export default function Dashboard() {
           }}>{t.id==='recomandari'?'★ '+t.label:t.label}</button>
         ))}
       </div>
-      <div style={{maxWidth:tab==='concierge'?1180:940,margin:'0 auto',padding:'20px 16px'}}>
+      <div style={{maxWidth:940,margin:'0 auto',padding:'20px 16px'}}>
         {loading&&<div style={{textAlign:'center',padding:'80px 0',color:C.muted,fontSize:14}}>Se incarca datele direct din GA4...</div>}
         {error&&<div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'16px 20px'}}><p style={{color:C.red,fontSize:14,margin:0}}>{error}</p></div>}
         {data&&!loading&&(<>
@@ -418,7 +417,6 @@ export default function Dashboard() {
           {tab==='tracking'    &&<TabCerereTracking  data={data}/>}
           {tab==='conversii'   &&<TabConversii       data={data}/>}
           {tab==='raport'      &&<TabRaportSaptamanal data={data}/>}
-          {tab==='concierge'   &&<TabConcierge />}
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>

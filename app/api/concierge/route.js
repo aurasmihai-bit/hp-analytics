@@ -3,9 +3,12 @@ import {
   cleanCrmInput,
   getConciergeCrmCases,
   getConciergeEmailLogs,
+  getImportedConciergeRequests,
   getConciergeRequests,
   isMissingConciergeCrmTable,
   isMissingConciergeEmailLogTable,
+  isMissingConciergeImportedRequestsTable,
+  isMissingPlatformServiceKey,
   parseConciergeMessage,
   updateConciergeRequest,
   upsertConciergeCrmCase,
@@ -30,6 +33,23 @@ function latestByRequestId(rows) {
   }, {})
 }
 
+function normalizeStage(value) {
+  if (value === 'new') return 'nou'
+  return value || 'nou'
+}
+
+function sourceDedupeKey(row) {
+  let minute = String(row?.created_at || '')
+  try {
+    minute = row?.created_at ? new Date(row.created_at).toISOString().slice(0, 16) : ''
+  } catch {}
+  return [
+    String(row?.email || '').trim().toLowerCase(),
+    String(row?.phone || '').trim(),
+    minute,
+  ].join('|')
+}
+
 function mapRequestToRow(request, crm, emailLog) {
   const parsed = parseConciergeMessage(request.message)
   const services = Array.isArray(crm?.services) && crm.services.length ? crm.services : parsed.services
@@ -47,7 +67,7 @@ function mapRequestToRow(request, crm, emailLog) {
     },
     originalStatus: request.status,
     originalAdminNotes: request.admin_notes || '',
-    stage: crm?.stage || request.status || 'nou',
+    stage: normalizeStage(crm?.stage || request.status),
     contactStatus: crm?.contact_status || 'necontactat',
     owner: crm?.owner || '',
     comments: Array.isArray(crm?.comments) ? crm.comments : [],
@@ -64,6 +84,8 @@ function mapRequestToRow(request, crm, emailLog) {
     afterPaymentStatus: crm?.after_payment_status || '',
     customerMessage: parsed.customerMessage,
     rawMessage: request.message,
+    source: request._source || 'platform',
+    sourceLabel: request.source_label || '',
     email: emailLog ? {
       status: emailLog.status,
       recipient: emailLog.recipient,
@@ -89,12 +111,42 @@ export async function GET(request) {
   const limit = Number(searchParams.get('limit') || 100)
 
   try {
-    const requests = await getConciergeRequests(limit)
+    let platformRequests = []
+    let importedRequests = []
+    const setupRequired = {
+      crm: false,
+      emailLog: false,
+      importedRequests: false,
+      platformServiceKey: false,
+    }
+
+    try {
+      platformRequests = await getConciergeRequests(limit)
+    } catch (error) {
+      if (!isMissingPlatformServiceKey(error)) throw error
+      setupRequired.platformServiceKey = true
+    }
+
+    try {
+      importedRequests = await getImportedConciergeRequests(limit)
+    } catch (error) {
+      if (!isMissingConciergeImportedRequestsTable(error)) throw error
+      setupRequired.importedRequests = true
+    }
+
+    const platformKeys = new Set((platformRequests || []).map(sourceDedupeKey))
+    const importedOnlyRequests = (importedRequests || []).filter(row => !platformKeys.has(sourceDedupeKey(row)))
+
+    const requests = [
+      ...(platformRequests || []).map(row => ({ ...row, _source: 'platform' })),
+      ...importedOnlyRequests.map(row => ({ ...row, user_id: null, _source: 'imported' })),
+    ].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, limit)
+
     const requestIds = requests.map(row => row.id)
+    const platformRequestIds = requests.filter(row => row._source !== 'imported').map(row => row.id)
 
     let crmRows = []
     let emailLogs = []
-    const setupRequired = { crm: false, emailLog: false }
 
     try {
       crmRows = await getConciergeCrmCases(requestIds)
@@ -103,11 +155,13 @@ export async function GET(request) {
       setupRequired.crm = true
     }
 
-    try {
-      emailLogs = await getConciergeEmailLogs(requestIds)
-    } catch (error) {
-      if (!isMissingConciergeEmailLogTable(error)) throw error
-      setupRequired.emailLog = true
+    if (platformRequestIds.length && !setupRequired.platformServiceKey) {
+      try {
+        emailLogs = await getConciergeEmailLogs(platformRequestIds)
+      } catch (error) {
+        if (!isMissingConciergeEmailLogTable(error)) throw error
+        setupRequired.emailLog = true
+      }
     }
 
     const crmByRequest = (crmRows || []).reduce((acc, row) => {

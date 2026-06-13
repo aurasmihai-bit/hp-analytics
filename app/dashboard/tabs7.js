@@ -58,6 +58,7 @@ function RowButton({ row, selected, onClick }) {
         <div style={{minWidth:0}}>
           <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.name}</p>
           <p style={{fontSize:11,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.email}</p>
+          {row.source === 'imported' && <p style={{fontSize:10,color:C.amber,margin:'3px 0 0'}}>import email</p>}
         </div>
         <span style={{fontSize:10,fontWeight:600,color:stageColor(row.stage),background:'#fff',border:`0.5px solid ${stageColor(row.stage)}33`,borderRadius:99,padding:'2px 7px',whiteSpace:'nowrap'}}>
           {STAGES.find(([id])=>id===row.stage)?.[1] || row.stage}
@@ -258,7 +259,9 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
           <div>
             <h2 style={{fontSize:18,color:C.text,margin:'0 0 4px'}}>{draft.customer.name}</h2>
             <p style={{fontSize:12,color:C.muted,margin:'0 0 2px'}}>{draft.customer.email}{draft.customer.phone ? ` · ${draft.customer.phone}` : ''}</p>
-            <p style={{fontSize:11,color:C.hint,margin:0}}>Cerere {safeDate(draft.createdAt)} · email: {draft.email.status}</p>
+            <p style={{fontSize:11,color:C.hint,margin:0}}>
+              Cerere {safeDate(draft.createdAt)} · {draft.source === 'imported' ? `sursa: ${draft.sourceLabel || 'import email'}` : `email: ${draft.email.status}`}
+            </p>
           </div>
           <span style={{fontSize:12,fontWeight:700,color:paymentColor(draft.paymentStatus),background:'#fff',border:`0.5px solid ${paymentColor(draft.paymentStatus)}55`,borderRadius:99,padding:'4px 10px'}}>
             {PAYMENT_LABELS[draft.paymentStatus] || draft.paymentStatus}
@@ -405,13 +408,15 @@ export function TabConcierge() {
         </button>
       </div>
 
-      {(setupRequired.crm || setupRequired.emailLog) && (
+      {(setupRequired.crm || setupRequired.emailLog || setupRequired.importedRequests || setupRequired.platformServiceKey) && (
         <div style={{background:'#FFF7ED',border:'0.5px solid #FCD34D',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
           <p style={{fontSize:13,fontWeight:600,color:C.amber,margin:'0 0 4px'}}>Setup Supabase pending</p>
           <p style={{fontSize:13,color:C.muted,margin:0}}>
             {setupRequired.crm ? 'Lipseste tabela hp_concierge_crm. ' : ''}
+            {setupRequired.importedRequests ? 'Lipseste tabela hp_concierge_imported_requests. ' : ''}
             {setupRequired.emailLog ? 'Lipseste auditul hp_concierge_email_log. ' : ''}
-            Ruleaza `supabase/hp_concierge_crm.sql` cand ai acces la Lovable/Supabase si seteaza `PLATFORM_SUPABASE_SERVICE_KEY` in Vercel.
+            {setupRequired.platformServiceKey ? 'Lipseste PLATFORM_SUPABASE_SERVICE_KEY in Vercel, deci cererile live din HomePitch nu pot fi citite; se pot afisa doar importurile din analytics. ' : ''}
+            Ruleaza `supabase/hp_concierge_crm.sql` in Supabase analytics si seteaza `PLATFORM_SUPABASE_SERVICE_KEY` in Vercel.
           </p>
         </div>
       )}

@@ -7,7 +7,7 @@ export function proxy(request) {
     return NextResponse.next()
   }
 
-  if (pathname === '/api/report' || pathname === '/api/sync' || pathname === '/api/weekly' || pathname.startsWith('/api/backlog') || pathname.startsWith('/api/platform')) {
+  if (pathname === '/api/report' || pathname === '/api/sync' || pathname === '/api/weekly' || pathname.startsWith('/api/backlog') || pathname.startsWith('/api/platform') || pathname.startsWith('/api/concierge')) {
     return NextResponse.next()
   }
 

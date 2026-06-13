@@ -1,4 +1,5 @@
 import { getOptionalEnv, requireEnv } from './env'
+import { sbFetch } from './supabase'
 
 const SERVICE_LINE_RE = /^-\s*(\d+)\s*x\s*(.+?)\s*\(([\d.,\s]+)\s*€\)\s*=\s*([\d.,\s]+)\s*€/i
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
@@ -30,8 +31,15 @@ function encodeValue(value) {
 
 function getPlatformServiceConfig() {
   const url = getOptionalEnv('PLATFORM_SUPABASE_URL') || DEFAULT_PLATFORM_SUPABASE_URL
-  const key = requireEnv('PLATFORM_SUPABASE_SERVICE_KEY')
+  const key = getOptionalEnv('PLATFORM_SUPABASE_SERVICE_KEY')
+  if (!key) {
+    throw new Error('Missing required environment variable: PLATFORM_SUPABASE_SERVICE_KEY. Este necesara pentru citirea cererilor /concierge din Supabase HomePitch.')
+  }
   return { url: url.replace(/\/$/, ''), key }
+}
+
+export function isMissingPlatformServiceKey(error) {
+  return String(error?.message || error).includes('PLATFORM_SUPABASE_SERVICE_KEY')
 }
 
 async function platformFetch(path, opts = {}) {
@@ -140,6 +148,10 @@ export function isMissingConciergeEmailLogTable(error) {
   return isMissingTable(error, 'hp_concierge_email_log')
 }
 
+export function isMissingConciergeImportedRequestsTable(error) {
+  return isMissingTable(error, 'hp_concierge_imported_requests')
+}
+
 export async function getConciergeRequests(limit = 100) {
   const safeLimit = Math.max(1, Math.min(Number(limit || 100), 500))
   return platformFetch(
@@ -148,12 +160,43 @@ export async function getConciergeRequests(limit = 100) {
   )
 }
 
-export async function getConciergeRequestById(requestId) {
-  const rows = await platformFetch(
-    `/concierge_requests?id=eq.${encodeValue(requestId)}&select=id,user_id,full_name,email,phone,message,status,admin_notes,created_at,updated_at&limit=1`,
+export async function getImportedConciergeRequests(limit = 100) {
+  const safeLimit = Math.max(1, Math.min(Number(limit || 100), 500))
+  return sbFetch(
+    `/hp_concierge_imported_requests?select=id,full_name,email,phone,message,status,admin_notes,source_label,created_at,updated_at&order=created_at.desc&limit=${safeLimit}`,
+    { prefer: '' }
+  )
+}
+
+export async function getImportedConciergeRequestById(requestId) {
+  const rows = await sbFetch(
+    `/hp_concierge_imported_requests?id=eq.${encodeValue(requestId)}&select=id,full_name,email,phone,message,status,admin_notes,source_label,created_at,updated_at&limit=1`,
     { prefer: '' }
   )
   return rows?.[0] || null
+}
+
+export async function getConciergeRequestById(requestId) {
+  let platformError = null
+
+  try {
+    const rows = await platformFetch(
+      `/concierge_requests?id=eq.${encodeValue(requestId)}&select=id,user_id,full_name,email,phone,message,status,admin_notes,created_at,updated_at&limit=1`,
+      { prefer: '' }
+    )
+    if (rows?.[0]) return rows[0]
+  } catch (error) {
+    if (!isMissingPlatformServiceKey(error)) throw error
+    platformError = error
+  }
+
+  try {
+    const imported = await getImportedConciergeRequestById(requestId)
+    return imported ? { ...imported, user_id: null } : null
+  } catch (error) {
+    if (platformError && isMissingConciergeImportedRequestsTable(error)) throw platformError
+    throw error
+  }
 }
 
 export async function updateConciergeRequest(requestId, updates) {
@@ -170,7 +213,7 @@ export async function updateConciergeRequest(requestId, updates) {
 export async function getConciergeCrmCases(requestIds) {
   if (!requestIds?.length) return []
   const list = requestIds.map(id => encodeValue(id)).join(',')
-  return platformFetch(
+  return sbFetch(
     `/hp_concierge_crm?request_id=in.(${list})&select=*&order=updated_at.desc`,
     { prefer: '' }
   )
@@ -244,7 +287,7 @@ export function cleanCrmInput(input) {
 
 export async function upsertConciergeCrmCase(input) {
   const row = cleanCrmInput(input)
-  return platformFetch('/hp_concierge_crm?on_conflict=request_id', {
+  return sbFetch('/hp_concierge_crm?on_conflict=request_id', {
     method: 'POST',
     prefer: 'resolution=merge-duplicates,return=representation',
     body: JSON.stringify(row),
@@ -252,14 +295,14 @@ export async function upsertConciergeCrmCase(input) {
 }
 
 export async function getPendingConciergePayments() {
-  return platformFetch(
+  return sbFetch(
     '/hp_concierge_crm?payment_status=in.(pending,not_created)&stripe_session_id=not.is.null&select=*&order=updated_at.asc&limit=100',
     { prefer: '' }
   )
 }
 
 export async function updateConciergeCrmCase(requestId, updates) {
-  return platformFetch(`/hp_concierge_crm?request_id=eq.${encodeValue(requestId)}`, {
+  return sbFetch(`/hp_concierge_crm?request_id=eq.${encodeValue(requestId)}`, {
     method: 'PATCH',
     prefer: 'return=representation',
     body: JSON.stringify({
