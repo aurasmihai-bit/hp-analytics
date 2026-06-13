@@ -121,7 +121,7 @@ function CohortsTable({ rows }) {
                 <td style={{padding:'8px',color:C.muted}}>{fmtN(row.active_users)}</td>
                 <td style={{padding:'8px',color:C.text,width:130}}>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <div style={{flex:1,height:5,background:'#ebebE4',borderRadius:99,overflow:'hidden'}}>
+                    <div style={{flex:1,height:5,background:C.softPanel,borderRadius:99,overflow:'hidden'}}>
                       <div style={{width:`${share}%`,height:5,background:C.red,borderRadius:99}}/>
                     </div>
                     <span style={{fontSize:11,color:C.hint,width:38,textAlign:'right'}}>{share.toFixed(0)}%</span>
@@ -219,7 +219,7 @@ export function TabExitIntent({ data }) {
       )}
 
       <Sec title="Exit pages - proxy de risc">
-        <div style={{background:'#FFF7ED',border:'0.5px solid #FCD34D',borderRadius:10,padding:'11px 13px',marginBottom:12}}>
+        <div style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:10,padding:'11px 13px',marginBottom:12}}>
           <p style={{fontSize:12,color:C.muted,lineHeight:1.45,margin:0}}>
             GA4 API nu returneaza direct exits in raportul standard. Scorul de aici combina views, bounce rate, durata si conversia ca sa prioritizeze paginile unde userii pleaca fara urmator pas.
           </p>

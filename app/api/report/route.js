@@ -197,6 +197,29 @@ function getSeoOpportunity(gsc) {
   return { nearTop, lowCtr, topQuery }
 }
 
+function pageMatches(paths, row) {
+  const path = String(row?.page_path || '')
+  return paths.some(pattern => {
+    if (pattern instanceof RegExp) return pattern.test(path)
+    return path === pattern || path.startsWith(`${pattern}/`)
+  })
+}
+
+function topGscPage(gsc) {
+  const normalized = normalizeGscData(gsc)
+  return [...normalized.pages]
+    .map(row => ({
+      ...row,
+      path: row.page_path || row.page_url || '/',
+      clicks: Number(row.organic_google_search_clicks || 0),
+      impressions: Number(row.organic_google_search_impressions || 0),
+      ctr: Number(row.organic_google_search_click_through_rate || 0),
+      position: Number(row.organic_google_search_average_position || 0),
+    }))
+    .filter(row => row.impressions > 0)
+    .sort((a, b) => (b.impressions - a.impressions) || (a.position - b.position))[0]
+}
+
 async function fetchGscFromWindsor(currFrom, currTo, prevFrom, prevTo) {
   const [current, previous, queries, pages] = await Promise.allSettled([
     w(['date','organic_google_search_clicks','organic_google_search_impressions','organic_google_search_click_through_rate','organic_google_search_average_position'], currFrom, currTo),
@@ -833,6 +856,36 @@ function generateRecommendations(data) {
   const seoAvgPosition = weightedGscPosition(gsc.current) ?? weightedGscPosition(gsc.queries)
   const seoD = dlt(seoClicks, seoClicksPrev)
   const seo = getSeoOpportunity(gsc)
+  const seoPage = topGscPage(gsc)
+
+  const exitAnalysis = data.exitAnalysis || {}
+  const exitPages = exitAnalysis.exitPages || []
+  const exitIntent = exitAnalysis.exitIntent || {}
+  const topExitRisk = exitPages[0]
+  const totalExitIntentEvents = Number(exitIntent.totalEvents || 0)
+  const topExitIntentPage = (exitIntent.pages || [])[0]
+  const topExitIntentCohort = (exitIntent.cohorts || [])[0]
+  const requestIntentPaths = ['/cereri', '/vreau', '/cerere-noua', '/cereri/nou']
+  const topRequestExit = exitPages.find(row => pageMatches(requestIntentPaths, row))
+  const speedCandidate = [...pages]
+    .filter(page => Number(page.screen_page_views || 0) >= 20)
+    .filter(page => !['/auth', '/login', '/logare', '/resetare-parola'].includes(page.page_path))
+    .map(page => {
+      const views = Number(page.screen_page_views || 0)
+      const bounce = Number(page.bounce_rate || 0)
+      const duration = Number(page.average_session_duration || 0)
+      const conversions = Number(page.conversions || 0)
+      const risk = views * Math.max(bounce, 0.05) * (duration < 35 ? 1.25 : 1) * (conversions === 0 ? 1.15 : 1)
+      return { ...page, speed_risk: risk }
+    })
+    .filter(page => Number(page.bounce_rate || 0) >= 0.18 || Number(page.average_session_duration || 0) < 25)
+    .sort((a, b) => Number(b.speed_risk || 0) - Number(a.speed_risk || 0))[0]
+  const topChannel = [...curr].sort((a, b) => Number(b.sessions || 0) - Number(a.sessions || 0))[0]
+  const directSessions = Number(direct?.sessions || 0)
+  const organicSessions = Number(organic?.sessions || 0)
+  const socialSessions = Number(social?.sessions || 0)
+  const directShare = totalSess > 0 ? directSessions / totalSess * 100 : 0
+  const organicShare = totalSess > 0 ? organicSessions / totalSess * 100 : 0
 
   const insights = []
   const actions  = []
@@ -879,6 +932,33 @@ function generateRecommendations(data) {
     }
   }
 
+  if (topExitRisk) {
+    insights.push({
+      type: Number(topExitRisk.bounce_rate || 0) >= 0.25 ? 'negative' : 'info',
+      title:`Exit risk: ${topExitRisk.page_path} are ${topExitRisk.estimated_exits} exit proxy`,
+      body:`${topExitRisk.screen_page_views.toLocaleString('ro')} views, ${Math.round(Number(topExitRisk.bounce_rate || 0) * 100)}% bounce, ${Math.round(Number(topExitRisk.average_session_duration || 0))}s durata medie. ${topExitRisk.recommendation}`,
+    })
+  }
+
+  if (totalExitIntentEvents > 0) {
+    insights.push({
+      type:'negative',
+      tag:'EXIT',
+      title:`${totalExitIntentEvents.toLocaleString('ro')} evenimente exit intent explicite`,
+      body: topExitIntentPage
+        ? `Cele mai multe sunt pe ${topExitIntentPage.page_path} (${topExitIntentPage.event_count} events). Prioritizeaza paginile cu intent de cerere.`
+        : 'Trackingul explicit de exit intent functioneaza; foloseste-l pentru follow-up si salvare progres.',
+    })
+  }
+
+  if (topChannel && totalSess > 0) {
+    insights.push({
+      type:'info',
+      title:`Canal principal: ${topChannel.session_default_channel_group} cu ${Number(topChannel.sessions || 0).toLocaleString('ro')} sesiuni`,
+      body:`Direct reprezinta ${directShare.toFixed(0)}% din trafic, Organic Search ${organicShare.toFixed(0)}%. Recomandarile noi includ idei de crestere trafic pe canalele care au deja semnal.`,
+    })
+  }
+
   // /cereri/nou broken
   if (cereriNou && (cereriNou.conversions||0) === 0 && (cereriNou.screen_page_views||0) > 20)
     insights.push({ type:'negative', title:`/cereri/nou: ${cereriNou.screen_page_views} views, ${Math.round(cereriNou.average_session_duration||0)}s, 0 conversii — tracking broken`, body:'Key Event nesetat. Pierdere de date.' })
@@ -899,6 +979,24 @@ function generateRecommendations(data) {
   if (totalSess > 0 && requestSessionRate < requestSessionTargetRate)
     actions.push({ urgency:'important', title:`Cereri / sesiuni: ${requestSessionRate.toFixed(2)}% — conversie sub ${requestSessionTargetRate}%`, body:`Traficul existent nu este impins suficient spre actiunea de baza: cerere noua. Chiar si +0.5pp ar aduce cereri suplimentare fara buget media nou.`, fix:"Adauga un CTA contextual catre /vreau pe paginile cu intent: homepage, /cumparatori, /proprietati si pagini de listari. Text: 'Nu ai gasit proprietatea potrivita? Creeaza o cerere si primesti oferte'. Track-uieste click_to_request_start separat de submit." })
 
+  if (topRequestExit)
+    actions.push({
+      urgency: Number(topRequestExit.risk_score || 0) >= 20 || Number(topRequestExit.bounce_rate || 0) >= 0.25 ? 'urgent' : 'important',
+      title:`Exit intent pe ${topRequestExit.page_path}: ${topRequestExit.estimated_exits} exit proxy`,
+      body:`Pagina este in fluxul de cereri si are ${Math.round(Number(topRequestExit.bounce_rate || 0) * 100)}% bounce. Asta poate bloca obiectivul de crestere a cererilor noi.`,
+      fix:"Adauga un fallback de exit intent: 'Salveaza cererea si continui mai tarziu' + CTA catre /vreau. Pe mobile, afiseaza un CTA sticky dupa primul scroll si salveaza progresul formularului dupa fiecare pas.",
+    })
+
+  if (totalExitIntentEvents > 0 && topExitIntentPage)
+    actions.push({
+      urgency:'important',
+      title:`Exit intent explicit: ${topExitIntentPage.page_path} cu ${topExitIntentPage.event_count} events`,
+      body: topExitIntentCohort
+        ? `Cohorta principala: ${topExitIntentCohort.new_vs_returning}, ${topExitIntentCohort.session_default_channel_group}, ${topExitIntentCohort.device_category}.`
+        : 'Exista evenimente explicite de abandon/exit in GA4.',
+      fix:"Creeaza un playbook pe eveniment: daca userul abandoneaza pagina de intent, trimite email/reminder cand exista date de contact; daca este anonim, afiseaza modal cu beneficiu scurt si buton 'continua cererea'.",
+    })
+
   if (proprietati && (proprietati.screen_page_views||0) > 200 && (proprietati.conversions||0) === 0)
     actions.push({ urgency:'urgent', title:`/proprietati: ${(proprietati.screen_page_views||0).toLocaleString('ro')} views, 0 conversii, ${Math.round((proprietati.bounce_rate||0)*100)}% bounce`, body:'A doua pagina ca trafic fara niciun CTA activ.', fix:"Adauga CTA conditionat: Agent/Proprietar → 'Publica o proprietate' → /proprietati/nou. Cumparator → 'Adauga o cerere' → /vreau. Masoara uplift-ul 14 zile in GA4 si buyer_requests." })
 
@@ -914,6 +1012,43 @@ function generateRecommendations(data) {
   if (convD !== null && convD < -20)
     actions.push({ urgency:'urgent', title:`Conversii -${Math.abs(convD).toFixed(0)}% fata de perioada anterioara`, body:`${totalConv} conversii vs ${totalConvPrev}.`, fix:'Verifica GA4 pentru erori JS. Verifica /cerere-noua, /vreau si /home3.' })
 
+  if (socialConvR > Math.max(organicConvR, directConvR, 0.5) * 1.2 && socialSessions > 0)
+    actions.push({
+      urgency:'luna asta',
+      title:`Trafic: scaleaza Organic Social, canal cu ${socialConvR.toFixed(1)}% conv rate`,
+      body:`Social aduce ${socialSessions.toLocaleString('ro')} sesiuni si converteste mai bine decat celelalte canale majore.`,
+      fix:"Transforma cele mai bune 3 cereri active in postari scurte: buget, zona, timeline si CTA 'adauga si tu ce cauti'. Trimite aceleasi asseturi in Facebook Groups, LinkedIn si WhatsApp comunitati, cu UTM separat.",
+    })
+  else if (seoImpressions > 0 && organicShare < 35)
+    actions.push({
+      urgency:'luna asta',
+      title:`Trafic: Organic Search are doar ${organicShare.toFixed(0)}% din sesiuni, dar ${seoImpressions.toLocaleString('ro')} impressions`,
+      body:'Exista cerere in Search Console, dar traficul organic poate fi crescut prin pagini dedicate si linkare interna.',
+      fix:"Creeaza 2 landing pages pe intent validat: una pentru cumparatori ('cereri cumparatori Bucuresti') si una pentru agenti ('leaduri imobiliare'). Leaga-le din homepage, /cereri si /abonamente.",
+    })
+  else
+    actions.push({
+      urgency:'luna asta',
+      title:'Trafic: construieste distributie pentru cereri cu intent ridicat',
+      body:`Canalul principal este ${topChannel?.session_default_channel_group || 'necunoscut'}, iar direct reprezinta ${directShare.toFixed(0)}% din trafic. Ai nevoie de trafic nou pe intent, nu doar reveniri directe.`,
+      fix:"Publica saptamanal top 5 cereri active pe 3 canale: Facebook Groups, LinkedIn agenti si newsletter catre agenti. Fiecare card trebuie sa duca la /cereri si sa aiba CTA secundar catre /vreau.",
+    })
+
+  if (speedCandidate)
+    actions.push({
+      urgency:'important',
+      title:`Speed/UX: ${speedCandidate.page_path} are bounce ${Math.round(Number(speedCandidate.bounce_rate || 0) * 100)}% si durata ${Math.round(Number(speedCandidate.average_session_duration || 0))}s`,
+      body:`Pagina are ${Number(speedCandidate.screen_page_views || 0).toLocaleString('ro')} views si semnal de abandon rapid. Poate fi problema de viteza, layout above the fold sau CTA neclar.`,
+      fix:"Ruleaza PageSpeed pe pagina, comprima imaginile above the fold, reduce scripturile third-party necritice si afiseaza CTA-ul principal fara layout shift. Dupa fix, compara bounce si durata pe 7 zile.",
+    })
+  else
+    actions.push({
+      urgency:'luna asta',
+      title:'Speed: activeaza masurare Web Vitals pe paginile de conversie',
+      body:'Raportul are proxy din bounce/durata, dar nu are inca LCP, CLS sau INP pentru diagnostic tehnic precis.',
+      fix:"Trimite in GA4 eventuri web_vital_lcp, web_vital_cls si web_vital_inp pentru /, /cereri, /vreau, /cerere-noua si /proprietati. Adauga praguri: LCP < 2.5s, CLS < 0.1, INP < 200ms.",
+    })
+
   if (seoD !== null && Math.abs(seoD) > 15)
     insights.push({ type: seoD > 0 ? 'positive' : 'negative', title:`SEO ${seoD > 0 ? '+' : '-'}${Math.abs(seoD).toFixed(0)}% clicks organice`, body:`${Math.round(seoClicks)} clicks vs ${Math.round(seoClicksPrev)} perioada anterioara. ${seoImpressions.toLocaleString('ro')} impressions in perioada curenta.` })
 
@@ -926,9 +1061,17 @@ function generateRecommendations(data) {
   else
     actions.push({ urgency:'seo', title:'SEO: date GSC insuficiente pentru recomandare dinamica', body:'Search Console nu are inca enough impressions/clicks pe intervalul curent.', fix:'Pastreaza colectarea GSC activa si revino dupa 7-14 zile. Intre timp, publica o pagina evergreen: /cum-functioneaza.' })
 
+  if (seoPage && seoPage.impressions >= 20)
+    actions.push({
+      urgency:'seo',
+      title:`SEO pagina: ${seoPage.path} are ${Math.round(seoPage.impressions).toLocaleString('ro')} impressions`,
+      body:`CTR ${((seoPage.ctr || 0) * 100).toFixed(1)}%, pozitie medie ${seoPage.position ? seoPage.position.toFixed(1) : '—'}. Pagina are deja semnal organic si merita optimizata inaintea continutului nou.`,
+      fix:'Actualizeaza title/meta, adauga FAQ scurt cu intrebari reale, include linkuri catre /cereri si /vreau si verifica snippet-ul dupa 14 zile in Search Console.',
+    })
+
   return {
     insights: insights.slice(0, 6),
-    actions:  actions.slice(0, 10),
+    actions:  actions.slice(0, 16),
     generatedAt: new Date().toISOString(),
     summary: {
       totalSess, totalConv, totalSessPrev, totalConvPrev,
@@ -953,6 +1096,20 @@ function generateRecommendations(data) {
       seoImpressions: Math.round(seoImpressions),
       seoAvgPosition: seoAvgPosition ? parseFloat(seoAvgPosition.toFixed(1)) : null,
       seoTopQuery: seo.topQuery?.query || null,
+      seoTopPage: seoPage?.path || null,
+      topExitPage: topExitRisk?.page_path || null,
+      topExitRisk: topExitRisk ? Number(topExitRisk.risk_score || 0) : null,
+      topExitEstimatedExits: topExitRisk ? Number(topExitRisk.estimated_exits || 0) : 0,
+      topRequestExitPage: topRequestExit?.page_path || null,
+      totalExitIntentEvents,
+      topExitIntentPage: topExitIntentPage?.page_path || null,
+      topExitIntentEvents: topExitIntentPage ? Number(topExitIntentPage.event_count || 0) : 0,
+      speedRiskPage: speedCandidate?.page_path || null,
+      speedRiskBounce: speedCandidate ? parseFloat((Number(speedCandidate.bounce_rate || 0) * 100).toFixed(0)) : null,
+      speedRiskDuration: speedCandidate ? Math.round(Number(speedCandidate.average_session_duration || 0)) : null,
+      topTrafficChannel: topChannel?.session_default_channel_group || null,
+      directShare: parseFloat(directShare.toFixed(1)),
+      organicShare: parseFloat(organicShare.toFixed(1)),
     }
   }
 }

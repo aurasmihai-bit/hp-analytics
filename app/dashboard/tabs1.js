@@ -14,7 +14,7 @@ const PRESETS = [
 ]
 
 function Chip({ active, onClick, navy, children }) {
-  return <button onClick={onClick} style={{padding:'5px 12px',fontSize:12,borderRadius:7,cursor:'pointer',fontWeight:active?500:400,border:`0.5px solid ${active?(navy?C.navy:C.blue):C.border}`,background:active?(navy?C.navy:'#EBF4FC'):'transparent',color:active?(navy?'#fff':C.blue):C.muted,fontFamily:'inherit'}}>{children}</button>
+  return <button onClick={onClick} style={{padding:'5px 12px',fontSize:12,borderRadius:7,cursor:'pointer',fontWeight:active?500:400,border:`0.5px solid ${active?(navy?C.navy:C.blue):C.border}`,background:active?(navy?C.navy:C.softBlue):'transparent',color:active?(navy?'#fff':C.blue):C.muted,fontFamily:'inherit'}}>{children}</button>
 }
 
 function TabGrafice({ data }) {
@@ -135,7 +135,7 @@ function TabTrafic({ data }) {
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
                 <div style={{width:10,height:10,borderRadius:'50%',background:col,flexShrink:0}}/>
                 <span style={{fontSize:13,fontWeight:500,color:C.text,width:130,flexShrink:0}}>{ch}</span>
-                <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:6,overflow:'hidden'}}>
+                <div style={{flex:1,background:C.softPanel,borderRadius:99,height:6,overflow:'hidden'}}>
                   <div style={{width:`${pct}%`,height:6,borderRadius:99,background:col}}/>
                 </div>
                 <span style={{fontSize:13,color:C.text,width:52,textAlign:'right',flexShrink:0}}>{fmtN(row.sessions)}</span>
@@ -316,7 +316,7 @@ function TabSEO({ data }) {
             <div style={{overflowX:'auto',marginLeft:18}}>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                 <thead>
-                  <tr style={{borderBottom:`0.5px solid ${C.border}`,background:'#fafaf8'}}>
+                  <tr style={{borderBottom:`0.5px solid ${C.border}`,background:C.softPanel}}>
                     {['Cuvant cheie','Volum/luna','Dificultate','Pagina recomandata','AI Search'].map(h=>(
                       <th key={h} style={{textAlign:'left',padding:'5px 10px',color:C.hint,fontWeight:600,fontSize:9,textTransform:'uppercase',letterSpacing:'.05em'}}>{h}</th>
                     ))}
@@ -329,7 +329,7 @@ function TabSEO({ data }) {
                       <td style={{padding:'7px 10px',color:C.muted}}>{k.vol}</td>
                       <td style={{padding:'7px 10px'}}>
                         <span style={{fontSize:10,fontWeight:600,padding:'2px 6px',borderRadius:4,
-                          background:k.dif==='mica'?'#F0FDF4':k.dif==='medie'?'#FFF7ED':k.dif==='mare'?'#FEF2F2':'#EFF6FF',
+                          background:k.dif==='mica'?C.softGreen:k.dif==='medie'?C.softAmber:k.dif==='mare'?C.softRed:C.softBlue,
                           color:k.dif==='mica'?C.green:k.dif==='medie'?C.amber:k.dif==='mare'?C.red:C.blue
                         }}>{k.dif}</span>
                       </td>
@@ -346,7 +346,7 @@ function TabSEO({ data }) {
         ))}
 
         {/* Ghid de actiune */}
-        <div style={{background:'#F0FDF4',border:'0.5px solid #86EFAC',borderRadius:10,padding:'14px 16px',marginTop:8}}>
+        <div style={{background:C.softGreen,border:`0.5px solid ${C.green}`,borderRadius:10,padding:'14px 16px',marginTop:8}}>
           <p style={{fontSize:12,fontWeight:600,color:C.green,margin:'0 0 8px'}}>Cum sa incepi — plan in 3 pasi</p>
           {[
             '1. Quick wins (saptamana 1): Optimizeaza paginile existente pentru long-tail — /cerere-noua, /vreau, /scor-cumparator. Adauga H1 cu query-ul exact, 200 cuvinte de continut relevant, meta description cu CTA.',

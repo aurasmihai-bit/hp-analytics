@@ -135,8 +135,8 @@ function TabActiuni({ data }) {
             Actualizat: {generatedAt ? new Date(generatedAt).toLocaleString('ro-RO',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}) : '—'}
           </span>
           <div style={{display:'flex',gap:6}}>
-            <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FEF2F2',color:C.red}}>{serverActions.filter(a=>a.urgency==='urgent').length} urgente</span>
-            <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FFF7ED',color:C.amber}}>{serverActions.filter(a=>a.urgency==='important').length} importante</span>
+            <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:C.softRed,color:C.red}}>{serverActions.filter(a=>a.urgency==='urgent').length} urgente</span>
+            <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:C.softAmber,color:C.amber}}>{serverActions.filter(a=>a.urgency==='important').length} importante</span>
           </div>
         </div>
         <Sec title={`${serverActions.length} actiuni prioritizate`}>
@@ -267,8 +267,8 @@ function TabActiuni({ data }) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
         <span style={{fontSize:11,color:C.hint}}>Actualizat: {weekLabel}</span>
         <div style={{display:'flex',gap:6}}>
-          <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FEF2F2',color:C.red}}>{actions.filter(a=>a.urgency==='urgent').length} urgente</span>
-          <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:'#FFF7ED',color:C.amber}}>{actions.filter(a=>a.urgency==='important').length} importante</span>
+          <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:C.softRed,color:C.red}}>{actions.filter(a=>a.urgency==='urgent').length} urgente</span>
+          <span style={{fontSize:11,padding:'2px 8px',borderRadius:99,background:C.softAmber,color:C.amber}}>{actions.filter(a=>a.urgency==='important').length} importante</span>
         </div>
       </div>
       <Sec title={`${Math.min(actions.length,7)} actiuni prioritizate`}>
@@ -315,13 +315,20 @@ export default function Dashboard() {
   const [darkMode,setDarkMode]=useState(false)
 
   const [syncing, setSyncing] = useState(false)
+  const [regeneratingRecommendations, setRegeneratingRecommendations] = useState(false)
 
-  const load=useCallback(async(d, from, to)=>{
+  const load=useCallback(async(d, from, to, options = {})=>{
     setLoading(true);setError('')
     try{
-      let url
-      if (from && to) url = `/api/report?from=${from}&to=${to}`
-      else url = `/api/report?days=${d||days}`
+      const params = new URLSearchParams()
+      if (from && to) {
+        params.set('from', from)
+        params.set('to', to)
+      } else {
+        params.set('days', String(d || days))
+      }
+      if (options.refresh) params.set('refresh', '1')
+      const url = `/api/report?${params.toString()}`
       const res=await fetch(url)
       if(!res.ok) throw new Error(`${res.status}`)
       const j=await res.json()
@@ -345,6 +352,16 @@ export default function Dashboard() {
       await load(days, customFrom, customTo)
     } catch(e) { setError('Sync failed: '+e.message) }
     finally { setSyncing(false) }
+  }
+
+  async function regenerateRecommendations() {
+    setRegeneratingRecommendations(true)
+    try {
+      await load(days, customFrom, customTo, { refresh:true })
+      setTab('recomandari')
+    } finally {
+      setRegeneratingRecommendations(false)
+    }
   }
 
   const onDays=useCallback(d=>{
@@ -389,7 +406,7 @@ export default function Dashboard() {
           {data&&data._source&&(
             <span style={{
               fontSize:10,fontWeight:500,padding:'2px 7px',borderRadius:99,
-              background: data._source==='cache'||data._source==='tab_db'?'#EBF4FC': data._source==='stale_cache'?'#FFF7ED':'#F0FDF4',
+              background: data._source==='cache'||data._source==='tab_db'?C.softBlue: data._source==='stale_cache'?C.softAmber:C.softGreen,
               color: data._source==='cache'||data._source==='tab_db'?C.blue: data._source==='stale_cache'?C.amber:C.green,
             }}>
               {data._source==='tab_db'?'DB':data._source==='tab_db_incremental'?'DB + nou':data._source==='cache'?'cache': data._source==='stale_cache'?'cache vechi':data._source==='ga4'?'GA4':'live'}
@@ -418,7 +435,7 @@ export default function Dashboard() {
       </div>
       <div style={{maxWidth:940,margin:'0 auto',padding:'20px 16px'}}>
         {loading&&<div style={{textAlign:'center',padding:'80px 0',color:C.muted,fontSize:14}}>Se incarca datele direct din GA4...</div>}
-        {error&&<div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'16px 20px'}}><p style={{color:C.red,fontSize:14,margin:0}}>{error}</p></div>}
+        {error&&<div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'16px 20px'}}><p style={{color:C.red,fontSize:14,margin:0}}>{error}</p></div>}
         {data&&!loading&&(<>
           {tab==='semnale'     &&<TabSemnale     data={data}/>}
           {tab==='grafice'     &&<TabGrafice     data={data}/>}
@@ -431,7 +448,7 @@ export default function Dashboard() {
           {tab==='tracking'    &&<TabCerereTracking  data={data}/>}
           {tab==='conversii'   &&<TabConversii       data={data}/>}
           {tab==='raport'      &&<TabRaportSaptamanal data={data}/>}
-          {tab==='recomandari' &&<TabRecomandari data={data}/>}
+          {tab==='recomandari' &&<TabRecomandari data={data} onRegenerate={regenerateRecommendations} regenerating={regeneratingRecommendations}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
             <span style={{fontSize:11,color:C.hint}}>

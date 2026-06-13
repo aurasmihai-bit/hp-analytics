@@ -66,7 +66,7 @@ function TabPagini({ data }) {
     const isHL=HL.includes(p.page_path)
     const pp=prevMap[p.page_path]
     return (
-      <tr style={{borderBottom:`0.5px solid ${C.border}`,background:isHL?'#F0F9FF':'transparent'}}>
+      <tr style={{borderBottom:`0.5px solid ${C.border}`,background:isHL?C.softBlue:'transparent'}}>
         <td style={{padding:'7px 8px',fontFamily:'monospace',fontSize:11,color:isHL?C.blue:C.text,maxWidth:220}}>
           {isHL?'* ':''}<PageLink path={p.page_path}>{p.page_path}</PageLink>
         </td>
@@ -94,7 +94,7 @@ function TabPagini({ data }) {
           <button key={s.id} onClick={()=>setSection(s.id)} style={{
             padding:'6px 14px',fontSize:12,fontWeight:section===s.id?500:400,borderRadius:8,cursor:'pointer',
             border:`0.5px solid ${section===s.id?C.blue:C.border}`,
-            background:section===s.id?'#EBF4FC':'transparent',
+            background:section===s.id?C.softBlue:'transparent',
             color:section===s.id?C.blue:C.muted
           }}>{s.label}</button>
         ))}
@@ -136,7 +136,7 @@ function TabPagini({ data }) {
       {/* ── EXIT PAGES ── */}
       {section==='exit'&&(
         <div>
-          <div style={{background:'#FFF7ED',border:'0.5px solid #FCD34D',borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13,color:C.muted}}>
+          <div style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13,color:C.muted}}>
             <strong style={{color:C.amber}}>Bounce rate</strong> = procentul de sesiuni unde userul a vizitat o singura pagina si a plecat. O pagina cu bounce rate mare e adesea ultima pagina din sesiune. Valori sub 10% sunt normale, peste 20% necesita investigatie.
           </div>
           <Sec title={`Top ${exitPages.length} pagini cu bounce rate mare (min ${MIN_VIEWS} views)`}>
@@ -161,7 +161,7 @@ function TabPagini({ data }) {
               })()
 
               return (
-                <div key={p.page_path} style={{background:C.card,border:`0.5px solid ${pct>20?'#FCA5A5':C.border}`,borderRadius:10,padding:'11px 14px',marginBottom:8}}>
+                <div key={p.page_path} style={{background:C.card,border:`0.5px solid ${pct>20?C.red:C.border}`,borderRadius:10,padding:'11px 14px',marginBottom:8}}>
                   <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
                     <span style={{fontSize:11,fontFamily:'monospace',color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                       <PageLink path={p.page_path}>{p.page_path}</PageLink>
@@ -169,7 +169,7 @@ function TabPagini({ data }) {
                     <span style={{fontSize:15,fontWeight:600,color:col,flexShrink:0}}>{pct.toFixed(0)}%</span>
                     <span style={{fontSize:11,color:C.hint,flexShrink:0}}>bounce</span>
                   </div>
-                  <div style={{background:'#ebebE4',borderRadius:99,height:5,overflow:'hidden',marginBottom:8}}>
+                  <div style={{background:C.softPanel,borderRadius:99,height:5,overflow:'hidden',marginBottom:8}}>
                     <div style={{width:`${barW}%`,height:5,background:col,borderRadius:99}}/>
                   </div>
                   <div style={{display:'flex',gap:16,fontSize:11,color:C.hint,marginBottom:6,flexWrap:'wrap'}}>
@@ -225,7 +225,7 @@ function TabPagini({ data }) {
                     </span>
                     <span style={{fontSize:15,fontWeight:600,color:col,flexShrink:0}}>{Math.round(dur)}s</span>
                   </div>
-                  <div style={{background:'#ebebE4',borderRadius:99,height:5,overflow:'hidden',marginBottom:8}}>
+                  <div style={{background:C.softPanel,borderRadius:99,height:5,overflow:'hidden',marginBottom:8}}>
                     <div style={{width:`${barW}%`,height:5,background:col,borderRadius:99}}/>
                   </div>
                   <div style={{display:'flex',gap:14,fontSize:11,color:C.hint,marginBottom:note.text?6:0,flexWrap:'wrap'}}>
@@ -263,7 +263,7 @@ function TabPagini({ data }) {
               })()
 
               return (
-                <div key={p.page_path} style={{background:C.card,border:`0.5px solid ${isRedirect?C.border:'#FEE2E2'}`,borderRadius:10,padding:'11px 14px',marginBottom:8}}>
+                <div key={p.page_path} style={{background:C.card,border:`0.5px solid ${isRedirect?C.border:C.red}`,borderRadius:10,padding:'11px 14px',marginBottom:8}}>
                   <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
                     <span style={{fontSize:11,color:C.hint,width:22,flexShrink:0,fontWeight:600}}>#{i+1}</span>
                     <span style={{fontSize:11,fontFamily:'monospace',color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
@@ -271,7 +271,7 @@ function TabPagini({ data }) {
                     </span>
                     <span style={{fontSize:15,fontWeight:600,color:col,flexShrink:0}}>{Math.round(dur)}s</span>
                   </div>
-                  <div style={{background:'#ebebE4',borderRadius:99,height:5,overflow:'hidden',marginBottom:8}}>
+                  <div style={{background:C.softPanel,borderRadius:99,height:5,overflow:'hidden',marginBottom:8}}>
                     <div style={{width:`${barW}%`,height:5,background:col,borderRadius:99}}/>
                   </div>
                   <div style={{display:'flex',gap:14,fontSize:11,color:C.hint,marginBottom:note.text?6:0,flexWrap:'wrap'}}>
@@ -291,7 +291,7 @@ function TabPagini({ data }) {
       {/* ── ENGAGEMENT SCAZUT ── */}
       {section==='eng'&&(
         <div>
-          <div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13,color:C.muted}}>
+          <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13,color:C.muted}}>
             Pagini cu <strong style={{color:C.red}}>engagement rate sub 80%</strong> si minim {MIN_VIEWS} views. Engagement rate mic = userii nu interactioneaza sau pleaca rapid dupa landing.
           </div>
           {lowEng.length===0?(
@@ -313,7 +313,7 @@ function TabPagini({ data }) {
                     {l:'Durata',v:Math.round(p.average_session_duration||0)+'s'},
                     {l:'Conv rate',v:(p.screen_page_views>0?p.conversions/p.screen_page_views*100:0).toFixed(1)+'%'},
                   ].map(m=>(
-                    <div key={m.l} style={{background:'#fafaf8',borderRadius:6,padding:'6px 8px'}}>
+                    <div key={m.l} style={{background:C.softPanel,borderRadius:6,padding:'6px 8px'}}>
                       <p style={{fontSize:10,color:C.hint,margin:'0 0 2px'}}>{m.l}</p>
                       <p style={{fontSize:13,fontWeight:500,color:m.col||C.text,margin:0}}>{m.v}</p>
                     </div>
@@ -361,7 +361,7 @@ function TabFunnel({ data }) {
             <span style={{fontSize:12,color:C.muted,width:260,flexShrink:0}}>
               {s.path ? <PageLink path={s.path}>{s.label}</PageLink> : s.label}
             </span>
-            <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:8,overflow:'hidden'}}>
+            <div style={{flex:1,background:C.softPanel,borderRadius:99,height:8,overflow:'hidden'}}>
               <div style={{width:`${Math.min(100,s.pct)}%`,height:8,borderRadius:99,background:s.col}}/>
             </div>
             <span style={{fontSize:13,fontWeight:500,color:C.text,width:52,textAlign:'right'}}>{fmtN(s.v)}</span>
@@ -369,7 +369,7 @@ function TabFunnel({ data }) {
           </div>
         ))}
         {funnelDrop!==null&&(
-          <div style={{marginTop:12,padding:'10px 14px',background:funnelDrop<15?'#FEF2F2':'#FFF7ED',border:`0.5px solid ${funnelDrop<15?'#FCA5A5':'#FCD34D'}`,borderRadius:8,fontSize:13}}>
+          <div style={{marginTop:12,padding:'10px 14px',background:funnelDrop<15?C.softRed:C.softAmber,border:`0.5px solid ${funnelDrop<15?C.red:C.amber}`,borderRadius:8,fontSize:13}}>
             <strong style={{color:funnelDrop<15?C.red:C.amber}}>Drop /cereri → /cerere-noua: {funnelDrop.toFixed(0)}%</strong>
             <span style={{color:C.muted,marginLeft:8}}>{funnelDrop<15?'Foarte mic — adauga CTA mai vizibil pe pagina /cereri':'Progresie normala, dar optimizabila'}</span>
           </div>
@@ -378,7 +378,7 @@ function TabFunnel({ data }) {
       <Sec title="Conv rate landing pages">
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
           {[{label:'/home3',r:h3r,views:h3?.screen_page_views||0,hl:true,path:'/home3'},{label:'/simplu',r:simpr,views:simp?.screen_page_views||0,hl:true,path:'/simplu'},{label:'/ homepage',r:hpr,views:hp?.screen_page_views||0,hl:false,path:'/'}].map(p=>(
-            <div key={p.label} style={{background:p.hl&&p.r>hpr?'#F0FDF4':C.card,border:`0.5px solid ${p.hl&&p.r>hpr?'#86EFAC':C.border}`,borderRadius:10,padding:'14px 16px',textAlign:'center'}}>
+            <div key={p.label} style={{background:p.hl&&p.r>hpr?C.softGreen:C.card,border:`0.5px solid ${p.hl&&p.r>hpr?C.green:C.border}`,borderRadius:10,padding:'14px 16px',textAlign:'center'}}>
               <p style={{fontSize:24,fontWeight:500,color:p.r>5?C.green:C.text,margin:'0 0 4px'}}>{p.r.toFixed(1)}%</p>
               <p style={{fontSize:11,color:C.hint,margin:0}}><PageLink path={p.path}>{p.label}</PageLink></p>
               <p style={{fontSize:11,color:C.hint,margin:'2px 0 0'}}>{fmtN(p.views)} views</p>
@@ -388,7 +388,7 @@ function TabFunnel({ data }) {
       </Sec>
       <Sec title="Conversii custom (Key Events)">
         {custTotal===0?(
-          <div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'14px 16px'}}>
+          <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'14px 16px'}}>
             <p style={{fontSize:13,color:C.red,margin:0}}>Toate conversiile custom returneaza 0. GA4 Admin - Events - Mark as conversion: conversions_signup, conversions_offer_accepted, conversions_bravo_cerere_noua, bun_venit_agent/cumparator/proprietar.</p>
           </div>
         ):(

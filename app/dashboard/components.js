@@ -47,7 +47,12 @@ export function KPI({ label, curr, prev, type, inv, sub }) {
 }
 
 export function Signal({ type, title, body, tag }) {
-  const s={positive:{bg:'#F0FDF4',bdr:'#86EFAC',dot:'#22C55E',tcol:'#15803D'},negative:{bg:'#FEF2F2',bdr:'#FCA5A5',dot:'#EF4444',tcol:'#B91C1C'},neutral:{bg:'#FFF7ED',bdr:'#FCD34D',dot:'#F59E0B',tcol:'#92400E'},info:{bg:'#EBF4FC',bdr:'#93C5FD',dot:'#3B82C4',tcol:'#1E40AF'}}[type]||{bg:'#F5F5F3',bdr:'#D0D0C8',dot:C.gray,tcol:C.gray}
+  const s={
+    positive:{bg:C.softGreen,bdr:C.green,dot:C.green,tcol:C.green},
+    negative:{bg:C.softRed,bdr:C.red,dot:C.red,tcol:C.red},
+    neutral:{bg:C.softAmber,bdr:C.amber,dot:C.amber,tcol:C.amber},
+    info:{bg:C.softBlue,bdr:C.blue,dot:C.blue,tcol:C.blue},
+  }[type]||{bg:C.softPanel,bdr:C.border,dot:C.gray,tcol:C.gray}
   return (
     <div style={{background:s.bg,border:`0.5px solid ${s.bdr}`,borderRadius:10,padding:'14px 16px',marginBottom:10}}>
       <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:body?6:0}}>
@@ -64,7 +69,7 @@ export function Signal({ type, title, body, tag }) {
 
 export function Action({ urgency, title, body, fix, impact }) {
   const [open,setOpen] = useState(false)
-  const b={urgent:{bg:'#FEF2F2',col:C.red},important:{bg:'#FFF7ED',col:C.amber},'luna asta':{bg:'#EBF4FC',col:C.blue},seo:{bg:'#F0FDF4',col:C.green}}[urgency]||{bg:'#EBF4FC',col:C.blue}
+  const b={urgent:{bg:C.softRed,col:C.red},important:{bg:C.softAmber,col:C.amber},'luna asta':{bg:C.softBlue,col:C.blue},seo:{bg:C.softGreen,col:C.green}}[urgency]||{bg:C.softBlue,col:C.blue}
   return (
     <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,marginBottom:8,overflow:'hidden'}}>
       <div onClick={()=>setOpen(!open)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',cursor:'pointer'}}>
@@ -76,7 +81,7 @@ export function Action({ urgency, title, body, fix, impact }) {
       {open && (
         <div style={{padding:'0 14px 14px',borderTop:`0.5px solid ${C.border}`}}>
           <p style={{fontSize:13,color:C.muted,margin:'12px 0 8px',lineHeight:1.6}}>{body}</p>
-          <div style={{background:'#f0fdf4',border:'0.5px solid #86efac',borderRadius:8,padding:'10px 12px'}}>
+          <div style={{background:C.softGreen,border:`0.5px solid ${C.green}`,borderRadius:8,padding:'10px 12px'}}>
             <p style={{fontSize:11,fontWeight:500,color:C.green,margin:'0 0 4px'}}>Actiune concreta</p>
             <p style={{fontSize:13,color:C.text,margin:0,lineHeight:1.5}}>{fix}</p>
           </div>
@@ -141,7 +146,7 @@ export function LineChart({ data, metrics, height=200, showLegend=true }) {
         {data.map((d,i)=><rect key={i} x={toX(i)-8} y={PAD.top} width={16} height={cH} fill="transparent" onMouseEnter={()=>setHover({d,x:toX(i),y:PAD.top})}/>)}
         {hover&&(<g>
           <line x1={hover.x} y1={PAD.top} x2={hover.x} y2={H-PAD.bottom} stroke={C.muted} strokeWidth=".5" strokeDasharray="3,2"/>
-          {metrics.map((m,mi)=>{const v=hover.d[m.field]||0;return <circle key={mi} cx={hover.x} cy={toY(v,m.yAxis)} r="3" fill={m.color||COLORS[mi]} stroke="#fff" strokeWidth="1.5"/>})}
+          {metrics.map((m,mi)=>{const v=hover.d[m.field]||0;return <circle key={mi} cx={hover.x} cy={toY(v,m.yAxis)} r="3" fill={m.color||COLORS[mi]} stroke={C.card} strokeWidth="1.5"/>})}
           <rect x={Math.min(hover.x+8,W-130)} y={hover.y} width={124} height={14+metrics.length*16} rx="5" fill="#0f172a" opacity=".92"/>
           <text x={Math.min(hover.x+14,W-124)} y={hover.y+11} fontSize="9.5" fill="#94a3b8">{hover.d.date}</text>
           {metrics.map((m,mi)=><text key={mi} x={Math.min(hover.x+14,W-124)} y={hover.y+11+(mi+1)*16} fontSize="9.5" fontWeight="500" fill={m.color||COLORS[mi]}>{m.label}: {fmt(hover.d[m.field]||0,m.fmt)}</text>)}
@@ -167,7 +172,7 @@ export function BarChart({ data, labelField, valueField, color='#3B82C4', maxBar
             <span style={{fontSize:11,fontFamily:label.startsWith('/')?'monospace':'inherit',color:C.text,width:164,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={label}>
               {isPath&&label.startsWith('/')?<PageLink path={label}>{label}</PageLink>:label}
             </span>
-            <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:6,overflow:'hidden'}}>
+            <div style={{flex:1,background:C.softPanel,borderRadius:99,height:6,overflow:'hidden'}}>
               <div style={{width:`${pct}%`,height:6,borderRadius:99,background:color}}/>
             </div>
             <span style={{fontSize:12,color:C.muted,width:44,textAlign:'right',flexShrink:0}}>{fmtN(v)}</span>
@@ -186,9 +191,9 @@ export function PageLink({ path, children, style }) {
   const href = path.startsWith('http') ? path : BASE_URL + path
   return (
     <a href={href} target="_blank" rel="noopener noreferrer"
-      style={{color:'inherit',textDecoration:'none',borderBottom:'0.5px dashed #ccc',...style}}
+      style={{color:'inherit',textDecoration:'none',borderBottom:`0.5px dashed ${C.border}`,...style}}
       onMouseEnter={e=>e.target.style.borderBottomColor=C.blue}
-      onMouseLeave={e=>e.target.style.borderBottomColor='#ccc'}>
+      onMouseLeave={e=>e.target.style.borderBottomColor=C.border}>
       {children || path}
     </a>
   )

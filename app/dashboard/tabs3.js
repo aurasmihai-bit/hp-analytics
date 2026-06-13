@@ -5,15 +5,18 @@ import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config
 
 const BACKLOG_STORE_KEY = 'hp_recommendation_backlog_v1'
 const BACKLOG_STATUSES = [
-  {id:'nou', label:'Nou', bg:'#EBF4FC', col:C.blue},
-  {id:'in_lucru', label:'In lucru', bg:'#FFF7ED', col:C.amber},
-  {id:'masurare', label:'Masurare', bg:'#F0FDF4', col:C.green},
-  {id:'inchis', label:'Inchis', bg:'#f5f5f3', col:C.gray},
+  {id:'nou', label:'Nou', bg:C.softBlue, col:C.blue},
+  {id:'in_lucru', label:'In lucru', bg:C.softAmber, col:C.amber},
+  {id:'masurare', label:'Masurare', bg:C.softGreen, col:C.green},
+  {id:'inchis', label:'Inchis', bg:C.softPanel, col:C.gray},
 ]
 const BACKLOG_TYPES = {
   tracking: {label:'Bug tracking', owner:'Dev + Analytics', review:'7 zile', metric:'GA4 vs buyer_requests', col:C.red},
   growth: {label:'Growth experiments', owner:'Product/Growth', review:'14 zile', metric:'cereri si conv rate', col:C.blue},
+  exit: {label:'Exit intent & funnel', owner:'Product/Growth', review:'7-14 zile', metric:'exit proxy si cereri', col:C.purple},
+  traffic: {label:'Crestere trafic', owner:'Growth/Marketing', review:'14 zile', metric:'sesiuni si canal', col:C.teal},
   seo: {label:'SEO / Content', owner:'SEO/Content', review:'14-28 zile', metric:'impressions, clicks, pozitie', col:C.green},
+  speed: {label:'Speed / UX', owner:'Dev + Product', review:'7 zile', metric:'bounce, durata, Web Vitals', col:C.amber},
 }
 
 function actionKey(action, index) {
@@ -26,6 +29,9 @@ function actionKey(action, index) {
 
 function classifyAction(action) {
   const text = `${action.urgency || ''} ${action.title || ''} ${action.body || ''} ${action.fix || ''}`.toLowerCase()
+  if (text.includes('exit') || text.includes('abandon') || text.includes('salveaza progres') || text.includes('fallback') || text.includes('modal')) return 'exit'
+  if (text.includes('speed') || text.includes('web vitals') || text.includes('lcp') || text.includes('cls') || text.includes('inp') || text.includes('pagespeed')) return 'speed'
+  if (text.includes('trafic') || text.includes('organic social') || text.includes('distributie') || text.includes('facebook groups') || text.includes('newsletter')) return 'traffic'
   if (text.includes('seo') || text.includes('gsc') || text.includes('query') || text.includes('search console')) return 'seo'
   if (text.includes('ga4') || text.includes('tracking') || text.includes('key event') || text.includes('resetare-parola') || text.includes('/cereri/nou')) return 'tracking'
   return 'growth'
@@ -39,6 +45,17 @@ function metricForAction(action, type, summary) {
   }
   if (type === 'seo') {
     return summary.seoImpressions ? `${fmtN(summary.seoImpressions)} impressions` : BACKLOG_TYPES.seo.metric
+  }
+  if (type === 'exit') {
+    if (summary.totalExitIntentEvents) return `${fmtN(summary.totalExitIntentEvents)} exit intent events`
+    if (summary.topExitEstimatedExits) return `${fmtN(summary.topExitEstimatedExits)} exit proxy`
+    return BACKLOG_TYPES.exit.metric
+  }
+  if (type === 'traffic') {
+    return summary.topTrafficChannel ? `${summary.topTrafficChannel} · ${fmtN(summary.totalSess)} sesiuni` : BACKLOG_TYPES.traffic.metric
+  }
+  if (type === 'speed') {
+    return summary.speedRiskPage ? `${summary.speedRiskPage} · ${summary.speedRiskBounce}% bounce` : BACKLOG_TYPES.speed.metric
   }
   if (title.includes('/vreau')) return '/vreau vs /cerere-noua'
   if (title.includes('/cereri')) return `funnel ${summary.funnelRate || 0}%`
@@ -140,6 +157,13 @@ function verifyBacklogItem(item, summary) {
   const seoPosition = Number(summary.seoAvgPosition || 0)
   const seoImpressions = Number(summary.seoImpressions || 0)
   const seoClicks = Number(summary.seoClicks || 0)
+  const topExitRisk = Number(summary.topExitRisk || 0)
+  const topExitEstimatedExits = Number(summary.topExitEstimatedExits || 0)
+  const totalExitIntentEvents = Number(summary.totalExitIntentEvents || 0)
+  const totalSess = Number(summary.totalSess || 0)
+  const totalSessPrev = Number(summary.totalSessPrev || 0)
+  const speedRiskPage = summary.speedRiskPage
+  const speedRiskBounce = Number(summary.speedRiskBounce || 0)
 
   if (item.type === 'tracking' || text.includes('key event') || text.includes('ga4')) {
     if (platformCereri > 0 && trackingCoverage >= 0.8) {
@@ -156,6 +180,58 @@ function verifyBacklogItem(item, summary) {
         ? `Platforma are ${platformCereri} cereri, dar GA4 vede ${ga4Cereri}. Verifica eventul bravo_cerere_noua pe toate rutele si payload-ul gtag.`
         : 'Nu exista inca destule cereri reale ca sa confirm verificarea. Ruleaza sync dupa ce apar cereri noi.',
       suggestions: ['Testeaza submit pe /cerere-noua, /cereri/nou si /vreau in GA4 DebugView.', 'Verifica daca eventul se trimite dupa raspunsul de succes din backend, nu doar la click.'],
+    }
+  }
+
+  if (item.type === 'exit') {
+    if (topExitRisk > 0 && topExitRisk < 8 && totalExitIntentEvents === 0) {
+      return {
+        ok: true,
+        title: 'Confirmat: riscul de exit este sub prag',
+        detail: `Top exit risk este ${topExitRisk.toFixed(1)}, fara evenimente explicite de exit intent in perioada curenta.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: exit intent ramane peste prag',
+      detail: topExitEstimatedExits > 0
+        ? `Top exit risk este ${topExitRisk.toFixed(1)} si exista ${topExitEstimatedExits} exit proxy. Evenimente explicite: ${totalExitIntentEvents}.`
+        : `Evenimente explicite exit intent: ${totalExitIntentEvents}. Ai nevoie de inca o perioada de masurare dupa implementare.`,
+      suggestions: ['Verifica daca modalul/fallback-ul apare doar pe intent real, nu imediat dupa intrarea in pagina.', 'Masoara click pe CTA-ul de salvare/continuare ca event separat.', 'Compara bounce si cereri noi dupa 7-14 zile.'],
+    }
+  }
+
+  if (item.type === 'traffic') {
+    if (totalSessPrev > 0 && totalSess >= totalSessPrev * 1.08) {
+      return {
+        ok: true,
+        title: 'Confirmat: traficul a crescut fata de perioada anterioara',
+        detail: `${totalSess.toLocaleString('ro')} sesiuni vs ${totalSessPrev.toLocaleString('ro')} anterior.`,
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: traficul nu a crescut suficient',
+      detail: totalSessPrev > 0
+        ? `${totalSess.toLocaleString('ro')} sesiuni vs ${totalSessPrev.toLocaleString('ro')} anterior. Pragul de confirmare este +8%.`
+        : 'Nu exista perioada anterioara suficienta pentru confirmare.',
+      suggestions: ['Pastreaza UTM separat pentru fiecare canal testat.', 'Compara traficul pe canal, nu doar totalul.', 'Leaga campania de cereri noi, nu doar de sessions.'],
+    }
+  }
+
+  if (item.type === 'speed') {
+    if (!speedRiskPage) {
+      return {
+        ok: true,
+        title: 'Confirmat: nu mai exista pagina cu proxy major de speed/UX',
+        detail: 'Raportul nu mai gaseste o pagina cu volum relevant, bounce ridicat si durata scurta.',
+      }
+    }
+    return {
+      ok: false,
+      title: 'Nu e confirmat: exista inca risc speed/UX',
+      detail: `${speedRiskPage} ramane pagina de risc, cu ${speedRiskBounce || 0}% bounce.`,
+      suggestions: ['Ruleaza PageSpeed pe pagina indicata.', 'Verifica imagini above the fold si scripturi third-party.', 'Adauga eventuri Web Vitals pentru confirmare tehnica: LCP, CLS, INP.'],
     }
   }
 
@@ -273,7 +349,7 @@ function BacklogCard({ item, state, onChange, onVerify }) {
   const verification = state.verification
   const verifyOk = verification?.ok === true
   return (
-    <div style={{background:C.card,border:`0.5px solid ${verifyOk?'#86EFAC':verification&&!verifyOk?'#FCA5A5':C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:10,opacity:ignored?0.58:1}}>
+    <div style={{background:C.card,border:`0.5px solid ${verifyOk?C.green:verification&&!verifyOk?C.red:C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:10,opacity:ignored?0.58:1}}>
       <div style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:8}}>
         <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:99,background:status.bg,color:status.col,flexShrink:0}}>{status.label}</span>
         <span style={{fontSize:13,fontWeight:600,color:ignored?C.hint:C.text,lineHeight:1.35,flex:1,textDecoration:ignored?'line-through':'none'}}>{item.title}</span>
@@ -295,16 +371,16 @@ function BacklogCard({ item, state, onChange, onVerify }) {
         <button onClick={()=>onVerify(item)} disabled={ignored} style={{
           padding:'6px 10px',fontSize:11,fontWeight:600,borderRadius:7,cursor:ignored?'not-allowed':'pointer',
           border:`0.5px solid ${verifyOk?C.green:C.border}`,
-          background:verifyOk?'#F0FDF4':'#fff',color:verifyOk?C.green:C.text,fontFamily:'inherit'
+          background:verifyOk?C.softGreen:C.input,color:verifyOk?C.green:C.text,fontFamily:'inherit'
         }}>{verifyOk ? '✓ Implementat confirmat' : 'Am implementat'}</button>
         <button onClick={()=>onChange(item.id,{ignored:!ignored},item)} style={{
           padding:'6px 10px',fontSize:11,fontWeight:600,borderRadius:7,cursor:'pointer',
           border:`0.5px solid ${ignored?C.gray:C.border}`,
-          background:ignored?'#f5f5f3':'#fff',color:ignored?C.gray:C.muted,fontFamily:'inherit'
+          background:ignored?C.softPanel:C.input,color:ignored?C.gray:C.muted,fontFamily:'inherit'
         }}>{ignored ? 'Reactiveaza' : 'Ignora recomandarea'}</button>
       </div>
       {verification && (
-        <div style={{background:verifyOk?'#F0FDF4':'#FEF2F2',border:`0.5px solid ${verifyOk?'#86EFAC':'#FCA5A5'}`,borderRadius:8,padding:'9px 10px',marginBottom:10}}>
+        <div style={{background:verifyOk?C.softGreen:C.softRed,border:`0.5px solid ${verifyOk?C.green:C.red}`,borderRadius:8,padding:'9px 10px',marginBottom:10}}>
           <p style={{fontSize:12,fontWeight:700,color:verifyOk?C.green:C.red,margin:'0 0 4px'}}>{verification.title}</p>
           <p style={{fontSize:12,color:C.muted,lineHeight:1.45,margin:0}}>{verification.detail}</p>
           {!verifyOk && verification.suggestions?.length > 0 && (
@@ -316,11 +392,11 @@ function BacklogCard({ item, state, onChange, onVerify }) {
         </div>
       )}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
-        <div style={{background:'#fafaf8',borderRadius:7,padding:'7px 8px'}}>
+        <div style={{background:C.softPanel,borderRadius:7,padding:'7px 8px'}}>
           <p style={{fontSize:10,color:C.hint,margin:'0 0 2px'}}>Metric</p>
           <p style={{fontSize:12,fontWeight:500,color:meta.col,margin:0}}>{item.metric}</p>
         </div>
-        <div style={{background:'#fafaf8',borderRadius:7,padding:'7px 8px'}}>
+        <div style={{background:C.softPanel,borderRadius:7,padding:'7px 8px'}}>
           <p style={{fontSize:10,color:C.hint,margin:'0 0 2px'}}>Review</p>
           <p style={{fontSize:12,fontWeight:500,color:C.text,margin:0}}>{meta.review}</p>
         </div>
@@ -337,7 +413,7 @@ function BacklogCard({ item, state, onChange, onVerify }) {
 }
 
 /* ─── RECOMANDARI ──────────────────────────────────────────────────── */
-function TabRecomandari({ data }) {
+function TabRecomandari({ data, onRegenerate, regenerating }) {
   const rec = data.recommendations || {}
   const insights = rec.insights || []
   const actions  = rec.actions  || []
@@ -435,12 +511,12 @@ function TabRecomandari({ data }) {
 
   function cloudBadge() {
     const config = {
-      loading: { label:'Cloud...', bg:'#EBF4FC', col:C.blue },
-      saving: { label:'Se salveaza', bg:'#FFF7ED', col:C.amber },
-      synced: { label:'Cloud sync', bg:'#F0FDF4', col:C.green },
-      setup: { label:'Cloud setup', bg:'#FEF2F2', col:C.red },
-      local: { label:'Local fallback', bg:'#f5f5f3', col:C.gray },
-    }[cloudState.status] || { label:'Backlog', bg:'#f5f5f3', col:C.gray }
+      loading: { label:'Cloud...', bg:C.softBlue, col:C.blue },
+      saving: { label:'Se salveaza', bg:C.softAmber, col:C.amber },
+      synced: { label:'Cloud sync', bg:C.softGreen, col:C.green },
+      setup: { label:'Cloud setup', bg:C.softRed, col:C.red },
+      local: { label:'Local fallback', bg:C.softPanel, col:C.gray },
+    }[cloudState.status] || { label:'Backlog', bg:C.softPanel, col:C.gray }
     return {
       ...config,
       title: cloudState.message,
@@ -450,7 +526,7 @@ function TabRecomandari({ data }) {
   function cloudNotice() {
     if (cloudState.status !== 'setup' && cloudState.status !== 'local') return null
     return (
-      <div style={{background:cloudState.status==='setup'?'#FEF2F2':'#FFF7ED',border:`0.5px solid ${cloudState.status==='setup'?'#FCA5A5':'#FDBA74'}`,borderRadius:10,padding:'10px 12px',marginBottom:12}}>
+      <div style={{background:cloudState.status==='setup'?C.softRed:C.softAmber,border:`0.5px solid ${cloudState.status==='setup'?C.red:C.amber}`,borderRadius:10,padding:'10px 12px',marginBottom:12}}>
         <p style={{fontSize:12,fontWeight:700,color:cloudState.status==='setup'?C.red:C.amber,margin:'0 0 3px'}}>{cloudState.message}</p>
         <p style={{fontSize:12,color:C.muted,lineHeight:1.45,margin:0}}>
           Statusurile raman disponibile pe acest device. Dupa aplicarea tabelei `hp_action_backlog`, ele se sincronizeaza automat in Supabase.
@@ -476,7 +552,12 @@ function TabRecomandari({ data }) {
     return (
       <div style={{textAlign:"center",padding:"60px 20px",color:C.hint}}>
         <p style={{fontSize:14,marginBottom:8}}>Recomandarile se genereaza la urmatorul sync.</p>
-        <p style={{fontSize:12}}>Apasa butonul sync din header pentru a genera recomandari pe datele curente.</p>
+        <p style={{fontSize:12}}>Poti genera recomandari noi din datele recente salvate in baza de date.</p>
+        {onRegenerate && (
+          <button onClick={onRegenerate} disabled={regenerating} style={{marginTop:14,padding:'9px 13px',border:'none',borderRadius:8,background:regenerating?C.gray:C.green,color:'#fff',fontSize:12,fontWeight:700,cursor:regenerating?'not-allowed':'pointer'}}>
+            {regenerating ? 'Se genereaza...' : 'Genereaza recomandari noi'}
+          </button>
+        )}
       </div>
     )
   }
@@ -489,7 +570,9 @@ function TabRecomandari({ data }) {
       ? {label:"GA4 vs platforma", est:trackingGap + " cereri neatribuite GA4", col:C.red}
       : {label:"Tracking cereri", est:(s.trackingCereriNoi || 0) + " cereri in GA4", col:(s.trackingCereriNoi || 0)>0?C.green:C.hint},
     {label:"CTA inline pe /cereri", est:(s.funnelRate || 0) < 15 ? "ridica funnelul peste 15%" : "optimizare marginala", col:(s.funnelRate || 0) < 15 ? C.amber : C.green},
+    {label:"Exit intent", est:(s.totalExitIntentEvents || 0) > 0 ? fmtN(s.totalExitIntentEvents) + " events" : (s.topExitEstimatedExits || 0) > 0 ? fmtN(s.topExitEstimatedExits) + " exit proxy" : "risc redus", col:(s.totalExitIntentEvents || 0) > 0 || (s.topExitRisk || 0) >= 12 ? C.red : C.green},
     {label:"SEO Search Console", est:(s.seoImpressions || 0) > 0 ? fmtN(s.seoImpressions) + " impressions validate" : "date insuficiente", col:(s.seoImpressions || 0) > 0 ? C.green : C.hint},
+    {label:"Speed / UX", est:s.speedRiskPage ? s.speedRiskPage + " · " + (s.speedRiskBounce || 0) + "% bounce" : "fara proxy major", col:s.speedRiskPage ? C.amber : C.green},
     {label:"Canal performant", est:(s.socialConvR || 0) > 0 ? "Social " + s.socialConvR + "% conv" : "testeaza canal nou", col:(s.socialConvR || 0) > 10 ? C.green : C.blue},
   ]
   const openItems = backlogItems.filter(item => (backlogState[item.id]?.status || 'nou') !== 'inchis').length
@@ -507,12 +590,24 @@ function TabRecomandari({ data }) {
               {s.totalCereriNoi > 0 && " · " + s.totalCereriNoi + " " + cereriLabel}
             </p>
           </div>
-          {generatedAt && (
-            <div style={{textAlign:"right",flexShrink:0}}>
-              <p style={{fontSize:10,color:"rgba(255,255,255,.4)",margin:"0 0 2px"}}>Ultima generare</p>
-              <p style={{fontSize:11,color:"rgba(255,255,255,.7)",margin:0}}>{fmtDate(generatedAt)}</p>
-            </div>
-          )}
+          <div style={{display:'grid',gap:8,justifyItems:'end',flexShrink:0}}>
+            {generatedAt && (
+              <div style={{textAlign:"right"}}>
+                <p style={{fontSize:10,color:"rgba(255,255,255,.4)",margin:"0 0 2px"}}>Ultima generare</p>
+                <p style={{fontSize:11,color:"rgba(255,255,255,.7)",margin:0}}>{fmtDate(generatedAt)}</p>
+              </div>
+            )}
+            {onRegenerate && (
+              <button onClick={onRegenerate} disabled={regenerating} title="Recalculeaza recomandarile din datele recente din baza de date si reimprospateaza ziua curenta" style={{
+                padding:'8px 11px',border:'0.5px solid rgba(255,255,255,.28)',borderRadius:8,
+                background:regenerating?'rgba(255,255,255,.12)':'rgba(255,255,255,.18)',
+                color:'#fff',fontSize:12,fontWeight:700,cursor:regenerating?'not-allowed':'pointer',
+                boxShadow:'0 8px 18px rgba(0,0,0,.12)'
+              }}>
+                {regenerating ? 'Se genereaza...' : 'Genereaza recomandari noi'}
+              </button>
+            )}
+          </div>
         </div>
         {s.totalSess > 0 && (
           <div style={{display:"flex",gap:16,marginTop:14,paddingTop:12,borderTop:"0.5px solid rgba(255,255,255,.15)",flexWrap:"wrap"}}>
@@ -543,10 +638,10 @@ function TabRecomandari({ data }) {
             <span title={backlogCloudBadge.title} style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:backlogCloudBadge.bg,color:backlogCloudBadge.col,fontWeight:600}}>
               {backlogCloudBadge.label}
             </span>
-            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#EBF4FC",color:C.blue,fontWeight:600}}>
+            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:C.softBlue,color:C.blue,fontWeight:600}}>
               {backlogItems.length} total
             </span>
-            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:"#F0FDF4",color:C.green,fontWeight:600}}>
+            <span style={{fontSize:10,padding:"2px 7px",borderRadius:99,background:C.softGreen,color:C.green,fontWeight:600}}>
               {measuringItems} in masurare
             </span>
           </div>
@@ -674,7 +769,7 @@ function TabCerereNoua({ data }) {
                 /{p.label}
               </PageLink>
               {p.convRate === Math.max(...paths.map(x=>x.convRate)) && p.convRate > 0 && (
-                <span style={{fontSize:10,fontWeight:500,padding:'1px 6px',borderRadius:99,background:'#F0FDF4',color:C.green}}>best</span>
+                <span style={{fontSize:10,fontWeight:500,padding:'1px 6px',borderRadius:99,background:C.softGreen,color:C.green}}>best</span>
               )}
             </div>
             <p style={{fontSize:11,color:C.hint,margin:'0 0 10px',lineHeight:1.4}}>{p.description}</p>
@@ -717,7 +812,7 @@ function TabCerereNoua({ data }) {
                 {/* Views bar */}
                 <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
                   <span style={{fontSize:10,color:C.hint,width:56,flexShrink:0}}>Views</span>
-                  <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:8,overflow:'hidden'}}>
+                  <div style={{flex:1,background:C.softPanel,borderRadius:99,height:8,overflow:'hidden'}}>
                     <div style={{width:`${pct}%`,height:8,background:p.color,borderRadius:99,opacity:.7}}/>
                   </div>
                   <span style={{fontSize:11,color:C.muted,width:36,textAlign:'right'}}>{fmtN(p.views)}</span>
@@ -725,7 +820,7 @@ function TabCerereNoua({ data }) {
                 {/* Conv bar (scaled to 10% max) */}
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
                   <span style={{fontSize:10,color:C.hint,width:56,flexShrink:0}}>Conv GA4</span>
-                  <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:8,overflow:'hidden'}}>
+                  <div style={{flex:1,background:C.softPanel,borderRadius:99,height:8,overflow:'hidden'}}>
                     <div style={{width:`${Math.min(p.convRate*5,100)}%`,height:8,background:p.conv>0?C.green:C.border,borderRadius:99}}/>
                   </div>
                   <span style={{fontSize:11,color:p.conv>0?C.green:C.hint,width:36,textAlign:'right',fontWeight:p.conv>0?500:400}}>{p.conv}</span>
@@ -744,7 +839,7 @@ function TabCerereNoua({ data }) {
               <button key={v} onClick={()=>setChartMode(v)} style={{
                 padding:'3px 10px',fontSize:11,borderRadius:6,cursor:'pointer',
                 border:`0.5px solid ${chartMode===v?C.blue:C.border}`,
-                background:chartMode===v?'#EBF4FC':'transparent',
+                background:chartMode===v?C.softBlue:'transparent',
                 color:chartMode===v?C.blue:C.muted,fontWeight:chartMode===v?500:400
               }}>{l}</button>
             ))}
@@ -784,7 +879,7 @@ function TabCerereNoua({ data }) {
                         <span style={{fontSize:11,color:C.text}}>{ch.session_default_channel_group}</span>
                         <span style={{fontSize:11,color:C.muted}}>{fmtN(ch.screen_page_views)} ({pct.toFixed(0)}%)</span>
                       </div>
-                      <div style={{background:'#ebebE4',borderRadius:99,height:5,overflow:'hidden',marginBottom:2}}>
+                      <div style={{background:C.softPanel,borderRadius:99,height:5,overflow:'hidden',marginBottom:2}}>
                         <div style={{width:`${pct}%`,height:5,background:p.color,borderRadius:99,opacity:.7}}/>
                       </div>
                       {ch.conversions > 0 && (
@@ -893,7 +988,7 @@ function TabConversii({ data }) {
 
       {/* Alert Key Events */}
       {CONV_DEFINITIONS.filter(c => !c.isPageView && active[c.id] && getVal(c) === 0).length > 0 && (
-        <div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13}}>
+        <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',marginBottom:16,fontSize:13}}>
           <strong style={{color:C.red}}>Atentie: </strong>
           <span style={{color:C.muted}}>
             {CONV_DEFINITIONS.filter(c => !c.isPageView && active[c.id] && getVal(c) === 0).map(c=>c.label).join(', ')} returneaza 0 — Key Events neconfigurate in GA4.
@@ -908,7 +1003,7 @@ function TabConversii({ data }) {
           <button key={cat} onClick={()=>setCatFilter(cat)} style={{
             padding:'4px 10px',fontSize:12,borderRadius:6,cursor:'pointer',
             border:`0.5px solid ${catFilter===cat?(catColors[cat]||C.blue):C.border}`,
-            background:catFilter===cat?'#EBF4FC':'transparent',
+            background:catFilter===cat?C.softBlue:'transparent',
             color:catFilter===cat?(catColors[cat]||C.blue):C.muted,fontWeight:catFilter===cat?500:400
           }}>{cat}</button>
         ))}
@@ -926,7 +1021,7 @@ function TabConversii({ data }) {
           const convRate = totalSess > 0 ? (val / totalSess * 100) : 0
           return (
             <div key={conv.id} style={{
-              background:C.card,border:`0.5px solid ${isOn?C.border:'#ebebE4'}`,borderRadius:10,
+              background:C.card,border:`0.5px solid ${isOn?C.border:C.softPanel}`,borderRadius:10,
               padding:'12px 14px',display:'flex',alignItems:'center',gap:12,
               opacity:isOn?1:0.5,transition:'opacity .15s'
             }}>
@@ -1107,7 +1202,7 @@ export function TabCerereTracking({ data }) {
                 return (
                   <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
                     <span style={{fontSize:11,color:C.muted,width:100,flexShrink:0,fontFamily:'monospace'}}>{dayLabel}</span>
-                    <div style={{flex:1,background:'#ebebE4',borderRadius:99,height:10,overflow:'hidden'}}>
+                    <div style={{flex:1,background:C.softPanel,borderRadius:99,height:10,overflow:'hidden'}}>
                       <div style={{width:`${pct}%`,height:10,background:C.blue,borderRadius:99}}/>
                     </div>
                     <span style={{fontSize:14,fontWeight:600,color:C.blue,width:20,textAlign:'right',flexShrink:0}}>{v}</span>
@@ -1153,7 +1248,7 @@ export function TabCerereTracking({ data }) {
                     {label:'Proiectie 7 zile',val:proj7,sub:`target: ${target7}`,ok:proj7>=target7},
                     {label:'Proiectie 30 zile',val:proj30,sub:`target: ${target30}`,ok:proj30>=target30},
                   ].map((it,i)=>(
-                    <div key={i} style={{textAlign:'center',padding:'10px',background:it.ok===true?'#F0FDF4':it.ok===false?'#FEF2F2':'#f5f5f3',borderRadius:8}}>
+                    <div key={i} style={{textAlign:'center',padding:'10px',background:it.ok===true?C.softGreen:it.ok===false?C.softRed:C.softPanel,borderRadius:8}}>
                       <div style={{fontSize:20,fontWeight:600,color:it.ok===true?C.green:it.ok===false?C.red:C.text}}>{it.val}</div>
                       <div style={{fontSize:11,color:C.hint,marginTop:2}}>{it.label}</div>
                       <div style={{fontSize:10,color:it.ok===true?C.green:it.ok===false?C.red:C.hint,marginTop:1}}>{it.sub}</div>
