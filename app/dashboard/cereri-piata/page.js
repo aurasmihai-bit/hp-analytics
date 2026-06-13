@@ -1,9 +1,10 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { C } from '../components'
 import { TabCereriPiata } from '../tabs5'
+import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from '../theme'
 
 const PERIODS = [
   { label:'Toate', days:1095 },
@@ -40,7 +41,7 @@ function PeriodControls({ days, customFrom, customTo, onDays, onCustom }) {
       <button onClick={()=>setShowPicker(v=>!v)} style={{
         padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',fontWeight:isCustom?500:400,
         border:`0.5px solid ${isCustom||showPicker?C.blue:C.border}`,
-        background:isCustom?'#EBF4FC':showPicker?'#F0F7FF':'transparent',
+        background:isCustom?C.softBlue:showPicker?C.softBlue:'transparent',
         color:isCustom||showPicker?C.blue:C.muted,fontFamily:'inherit'
       }}>
         {isCustom ? `${customFrom} - ${customTo}` : 'Personalizat'}
@@ -74,6 +75,19 @@ export default function CereriPiataPage() {
   const [days, setDays] = useState(1095)
   const [customFrom, setCustomFrom] = useState(null)
   const [customTo, setCustomTo] = useState(null)
+  const [darkMode, setDarkMode] = useState(false)
+
+  useEffect(() => {
+    setDarkMode(localStorage.getItem(THEME_STORAGE_KEY) === 'dark')
+  }, [])
+
+  function toggleTheme() {
+    setDarkMode(current => {
+      const next = !current
+      localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light')
+      return next
+    })
+  }
 
   function selectDays(nextDays) {
     setDays(nextDays)
@@ -87,14 +101,17 @@ export default function CereriPiataPage() {
     setCustomTo(to)
   }
 
+  const theme = darkMode ? DARK_THEME : LIGHT_THEME
+
   return (
-    <div style={{minHeight:'100vh',background:C.bg}}>
+    <div style={{minHeight:'100vh',background:C.bg,color:C.text,...theme}}>
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',alignItems:'center',gap:12,minHeight:52,position:'sticky',top:0,zIndex:10,flexWrap:'wrap'}}>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{width:26,height:26,borderRadius:6,background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:600,fontSize:12}}>H</div>
+          <div style={{width:26,height:26,borderRadius:6,background:darkMode?'#1d4ed8':C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:600,fontSize:12}}>H</div>
           <span style={{fontSize:14,fontWeight:500,color:C.text}}>Cereri piata</span>
         </div>
         <div style={{flex:1}}/>
+        <ThemeSwitch darkMode={darkMode} onToggle={toggleTheme}/>
         <PeriodControls days={days} customFrom={customFrom} customTo={customTo} onDays={selectDays} onCustom={selectCustom}/>
         <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Dashboard</a>
       </div>

@@ -8,6 +8,7 @@ import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
 import { TabExitIntent } from './tabs6'
+import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from './theme'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -52,7 +53,7 @@ function PeriodBar({ days, customFrom, customTo, onDays, onCustom }) {
       <button onClick={()=>setShowPicker(v=>!v)} style={{
         padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',fontWeight:isCustom?500:400,
         border:`0.5px solid ${isCustom||showPicker?C.blue:C.border}`,
-        background:isCustom?'#EBF4FC':showPicker?'#F0F7FF':'transparent',
+        background:isCustom?C.softBlue:showPicker?C.softBlue:'transparent',
         color:isCustom||showPicker?C.blue:C.muted,display:'flex',alignItems:'center',gap:5,
         transition:'all .15s'
       }}>
@@ -311,6 +312,7 @@ export default function Dashboard() {
   const [days,setDays]=useState(30)
   const [customFrom,setCustomFrom]=useState(null)
   const [customTo,setCustomTo]=useState(null)
+  const [darkMode,setDarkMode]=useState(false)
 
   const [syncing, setSyncing] = useState(false)
 
@@ -360,17 +362,28 @@ export default function Dashboard() {
   },[load])
 
   useEffect(()=>{load(30)},[])
+  useEffect(()=>{setDarkMode(localStorage.getItem(THEME_STORAGE_KEY)==='dark')},[])
+
+  function toggleTheme() {
+    setDarkMode(current => {
+      const next = !current
+      localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light')
+      return next
+    })
+  }
 
   async function logout(){
     await fetch('/api/auth/logout',{method:'POST'})
     window.location.href='/login'
   }
 
+  const theme = darkMode ? DARK_THEME : LIGHT_THEME
+
   return (
-    <div style={{minHeight:'100vh',background:C.bg}}>
+    <div style={{minHeight:'100vh',background:C.bg,color:C.text,...theme}}>
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',alignItems:'center',gap:12,height:52,position:'sticky',top:0,zIndex:10,flexWrap:'wrap'}}>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <div style={{width:26,height:26,borderRadius:6,background:C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:600,fontSize:12}}>H</div>
+          <div style={{width:26,height:26,borderRadius:6,background:darkMode?'#1d4ed8':C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:600,fontSize:12}}>H</div>
           <span style={{fontSize:14,fontWeight:500,color:C.text}}>HomePitch Analytics</span>
           {data&&<span style={{fontSize:11,color:C.hint}}>· {data.periodLabel}</span>}
           {data&&data._source&&(
@@ -385,11 +398,12 @@ export default function Dashboard() {
           )}
         </div>
         <div style={{flex:1}}/>
+        <ThemeSwitch darkMode={darkMode} onToggle={toggleTheme}/>
         {data&&<PeriodBar days={days} customFrom={customFrom} customTo={customTo} onDays={onDays} onCustom={onCustom}/>}
-        <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:'#F0FDF4',color:C.green,textDecoration:'none'}}>Cereri piata</a>
-        <a href="/dashboard/concierge" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.amber}`,borderRadius:6,background:'#FFF7ED',color:C.amber,textDecoration:'none'}}>Concierge CRM</a>
+        <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
+        <a href="/dashboard/concierge" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.amber}`,borderRadius:6,background:C.softAmber,color:C.amber,textDecoration:'none'}}>Concierge CRM</a>
         <button onClick={()=>customFrom?load(null,customFrom,customTo):load(days)} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>↻</button>
-        <button onClick={forceSync} disabled={syncing} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${syncing?C.border:C.blue}`,borderRadius:6,background:syncing?'transparent':'#EBF4FC',color:syncing?C.hint:C.blue,cursor:syncing?'not-allowed':'pointer'}} title="Forteaza sync din GA4 si salveaza in Supabase">{syncing?'sync...':'⬇ sync'}</button>
+        <button onClick={forceSync} disabled={syncing} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${syncing?C.border:C.blue}`,borderRadius:6,background:syncing?'transparent':C.softBlue,color:syncing?C.hint:C.blue,cursor:syncing?'not-allowed':'pointer'}} title="Forteaza sync din GA4 si salveaza in Supabase">{syncing?'sync...':'⬇ sync'}</button>
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
       </div>
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',gap:0,overflowX:'auto'}}>
