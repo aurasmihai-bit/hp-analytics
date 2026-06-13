@@ -52,7 +52,7 @@ function RowButton({ row, selected, onClick }) {
   return (
     <button onClick={onClick} style={{
       width:'100%',textAlign:'left',border:`0.5px solid ${selected?C.blue:C.border}`,borderRadius:10,
-      background:selected?'#EBF4FC':C.card,padding:'12px 13px',cursor:'pointer',marginBottom:8,
+      background:selected?C.softBlue:C.card,padding:'12px 13px',cursor:'pointer',marginBottom:8,
     }}>
       <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'flex-start'}}>
         <div style={{minWidth:0}}>
@@ -60,7 +60,7 @@ function RowButton({ row, selected, onClick }) {
           <p style={{fontSize:11,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.customer.email}</p>
           {row.source === 'imported' && <p style={{fontSize:10,color:C.amber,margin:'3px 0 0'}}>import email</p>}
         </div>
-        <span style={{fontSize:10,fontWeight:600,color:stageColor(row.stage),background:'#fff',border:`0.5px solid ${stageColor(row.stage)}33`,borderRadius:99,padding:'2px 7px',whiteSpace:'nowrap'}}>
+        <span style={{fontSize:10,fontWeight:600,color:stageColor(row.stage),background:C.input,border:`0.5px solid ${stageColor(row.stage)}55`,borderRadius:99,padding:'2px 7px',whiteSpace:'nowrap'}}>
           {STAGES.find(([id])=>id===row.stage)?.[1] || row.stage}
         </span>
       </div>
@@ -79,7 +79,7 @@ function TextInput({ label, value, onChange, type = 'text', multiline = false, p
     placeholder,
     style: {
       width:'100%',boxSizing:'border-box',padding:'8px 10px',border:`0.5px solid ${C.border}`,
-      borderRadius:7,fontSize:12,color:C.text,background:C.card,fontFamily:'inherit',
+      borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit',
     },
   }
   return (
@@ -94,7 +94,7 @@ function SelectInput({ label, value, onChange, options }) {
   return (
     <label style={{display:'block'}}>
       <span style={{display:'block',fontSize:10,color:C.hint,marginBottom:4,textTransform:'uppercase',letterSpacing:'.04em'}}>{label}</span>
-      <select value={value || ''} onChange={e=>onChange(e.target.value)} style={{width:'100%',padding:'8px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.card,fontFamily:'inherit'}}>
+      <select value={value || ''} onChange={e=>onChange(e.target.value)} style={{width:'100%',padding:'8px 10px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input,fontFamily:'inherit'}}>
         {options.map(([id,label]) => <option key={id} value={id}>{label}</option>)}
       </select>
     </label>
@@ -125,9 +125,9 @@ function ServicesEditor({ services, onChange }) {
       </div>
       {services.map((service, index) => (
         <div key={service.id || index} style={{display:'grid',gridTemplateColumns:'1fr 58px 82px 88px 34px',gap:6,alignItems:'center',marginBottom:6}}>
-          <input value={service.title || ''} onChange={e=>update(index,{title:e.target.value})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12}}/>
-          <input type="number" min="0" value={service.quantity || 0} onChange={e=>update(index,{quantity:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12}}/>
-          <input type="number" min="0" step="0.01" value={service.unit_price_eur || 0} onChange={e=>update(index,{unit_price_eur:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12}}/>
+          <input value={service.title || ''} onChange={e=>update(index,{title:e.target.value})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
+          <input type="number" min="0" value={service.quantity || 0} onChange={e=>update(index,{quantity:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
+          <input type="number" min="0" step="0.01" value={service.unit_price_eur || 0} onChange={e=>update(index,{unit_price_eur:Number(e.target.value)})} style={{padding:'7px 8px',border:`0.5px solid ${C.border}`,borderRadius:7,fontSize:12,color:C.text,background:C.input}}/>
           <span style={{fontSize:12,fontWeight:600,color:C.text,textAlign:'right'}}>{euro(service.subtotal_eur)}</span>
           <button onClick={()=>remove(index)} style={{height:30,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:C.red,cursor:'pointer'}}>×</button>
         </div>
@@ -263,7 +263,7 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
               Cerere {safeDate(draft.createdAt)} · {draft.source === 'imported' ? `sursa: ${draft.sourceLabel || 'import email'}` : `email: ${draft.email.status}`}
             </p>
           </div>
-          <span style={{fontSize:12,fontWeight:700,color:paymentColor(draft.paymentStatus),background:'#fff',border:`0.5px solid ${paymentColor(draft.paymentStatus)}55`,borderRadius:99,padding:'4px 10px'}}>
+          <span style={{fontSize:12,fontWeight:700,color:paymentColor(draft.paymentStatus),background:C.input,border:`0.5px solid ${paymentColor(draft.paymentStatus)}55`,borderRadius:99,padding:'4px 10px'}}>
             {PAYMENT_LABELS[draft.paymentStatus] || draft.paymentStatus}
           </span>
         </div>
@@ -273,7 +273,7 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
           <KPI label="Reminder" curr={draft.reminderCount || 0} sub={draft.reminderSentAt ? safeDate(draft.reminderSentAt) : 'netrimis'}/>
         </Grid>
         {draft.customerMessage && (
-          <div style={{background:'#F5F5F3',border:`0.5px solid ${C.border}`,borderRadius:8,padding:'10px 12px',marginTop:8}}>
+          <div style={{background:C.softPanel,border:`0.5px solid ${C.border}`,borderRadius:8,padding:'10px 12px',marginTop:8}}>
             <p style={{fontSize:11,fontWeight:600,color:C.hint,margin:'0 0 4px',textTransform:'uppercase'}}>Mesaj client</p>
             <p style={{fontSize:13,color:C.text,margin:0,lineHeight:1.55,whiteSpace:'pre-wrap'}}>{draft.customerMessage}</p>
           </div>
@@ -305,8 +305,8 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
           {draft.stripePaymentUrl && <a href={draft.stripePaymentUrl} target="_blank" rel="noopener noreferrer" style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`0.5px solid ${C.green}`,color:C.green,textDecoration:'none'}}>Deschide link plata</a>}
-          <button onClick={onCheckPayments} style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`0.5px solid ${C.blue}`,background:'#EBF4FC',color:C.blue,cursor:'pointer'}}>Verifica plati</button>
-          <button onClick={sendReminder} disabled={busy==='reminder' || !draft.stripePaymentUrl} style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`0.5px solid ${C.amber}`,background:'#FFF7ED',color:C.amber,cursor:busy==='reminder'?'not-allowed':'pointer'}}>
+          <button onClick={onCheckPayments} style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`0.5px solid ${C.blue}`,background:C.softBlue,color:C.blue,cursor:'pointer'}}>Verifica plati</button>
+          <button onClick={sendReminder} disabled={busy==='reminder' || !draft.stripePaymentUrl} style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`0.5px solid ${C.amber}`,background:C.softAmber,color:C.amber,cursor:busy==='reminder'?'not-allowed':'pointer'}}>
             {busy==='reminder'?'Se trimite...':'Reminder plata email'}
           </button>
         </div>
@@ -327,8 +327,8 @@ function DetailsPanel({ row, onSaved, onCheckPayments }) {
         </div>
       </Card>
 
-      {notice && <div style={{padding:'10px 12px',border:`0.5px solid #86EFAC`,borderRadius:8,background:'#F0FDF4',color:C.green,fontSize:13}}>{notice}</div>}
-      {error && <div style={{padding:'10px 12px',border:`0.5px solid #FCA5A5`,borderRadius:8,background:'#FEF2F2',color:C.red,fontSize:13}}>{error}</div>}
+      {notice && <div style={{padding:'10px 12px',border:`0.5px solid ${C.green}`,borderRadius:8,background:C.softGreen,color:C.green,fontSize:13}}>{notice}</div>}
+      {error && <div style={{padding:'10px 12px',border:`0.5px solid ${C.red}`,borderRadius:8,background:C.softRed,color:C.red,fontSize:13}}>{error}</div>}
     </div>
   )
 }
@@ -403,25 +403,26 @@ export function TabConcierge() {
           <h2 style={{fontSize:18,fontWeight:600,color:C.text,margin:'0 0 4px'}}>Concierge CRM</h2>
           <p style={{fontSize:13,color:C.muted,margin:0}}>Cereri venite din /concierge, proces contactare, servicii, plata si follow-up dupa plata.</p>
         </div>
-        <button onClick={checkPayments} disabled={checking} style={{padding:'8px 12px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:'#EBF4FC',color:C.blue,cursor:checking?'not-allowed':'pointer'}}>
+        <button onClick={checkPayments} disabled={checking} style={{padding:'8px 12px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,cursor:checking?'not-allowed':'pointer'}}>
           {checking?'Verific...':'Verifica platile Stripe'}
         </button>
       </div>
 
       {(setupRequired.crm || setupRequired.emailLog || setupRequired.importedRequests || setupRequired.platformServiceKey) && (
-        <div style={{background:'#FFF7ED',border:'0.5px solid #FCD34D',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
+        <div style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:10,padding:'12px 14px',marginBottom:14}}>
           <p style={{fontSize:13,fontWeight:600,color:C.amber,margin:'0 0 4px'}}>Setup Supabase pending</p>
           <p style={{fontSize:13,color:C.muted,margin:0}}>
             {setupRequired.crm ? 'Lipseste tabela hp_concierge_crm. ' : ''}
             {setupRequired.importedRequests ? 'Lipseste tabela hp_concierge_imported_requests. ' : ''}
             {setupRequired.emailLog ? 'Lipseste auditul hp_concierge_email_log. ' : ''}
-            {setupRequired.platformServiceKey ? 'Lipseste PLATFORM_SUPABASE_SERVICE_KEY in Vercel, deci cererile live din HomePitch nu pot fi citite; se pot afisa doar importurile din analytics. ' : ''}
-            Ruleaza `supabase/hp_concierge_crm.sql` in Supabase analytics si seteaza `PLATFORM_SUPABASE_SERVICE_KEY` in Vercel.
+            {setupRequired.crm || setupRequired.importedRequests ? 'Ruleaza `supabase/hp_concierge_crm.sql` in Supabase analytics. ' : ''}
+            {setupRequired.platformServiceKey ? 'Lipseste PLATFORM_SUPABASE_SERVICE_KEY in Vercel, deci cererile live din HomePitch nu pot fi citite direct. Pentru sync automat din formular seteaza secretul HP_ANALYTICS_SUPABASE_SERVICE_KEY in Edge Function-ul HomePitch. ' : ''}
+            {setupRequired.emailLog ? 'Ruleaza migrarea hp_concierge_email_log in Supabase HomePitch. ' : ''}
           </p>
         </div>
       )}
 
-      {error && <div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'12px 14px',marginBottom:14,color:C.red,fontSize:13}}>{error}</div>}
+      {error && <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',marginBottom:14,color:C.red,fontSize:13}}>{error}</div>}
 
       <Grid>
         <KPI label="Cereri concierge" curr={rows.length}/>

@@ -2,10 +2,12 @@
 import { useState } from 'react'
 
 export const C = {
-  navy:'#1A2B4A', blue:'#3B82C4', green:'#16A34A', amber:'#D97706',
-  red:'#DC2626', gray:'#6B7280', purple:'#7C3AED', teal:'#0891B2',
-  border:'#e8e8e0', bg:'#f5f5f3', card:'#ffffff',
-  text:'#1a1a18', muted:'#666660', hint:'#999990',
+  navy:'var(--hp-navy,#1A2B4A)', blue:'var(--hp-blue,#3B82C4)', green:'var(--hp-green,#16A34A)', amber:'var(--hp-amber,#D97706)',
+  red:'var(--hp-red,#DC2626)', gray:'var(--hp-gray,#6B7280)', purple:'var(--hp-purple,#7C3AED)', teal:'var(--hp-teal,#0891B2)',
+  border:'var(--hp-border,#e8e8e0)', bg:'var(--hp-bg,#f5f5f3)', card:'var(--hp-card,#ffffff)',
+  text:'var(--hp-text,#1a1a18)', muted:'var(--hp-muted,#666660)', hint:'var(--hp-hint,#999990)',
+  input:'var(--hp-input,#ffffff)', softBlue:'var(--hp-soft-blue,#EBF4FC)', softGreen:'var(--hp-soft-green,#F0FDF4)',
+  softAmber:'var(--hp-soft-amber,#FFF7ED)', softRed:'var(--hp-soft-red,#FEF2F2)', softPanel:'var(--hp-soft-panel,#F5F5F3)',
 }
 export const COLORS = ['#3B82C4','#16A34A','#D97706','#DC2626','#7C3AED','#0891B2','#DB2777']
 
