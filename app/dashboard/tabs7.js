@@ -454,11 +454,16 @@ function ActivityTimeline({ events }) {
   )
 }
 
-function TaskBoard({ tasks, onStatusChange, onAddComment }) {
+function TaskBoard({ tasks, enabled, onStatusChange, onAddComment }) {
   const [draftComments, setDraftComments] = useState({})
   return (
     <Card>
       <SectionHeader title="Task-uri" description="Fiecare serviciu cumparat devine task operational dupa plata."/>
+      {!enabled && (
+        <div style={{padding:'10px 12px',border:`0.5px solid ${C.amber}`,borderRadius:8,background:C.softAmber,color:C.amber,fontSize:12,lineHeight:1.45,marginBottom:10}}>
+          Task-urile se activeaza dupa etapa Oferta platita sau dupa confirmarea platii.
+        </div>
+      )}
       <div style={{display:'grid',gap:10}}>
         {tasks.length ? tasks.map(task => (
           <div key={task.id} style={{border:`0.5px solid ${C.border}`,borderRadius:10,padding:12,background:C.softPanel}}>
@@ -467,7 +472,7 @@ function TaskBoard({ tasks, onStatusChange, onAddComment }) {
                 <p style={{fontSize:13,fontWeight:700,color:C.text,margin:'0 0 3px'}}>{task.quantity} x {task.title}</p>
                 <p style={{fontSize:11,color:C.hint,margin:0}}>{(task.comments || []).length} comentarii</p>
               </div>
-              <SelectInput label="Status" value={task.status} onChange={status => onStatusChange(task.id, status)} options={TASK_STATUSES}/>
+              <SelectInput label="Status" value={task.status} onChange={status => enabled && onStatusChange(task.id, status)} options={TASK_STATUSES}/>
             </div>
             <div style={{marginTop:10}}>
               {(task.comments || []).map(item => (
@@ -480,12 +485,14 @@ function TaskBoard({ tasks, onStatusChange, onAddComment }) {
                 <TextInput label="Comentariu task" value={draftComments[task.id] || ''} onChange={value => setDraftComments(current => ({ ...current, [task.id]: value }))} placeholder="Adauga update operational"/>
                 <button
                   onClick={() => {
+                    if (!enabled) return
                     const text = (draftComments[task.id] || '').trim()
                     if (!text) return
                     onAddComment(task.id, text)
                     setDraftComments(current => ({ ...current, [task.id]: '' }))
                   }}
-                  style={{padding:'8px 10px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,cursor:'pointer'}}
+                  disabled={!enabled}
+                  style={{padding:'8px 10px',fontSize:12,border:`0.5px solid ${enabled ? C.blue : C.border}`,borderRadius:8,background:enabled ? C.softBlue : C.input,color:enabled ? C.blue : C.hint,cursor:enabled?'pointer':'not-allowed'}}
                 >
                   Adauga
                 </button>
@@ -975,7 +982,8 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
   const meta = crmMeta(draft.comments)
   const paymentEmail = defaultPaymentEmail(draft, finalTotal)
   const tasks = serviceTasks(draft.services, meta.service_tasks || [])
-  const showTasks = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
+  const showTasks = true
+  const tasksReady = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
   const timelineEvents = automaticTimeline(draft, meta)
   const primaryButton = {
     padding:'9px 12px',border:'none',borderRadius:8,background:'#15803d',color:'#fff',
@@ -1271,7 +1279,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
         </div>
       </div>
       ) : (
-        <TaskBoard tasks={tasks} onStatusChange={updateTaskStatus} onAddComment={addTaskComment}/>
+        <TaskBoard tasks={tasks} enabled={tasksReady} onStatusChange={updateTaskStatus} onAddComment={addTaskComment}/>
       )}
     </div>
   )
