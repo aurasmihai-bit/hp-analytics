@@ -42,6 +42,19 @@ export function isMissingPlatformServiceKey(error) {
   return String(error?.message || error).includes('PLATFORM_SUPABASE_SERVICE_KEY')
 }
 
+export function isInvalidPlatformServiceKey(error) {
+  const message = String(error?.message || error).toLowerCase()
+  return (
+    message.includes('platform supabase 401') ||
+    message.includes('platform supabase 403') ||
+    message.includes('invalid api key')
+  )
+}
+
+export function isPlatformServiceUnavailable(error) {
+  return isMissingPlatformServiceKey(error) || isInvalidPlatformServiceKey(error)
+}
+
 async function platformFetch(path, opts = {}) {
   const { url, key } = getPlatformServiceConfig()
   const res = await fetch(`${url}/rest/v1${path}`, {
@@ -186,7 +199,7 @@ export async function getConciergeRequestById(requestId) {
     )
     if (rows?.[0]) return rows[0]
   } catch (error) {
-    if (!isMissingPlatformServiceKey(error)) throw error
+    if (!isPlatformServiceUnavailable(error)) throw error
     platformError = error
   }
 

@@ -8,7 +8,7 @@ import {
   isMissingConciergeCrmTable,
   isMissingConciergeEmailLogTable,
   isMissingConciergeImportedRequestsTable,
-  isMissingPlatformServiceKey,
+  isPlatformServiceUnavailable,
   parseConciergeMessage,
   updateConciergeRequest,
   upsertConciergeCrmCase,
@@ -123,7 +123,7 @@ export async function GET(request) {
     try {
       platformRequests = await getConciergeRequests(limit)
     } catch (error) {
-      if (!isMissingPlatformServiceKey(error)) throw error
+      if (!isPlatformServiceUnavailable(error)) throw error
       setupRequired.platformServiceKey = true
     }
 

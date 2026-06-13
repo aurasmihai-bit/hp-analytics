@@ -416,7 +416,7 @@ export function TabConcierge() {
             {setupRequired.importedRequests ? 'Lipseste tabela hp_concierge_imported_requests. ' : ''}
             {setupRequired.emailLog ? 'Lipseste auditul hp_concierge_email_log. ' : ''}
             {setupRequired.crm || setupRequired.importedRequests ? 'Ruleaza `supabase/hp_concierge_crm.sql` in Supabase analytics. ' : ''}
-            {setupRequired.platformServiceKey ? 'Lipseste PLATFORM_SUPABASE_SERVICE_KEY in Vercel, deci cererile live din HomePitch nu pot fi citite direct. Pentru sync automat din formular seteaza secretul HP_ANALYTICS_SUPABASE_SERVICE_KEY in Edge Function-ul HomePitch. ' : ''}
+            {setupRequired.platformServiceKey ? 'PLATFORM_SUPABASE_SERVICE_KEY lipseste sau nu este cheia service_role corecta pentru HomePitch, deci cererile live nu pot fi citite direct. CRM-ul foloseste importurile din analytics; pentru sync automat din formular seteaza secretul HP_ANALYTICS_SUPABASE_SERVICE_KEY in Edge Function-ul HomePitch. ' : ''}
             {setupRequired.emailLog ? 'Ruleaza migrarea hp_concierge_email_log in Supabase HomePitch. ' : ''}
           </p>
         </div>
