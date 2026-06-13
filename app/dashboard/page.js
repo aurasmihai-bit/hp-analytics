@@ -8,6 +8,7 @@ import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
 import { TabExitIntent } from './tabs6'
+import { TabConcierge } from './tabs7'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -299,6 +300,7 @@ const TABS=[
   {id:'tracking',  label:'Tracking cereri'},
   {id:'conversii', label:'Conversii'},
   {id:'raport',    label:'📅 Raport sapt.'},
+  {id:'concierge', label:'Concierge'},
   {id:'recomandari',label:'Recomandari'},
   {id:'actiuni',   label:'Actiuni'},
 ]
@@ -401,7 +403,7 @@ export default function Dashboard() {
           }}>{t.id==='recomandari'?'★ '+t.label:t.label}</button>
         ))}
       </div>
-      <div style={{maxWidth:940,margin:'0 auto',padding:'20px 16px'}}>
+      <div style={{maxWidth:tab==='concierge'?1180:940,margin:'0 auto',padding:'20px 16px'}}>
         {loading&&<div style={{textAlign:'center',padding:'80px 0',color:C.muted,fontSize:14}}>Se incarca datele direct din GA4...</div>}
         {error&&<div style={{background:'#FEF2F2',border:'0.5px solid #FCA5A5',borderRadius:10,padding:'16px 20px'}}><p style={{color:C.red,fontSize:14,margin:0}}>{error}</p></div>}
         {data&&!loading&&(<>
@@ -416,6 +418,7 @@ export default function Dashboard() {
           {tab==='tracking'    &&<TabCerereTracking  data={data}/>}
           {tab==='conversii'   &&<TabConversii       data={data}/>}
           {tab==='raport'      &&<TabRaportSaptamanal data={data}/>}
+          {tab==='concierge'   &&<TabConcierge />}
           {tab==='recomandari' &&<TabRecomandari data={data}/>}
           {tab==='actiuni'     &&<TabActiuni     data={data}/>}
           <div style={{marginTop:36,paddingTop:14,borderTop:`0.5px solid ${C.border}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>

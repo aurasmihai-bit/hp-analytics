@@ -7,6 +7,10 @@
     {
       "path": "/api/weekly",
       "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/concierge/check-payments",
+      "schedule": "30 7 * * *"
     }
   ]
 }

@@ -7,7 +7,7 @@ function getSupabaseConfig() {
   }
 }
 
-async function sbFetch(path, opts = {}) {
+export async function sbFetch(path, opts = {}) {
   const { url, key } = getSupabaseConfig()
   const res = await fetch(`${url}/rest/v1${path}`, {
     ...opts,
