@@ -865,26 +865,14 @@ export function DetailsPanel({ row, onSaved, onCheckPayments }) {
 
       <div style={{
         display:'grid',
-        gridTemplateColumns:wideLayout ? 'minmax(0,1fr) minmax(0,1fr) minmax(360px,.9fr)' : 'minmax(0,1fr)',
+        gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',
         gap:14,
-        alignItems:'start',
         width:'100%',
         maxWidth:'100%',
       }}>
+        {nextActionCard}
         {paymentCard}
         {caseDataCard}
-        <aside style={{
-          display:'grid',
-          gap:14,
-          position:wideLayout ? 'sticky' : 'static',
-          top:wideLayout ? 76 : 'auto',
-          alignSelf:'start',
-          minWidth:0,
-          width:'100%',
-          maxWidth:'100%',
-        }}>
-          {nextActionCard}
-        </aside>
       </div>
 
       <div style={{
