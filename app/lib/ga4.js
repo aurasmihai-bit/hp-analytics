@@ -126,6 +126,23 @@ function isExitIntentEventName(value) {
   return /(exit|intent|abandon|leave|beforeunload|page_close|close_page|dropoff|drop_off)/.test(name)
 }
 
+function isRequestFormEventName(value) {
+  const name = String(value || '').toLowerCase()
+  return [
+    'form step completed',
+    'form validation error',
+    'form abandoned',
+    'request created',
+    '[amplitude] form started',
+    '[amplitude] form submitted',
+  ].includes(name)
+}
+
+function isConciergePath(value) {
+  const path = String(value || '')
+  return path === '/concierge' || path.startsWith('/concierge?')
+}
+
 function mapTrafficRows(rows) {
   return rows.map(row => ({
     session_default_channel_group: dim(row, 0) || '(not set)',
@@ -229,6 +246,44 @@ function mapExitIntentRows(rows) {
     .filter(row => !row.page_path.includes('/admin'))
 }
 
+function mapRequestFormEventRows(rows) {
+  return rows
+    .map(row => ({
+      date: gaDate(dim(row, 0)),
+      event_name: dim(row, 1) || '(not set)',
+      page_path: dim(row, 2) || '/',
+      session_default_channel_group: dim(row, 3) || '(not set)',
+      device_category: dim(row, 4) || '(not set)',
+      event_count: metric(row, 0),
+      active_users: metric(row, 1),
+    }))
+    .filter(row => isRequestFormEventName(row.event_name))
+    .filter(row => !row.page_path.includes('/admin'))
+}
+
+function mapConciergeTrafficRows(rows, hasDate = false) {
+  return rows
+    .map(row => {
+      const offset = hasDate ? 1 : 0
+      return {
+        ...(hasDate ? { date: gaDate(dim(row, 0)) } : {}),
+        page_path: dim(row, offset) || '/',
+        page_referrer: dim(row, offset + 1) || '(direct)',
+        session_default_channel_group: dim(row, offset + 2) || '(not set)',
+        session_source_medium: dim(row, offset + 3) || '(not set)',
+        device_category: dim(row, offset + 4) || '(not set)',
+        screen_page_views: metric(row, 0),
+        active_users: metric(row, 1),
+        bounce_rate: metric(row, 2),
+        engagement_rate: metric(row, 3),
+        average_session_duration: metric(row, 4),
+        user_engagement_duration: metric(row, 5),
+        conversions: metric(row, 6),
+      }
+    })
+    .filter(row => isConciergePath(row.page_path))
+}
+
 async function fetchExitIntentRows(accessToken, propertyId, startDate, endDate) {
   try {
     const rows = await runReport(accessToken, propertyId, {
@@ -241,6 +296,53 @@ async function fetchExitIntentRows(accessToken, propertyId, startDate, endDate) 
     return mapExitIntentRows(rows)
   } catch (error) {
     console.warn('GA4 exit intent report failed:', error.message)
+    return []
+  }
+}
+
+async function fetchRequestFormEventRows(accessToken, propertyId, startDate, endDate) {
+  try {
+    const rows = await runReport(accessToken, propertyId, {
+      startDate,
+      endDate,
+      dimensions: ['date', 'eventName', 'pagePath', 'sessionDefaultChannelGroup', 'deviceCategory'],
+      metrics: ['eventCount', 'activeUsers'],
+      limit: 10000,
+    })
+    return mapRequestFormEventRows(rows)
+  } catch (error) {
+    console.warn('GA4 request form events report failed:', error.message)
+    return []
+  }
+}
+
+async function fetchConciergeTrafficRows(accessToken, propertyId, startDate, endDate, includeDate = false) {
+  try {
+    const rows = await runReport(accessToken, propertyId, {
+      startDate,
+      endDate,
+      dimensions: [
+        ...(includeDate ? ['date'] : []),
+        'pagePath',
+        'pageReferrer',
+        'sessionDefaultChannelGroup',
+        'sessionSourceMedium',
+        'deviceCategory',
+      ],
+      metrics: [
+        'screenPageViews',
+        'activeUsers',
+        'bounceRate',
+        'engagementRate',
+        'averageSessionDuration',
+        'userEngagementDuration',
+        'conversions',
+      ],
+      limit: 10000,
+    })
+    return mapConciergeTrafficRows(rows, includeDate)
+  } catch (error) {
+    console.warn('GA4 concierge traffic report failed:', error.message)
     return []
   }
 }
@@ -296,7 +398,11 @@ export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFro
     { startDate: currFrom, endDate: currTo, dimensions: ['sessionDefaultChannelGroup', 'pagePath'], metrics: ['screenPageViews', 'activeUsers', 'conversions'] },
     { startDate: currFrom, endDate: currTo, dimensions: ['date'], metrics: trackingMetrics },
   ])
-  const exitIntentRows = await fetchExitIntentRows(accessToken, propertyId, currFrom, currTo)
+  const [exitIntentRows, requestFormEventRows, conciergeTrafficRows] = await Promise.all([
+    fetchExitIntentRows(accessToken, propertyId, currFrom, currTo),
+    fetchRequestFormEventRows(accessToken, propertyId, currFrom, currTo),
+    fetchConciergeTrafficRows(accessToken, propertyId, currFrom, currTo),
+  ])
 
   return {
     traffic: {
@@ -337,6 +443,14 @@ export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFro
         rows: exitIntentRows,
       },
     },
+    requestFormEvents: {
+      schemaVersion: 1,
+      rows: requestFormEventRows,
+    },
+    conciergeTraffic: {
+      schemaVersion: 1,
+      rows: conciergeTrafficRows,
+    },
   }
 }
 
@@ -355,6 +469,14 @@ function emptyDailyPayload(date) {
     exitAnalysis: {
       schemaVersion: 1,
       exitIntent: { rows: [] },
+    },
+    requestFormEvents: {
+      schemaVersion: 1,
+      rows: [],
+    },
+    conciergeTraffic: {
+      schemaVersion: 1,
+      rows: [],
     },
   }
 }
@@ -412,7 +534,11 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
     { startDate: start, endDate: end, dimensions: ['date', 'sessionDefaultChannelGroup', 'pagePath'], metrics: ['screenPageViews', 'activeUsers', 'conversions'] },
     { startDate: start, endDate: end, dimensions: ['date'], metrics: trackingMetrics },
   ])
-  const exitIntentRows = await fetchExitIntentRows(accessToken, propertyId, start, end)
+  const [exitIntentRows, requestFormEventRows, conciergeTrafficRows] = await Promise.all([
+    fetchExitIntentRows(accessToken, propertyId, start, end),
+    fetchRequestFormEventRows(accessToken, propertyId, start, end),
+    fetchConciergeTrafficRows(accessToken, propertyId, start, end, true),
+  ])
 
   const days = {}
 
@@ -537,6 +663,16 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
   exitIntentRows.forEach(row => {
     const day = ensureDailyPayload(days, row.date)
     day.exitAnalysis.exitIntent.rows.push(row)
+  })
+
+  requestFormEventRows.forEach(row => {
+    const day = ensureDailyPayload(days, row.date)
+    day.requestFormEvents.rows.push(row)
+  })
+
+  conciergeTrafficRows.forEach(row => {
+    const day = ensureDailyPayload(days, row.date)
+    day.conciergeTraffic.rows.push(row)
   })
 
   return days

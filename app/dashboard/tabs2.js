@@ -18,7 +18,7 @@ function TabPagini({ data }) {
     if(prevMap[p.page_path]) Object.keys(p).forEach(f=>{if(f!=='page_path'&&typeof p[f]==='number') prevMap[p.page_path][f]=Math.max(0,(prevMap[p.page_path][f]||0)-p[f])})
   }
 
-  const HL=['/home3','/simplu','/']
+  const HL=['/home3','/invers','/simplu','/platforma','/']
   const MIN_VIEWS=20
 
   // Sorted main table
@@ -333,21 +333,31 @@ function TabFunnel({ data }) {
   const curr=data.traffic.current, pages=data.pages.current
   const totalSess=sum(curr,'sessions'), totalConv=sum(curr,'conversions')
   const get=path=>pages.find(p=>p.page_path===path)
-  const h3=get('/home3'),simp=get('/simplu'),hp=get('/'),login=get('/login'),ceNou=get('/cerere-noua'),cereri=get('/cereri')
+  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),ceNou=get('/cerere-noua'),cereri=get('/cereri')
   const convs=data.conversions
   const signup=sum(convs,'conversions_signup'), offers=sum(convs,'conversions_offer_accepted'), cer=sum(convs,'conversions_bravo_cerere_noua')
   const ag=sum(convs,'conversions_bun_venit_agent'), cum=sum(convs,'conversions_bun_venit_cumparator'), prop=sum(convs,'conversions_bun_venit_proprietar')
   const custTotal=signup+offers+cer+ag+cum+prop
   const rate=p=>p&&p.screen_page_views>0?p.conversions/p.screen_page_views*100:0
-  const hpr=rate(hp), h3r=rate(h3), simpr=rate(simp)
-  const landingViews=(h3?.screen_page_views||0)+(simp?.screen_page_views||0)+(hp?.screen_page_views||0)
+  const hpr=rate(hp), h3r=rate(h3), inversR=rate(invers), simpr=rate(simp), platformaR=rate(platforma)
+  const landingViews=(h3?.screen_page_views||0)+(invers?.screen_page_views||0)+(simp?.screen_page_views||0)+(platforma?.screen_page_views||0)+(hp?.screen_page_views||0)
   const cereriViews=cereri?.screen_page_views||0
   const ceNouViews=ceNou?.screen_page_views||0
   const loginViews=login?.screen_page_views||0
   const funnelDrop=cereriViews>0?(ceNouViews/cereriViews*100):null
+  const requestEvents=data.requestFormEvents||{}
+  const eventCounts=(requestEvents.events||[]).reduce((acc,row)=>{acc[row.event_name]=row.event_count||0;return acc},{})
+  const requestEventSteps=[
+    {label:'Form Started',event:'[Amplitude] Form Started',v:eventCounts['[Amplitude] Form Started']||0,col:C.blue},
+    {label:'Step Completed',event:'Form Step Completed',v:eventCounts['Form Step Completed']||0,col:C.purple},
+    {label:'Validation Error',event:'Form Validation Error',v:eventCounts['Form Validation Error']||0,col:C.red},
+    {label:'Form Abandoned',event:'Form Abandoned',v:eventCounts['Form Abandoned']||0,col:C.amber},
+    {label:'Request Created',event:'Request Created',v:eventCounts['Request Created']||0,col:C.green},
+  ]
+  const requestEventTotal=requestEventSteps.reduce((s,row)=>s+Number(row.v||0),0)
   const steps=[
     {label:'Sesiuni totale',path:null,v:totalSess,pct:100,col:'#3B82C4'},
-    {label:'Landing vizitat (/, /home3, /simplu)',path:'/',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
+    {label:'Landing vizitat (/, /home3, /invers, /simplu, /platforma)',path:'/',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
     {label:'/cereri — lista cereri',path:'/cereri',v:cereriViews,pct:totalSess>0?cereriViews/totalSess*100:0,col:'#7C3AED'},
     {label:'/cerere-noua — formular',path:'/cerere-noua',v:ceNouViews,pct:totalSess>0?ceNouViews/totalSess*100:0,col:'#D97706'},
     {label:'/login',path:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
@@ -375,9 +385,28 @@ function TabFunnel({ data }) {
           </div>
         )}
       </Sec>
+      <Sec title="Funnel intern formular cerere">
+        {requestEventTotal===0 ? (
+          <div style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:10,padding:'12px 14px',fontSize:13,color:C.muted}}>
+            Evenimentele noi nu apar inca in sursa raportului. Cand ajung in GA4/export, aici se vor vedea start, pasi finalizati, erori, abandon si Request Created.
+          </div>
+        ) : (
+          <div>
+            {requestEventSteps.map((s,i)=>(
+              <div key={s.event} style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
+                <span style={{fontSize:12,color:C.muted,width:150,flexShrink:0}}>{s.label}</span>
+                <div style={{flex:1,background:C.softPanel,borderRadius:99,height:8,overflow:'hidden'}}>
+                  <div style={{width:`${Math.min(100,Number(s.v||0)/Math.max(requestEventTotal,1)*100)}%`,height:8,borderRadius:99,background:s.col}}/>
+                </div>
+                <span style={{fontSize:13,fontWeight:500,color:C.text,width:52,textAlign:'right'}}>{fmtN(s.v)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sec>
       <Sec title="Conv rate landing pages">
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
-          {[{label:'/home3',r:h3r,views:h3?.screen_page_views||0,hl:true,path:'/home3'},{label:'/simplu',r:simpr,views:simp?.screen_page_views||0,hl:true,path:'/simplu'},{label:'/ homepage',r:hpr,views:hp?.screen_page_views||0,hl:false,path:'/'}].map(p=>(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:10}}>
+          {[{label:'/home3',r:h3r,views:h3?.screen_page_views||0,hl:true,path:'/home3'},{label:'/invers',r:inversR,views:invers?.screen_page_views||0,hl:true,path:'/invers'},{label:'/simplu',r:simpr,views:simp?.screen_page_views||0,hl:true,path:'/simplu'},{label:'/platforma',r:platformaR,views:platforma?.screen_page_views||0,hl:true,path:'/platforma'},{label:'/ homepage',r:hpr,views:hp?.screen_page_views||0,hl:false,path:'/'}].map(p=>(
             <div key={p.label} style={{background:p.hl&&p.r>hpr?C.softGreen:C.card,border:`0.5px solid ${p.hl&&p.r>hpr?C.green:C.border}`,borderRadius:10,padding:'14px 16px',textAlign:'center'}}>
               <p style={{fontSize:24,fontWeight:500,color:p.r>5?C.green:C.text,margin:'0 0 4px'}}>{p.r.toFixed(1)}%</p>
               <p style={{fontSize:11,color:C.hint,margin:0}}><PageLink path={p.path}>{p.label}</PageLink></p>

@@ -571,6 +571,7 @@ function TabRecomandari({ data, onRegenerate, regenerating }) {
       : {label:"Tracking cereri", est:(s.trackingCereriNoi || 0) + " cereri in GA4", col:(s.trackingCereriNoi || 0)>0?C.green:C.hint},
     {label:"CTA inline pe /cereri", est:(s.funnelRate || 0) < 15 ? "ridica funnelul peste 15%" : "optimizare marginala", col:(s.funnelRate || 0) < 15 ? C.amber : C.green},
     {label:"Exit intent", est:(s.totalExitIntentEvents || 0) > 0 ? fmtN(s.totalExitIntentEvents) + " events" : (s.topExitEstimatedExits || 0) > 0 ? fmtN(s.topExitEstimatedExits) + " exit proxy" : "risc redus", col:(s.totalExitIntentEvents || 0) > 0 || (s.topExitRisk || 0) >= 12 ? C.red : C.green},
+    {label:"Funnel formular", est:(s.requestFormEventTotal || 0) > 0 ? `${fmtN(s.formStepCompletedEvents || 0)} pasi · ${fmtN(s.formAbandonedEvents || 0)} abandon` : "evenimente lipsa", col:(s.requestFormEventTotal || 0) > 0 ? C.blue : C.amber},
     {label:"SEO Search Console", est:(s.seoImpressions || 0) > 0 ? fmtN(s.seoImpressions) + " impressions validate" : "date insuficiente", col:(s.seoImpressions || 0) > 0 ? C.green : C.hint},
     {label:"Speed / UX", est:s.speedRiskPage ? s.speedRiskPage + " · " + (s.speedRiskBounce || 0) + "% bounce" : "fara proxy major", col:s.speedRiskPage ? C.amber : C.green},
     {label:"Canal performant", est:(s.socialConvR || 0) > 0 ? "Social " + s.socialConvR + "% conv" : "testeaza canal nou", col:(s.socialConvR || 0) > 10 ? C.green : C.blue},
@@ -1099,6 +1100,15 @@ function TabConversii({ data }) {
 /* ─── TAB CERERE TRACKING ──────────────────────────────────────────── */
 export function TabCerereTracking({ data }) {
   const allDates = data.cerereTracking || []
+  const requestEvents = data.requestFormEvents || {}
+  const formEvents = requestEvents.events || []
+  const formEventCount = name => Number(formEvents.find(row => row.event_name === name)?.event_count || 0)
+  const formStarted = formEventCount('[Amplitude] Form Started')
+  const formSubmitted = formEventCount('[Amplitude] Form Submitted')
+  const formSteps = formEventCount('Form Step Completed')
+  const formErrors = formEventCount('Form Validation Error')
+  const formAbandoned = formEventCount('Form Abandoned')
+  const requestCreated = formEventCount('Request Created')
 
   const ga4Cereri     = allDates.reduce((s,d) => s+(d.conversions_bravo_cerere_noua||0), 0)
   const platformCereri = Number(data.platformRequests?.count || 0)
@@ -1136,6 +1146,32 @@ export function TabCerereTracking({ data }) {
           sub={`${totalDays} zile analizate`}/>
         <KPI label="Inregistrari cumparatori" curr={totalCump}/>
       </Grid>
+
+      <Sec title="Evenimente formular /vreau">
+        {(requestEvents.totalEvents || 0) === 0 ? (
+          <Signal
+            type="neutral"
+            title="Evenimentele intermediare nu apar inca in raport"
+            body="Dashboard-ul asteapta Form Step Completed, Form Validation Error, Form Abandoned si Request Created. Daca evenimentele sunt doar in Amplitude, trebuie export/mirror catre sursa citita de analytics."
+          />
+        ) : (
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:8}}>
+            {[
+              ['Start formular', formStarted, C.blue],
+              ['Pasi finalizati', formSteps, C.purple],
+              ['Erori validare', formErrors, C.red],
+              ['Abandon', formAbandoned, C.amber],
+              ['Submit form', formSubmitted, C.green],
+              ['Request Created', requestCreated, C.green],
+            ].map(([label, value, col]) => (
+              <div key={label} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'12px 14px'}}>
+                <p style={{fontSize:11,color:C.hint,margin:'0 0 5px'}}>{label}</p>
+                <p style={{fontSize:22,fontWeight:600,color:value>0?col:C.hint,margin:0}}>{fmtN(value)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sec>
 
       {trackingGap > 0 && (
         <Signal type="negative"
