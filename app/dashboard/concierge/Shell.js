@@ -45,6 +45,7 @@ export function ConciergeShell({ children, maxWidth = 1180 }) {
           <>
             <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
             <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
+            <a href="/dashboard/procese-automate" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.blue}`,borderRadius:6,background:C.softBlue,color:C.blue,textDecoration:'none'}}>Procese automate</a>
           </>
         )}
         <button onClick={logout} style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,cursor:'pointer'}}>Iesi</button>
