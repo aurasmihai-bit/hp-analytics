@@ -12,7 +12,7 @@ const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_HP_ANALYTICS_EXPORT_URL = `${DEFAULT_PLATFORM_SUPABASE_URL}/functions/v1/hp-analytics-export`
 const EXIT_ANALYSIS_SCHEMA_VERSION = 1
 const REQUEST_FORM_EVENTS_SCHEMA_VERSION = 1
-const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 1
+const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 2
 const HEADER_MENU_TEST_NAME = 'Header main menu'
 const HOMEPAGE_VARIANTS = [
   { path:'/', label:'Homepage actual' },
@@ -1245,8 +1245,109 @@ function aggregateConciergeRows(rows = []) {
   return { referrers, sources, devices, timeline }
 }
 
+function aggregateConciergeClicks(rows = []) {
+  const groups = new Map()
+  rows.forEach(row => {
+    const rawTarget = row.link_url || row.event_name || '(not set)'
+    const target = String(rawTarget).replace(/^https?:\/\/[^/]+/i, '') || row.event_name || '(not set)'
+    const key = `${row.event_name || '(not set)'}::${target}::${row.device_category || '(not set)'}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        event_name: row.event_name || '(not set)',
+        click_target: target,
+        device_category: row.device_category || '(not set)',
+        event_count: 0,
+        active_users: 0,
+      })
+    }
+    const acc = groups.get(key)
+    acc.event_count += Number(row.event_count || 0)
+    acc.active_users += Number(row.active_users || 0)
+  })
+  return Array.from(groups.values())
+    .sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0))
+    .slice(0, 20)
+}
+
+function buildConciergeTimeSpent(rows = []) {
+  const groups = new Map()
+  rows.forEach(row => {
+    const key = `${row.session_source_medium || '(not set)'}::${row.device_category || '(not set)'}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        session_source_medium: row.session_source_medium || '(not set)',
+        device_category: row.device_category || '(not set)',
+        screen_page_views: 0,
+        active_users: 0,
+        conversions: 0,
+        __rows: [],
+      })
+    }
+    const acc = groups.get(key)
+    acc.screen_page_views += Number(row.screen_page_views || 0)
+    acc.active_users += Number(row.active_users || 0)
+    acc.conversions += Number(row.conversions || 0)
+    acc.__rows.push(row)
+  })
+  return Array.from(groups.values()).map(group => {
+    const rowsForGroup = group.__rows || []
+    const avgDuration = weightedMetric(rowsForGroup, 'average_session_duration')
+    const engagement = weightedMetric(rowsForGroup, 'engagement_rate')
+    const bounce = weightedMetric(rowsForGroup, 'bounce_rate')
+    delete group.__rows
+    return {
+      ...group,
+      average_session_duration: avgDuration,
+      engagement_rate: engagement,
+      bounce_rate: bounce,
+      conversion_rate: parseFloat(rateFromViews(group.conversions, group.screen_page_views).toFixed(2)),
+      time_score: Math.round(avgDuration * Math.max(group.screen_page_views, 1)),
+    }
+  }).sort((a, b) => Number(b.time_score || 0) - Number(a.time_score || 0)).slice(0, 20)
+}
+
+function buildConciergeHeatmap(rows = []) {
+  const groups = new Map()
+  rows.forEach(row => {
+    if (!row.date) return
+    const key = `${row.date}::${row.device_category || '(not set)'}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        date: row.date,
+        device_category: row.device_category || '(not set)',
+        screen_page_views: 0,
+        conversions: 0,
+        __rows: [],
+      })
+    }
+    const acc = groups.get(key)
+    acc.screen_page_views += Number(row.screen_page_views || 0)
+    acc.conversions += Number(row.conversions || 0)
+    acc.__rows.push(row)
+  })
+  const cells = Array.from(groups.values()).map(cell => {
+    const avgDuration = weightedMetric(cell.__rows || [], 'average_session_duration')
+    delete cell.__rows
+    return {
+      ...cell,
+      average_session_duration: avgDuration,
+      intensity: Math.round(Number(cell.screen_page_views || 0) * Math.max(avgDuration, 1)),
+    }
+  }).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.device_category || '').localeCompare(String(b.device_category || '')))
+  const maxIntensity = Math.max(1, ...cells.map(cell => Number(cell.intensity || 0)))
+  return {
+    cells: cells.slice(-60).map(cell => ({
+      ...cell,
+      intensity_pct: Math.round(Number(cell.intensity || 0) / maxIntensity * 100),
+    })),
+    devices: [...new Set(cells.map(cell => cell.device_category))],
+    dates: [...new Set(cells.map(cell => cell.date))].slice(-14),
+  }
+}
+
 function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previousPayloads = [], currentPages = null, previousPages = null) {
   const rows = currentPayloads.flatMap(payload => payload.conciergeTraffic?.rows || [])
+  const clickRows = currentPayloads.flatMap(payload => payload.conciergeTraffic?.clickRows || [])
   const previousRows = previousPayloads.flatMap(payload => payload.conciergeTraffic?.rows || [])
   const currPages = currentPages || aggregatePages(currentPayloads)
   const prevPages = previousPages || aggregatePages(previousPayloads)
@@ -1264,6 +1365,9 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
   const prevConversionRate = rateFromViews(prevConversions, prevViews)
   const topReferrer = aggregated.referrers[0] || null
   const topSource = aggregated.sources[0] || null
+  const topClicks = aggregateConciergeClicks(clickRows)
+  const timeSpent = buildConciergeTimeSpent(rows)
+  const heatmap = buildConciergeHeatmap(rows)
 
   const recommendations = []
   if (views === 0) {
@@ -1308,6 +1412,13 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
         body: `Are ${Number(topSource.screen_page_views || 0).toLocaleString('ro')} views si ${topSource.conversion_rate.toFixed(1)}% conversie. Scaleaza doar sursele cu intent peste medie.`,
       })
     }
+    if (topClicks.length === 0) {
+      recommendations.push({
+        type: 'neutral',
+        title: 'Click-urile pe /concierge nu sunt inca suficient etichetate',
+        body: 'Adauga event-uri dedicate pentru selectare serviciu, plus/minus, submit formular si click plata ca sa vezi exact unde exista intent.',
+      })
+    }
   }
 
   return {
@@ -1327,6 +1438,9 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
       estimated_bounces: Math.round(views * bounceRate),
     },
     ...aggregated,
+    topClicks,
+    timeSpent,
+    heatmap,
     recommendations,
     notes: {
       conversion: 'Conversia foloseste metricul GA4 conversions pentru pagina /concierge. Pentru lead-uri reale, verifica si CRM Concierge.',

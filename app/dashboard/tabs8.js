@@ -170,6 +170,9 @@ function fallbackConciergeAnalysis(data) {
     sources: [],
     devices: [],
     timeline: [],
+    topClicks: [],
+    timeSpent: [],
+    heatmap: { cells: [], devices: [], dates: [] },
     recommendations: [],
   }
 }
@@ -193,6 +196,113 @@ function MiniTable({ title, rows, labelField, valueLabel = 'Views' }) {
           <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Bounce</span>
           <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Conv</span>
         </div>
+      </Card>
+    </Sec>
+  )
+}
+
+function InteractionTable({ rows }) {
+  return (
+    <Sec title="Top click-uri / interactiuni">
+      <Card style={{padding:'10px 14px'}}>
+        {(rows || []).slice(0, 12).map((row, index) => (
+          <div key={`${row.event_name}-${row.click_target}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 72px 74px',gap:10,alignItems:'center',borderBottom:index < Math.min(rows.length, 12) - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+            <div style={{minWidth:0}}>
+              <p style={{fontSize:12,fontWeight:600,color:C.text,margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.click_target}>
+                {String(row.click_target || '(not set)').startsWith('/') ? <PageLink path={row.click_target}>{row.click_target}</PageLink> : row.click_target || '(not set)'}
+              </p>
+              <p style={{fontSize:10,color:C.hint,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.event_name}>{row.event_name || '(not set)'} · {row.device_category || '(not set)'}</p>
+            </div>
+            <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.event_count)}</span>
+            <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.active_users)}</span>
+          </div>
+        ))}
+        {(!rows || rows.length === 0) && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista click-uri etichetate pentru /concierge pe acest interval.</p>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 72px 74px',gap:10,marginTop:8,paddingTop:8,borderTop:`0.5px solid ${C.border}`}}>
+          <span style={{fontSize:10,color:C.hint,textTransform:'uppercase'}}>Target / event</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Click-uri</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Useri</span>
+        </div>
+      </Card>
+    </Sec>
+  )
+}
+
+function TimeSpentTable({ rows }) {
+  return (
+    <Sec title="Time spent / sursa">
+      <Card style={{padding:'10px 14px'}}>
+        {(rows || []).slice(0, 12).map((row, index) => (
+          <div key={`${row.session_source_medium}-${row.device_category}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 60px 64px 64px',gap:10,alignItems:'center',borderBottom:index < Math.min(rows.length, 12) - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+            <div style={{minWidth:0}}>
+              <p style={{fontSize:12,fontWeight:600,color:C.text,margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.session_source_medium}>{row.session_source_medium || '(not set)'}</p>
+              <p style={{fontSize:10,color:C.hint,margin:0}}>{row.device_category || '(not set)'}</p>
+            </div>
+            <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.screen_page_views)}</span>
+            <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{sec(row.average_session_duration)}</span>
+            <span style={{fontSize:12,color:Number(row.conversion_rate || 0) > 0 ? C.green : C.hint,textAlign:'right',fontWeight:600}}>{pct(row.conversion_rate)}</span>
+          </div>
+        ))}
+        {(!rows || rows.length === 0) && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista date suficiente pentru timp petrecut.</p>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 60px 64px 64px',gap:10,marginTop:8,paddingTop:8,borderTop:`0.5px solid ${C.border}`}}>
+          <span style={{fontSize:10,color:C.hint,textTransform:'uppercase'}}>Sursa</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Views</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Timp</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Conv</span>
+        </div>
+      </Card>
+    </Sec>
+  )
+}
+
+function ConciergeHeatmap({ heatmap }) {
+  const cells = heatmap?.cells || []
+  const dates = (heatmap?.dates || []).slice(-14)
+  const devices = heatmap?.devices || []
+  const getCell = (date, device) => cells.find(cell => cell.date === date && cell.device_category === device)
+  return (
+    <Sec title="Heatmap trafic /concierge">
+      <Card style={{padding:'12px 14px',overflowX:'auto'}}>
+        {dates.length > 0 && devices.length > 0 ? (
+          <div style={{minWidth:Math.max(520, dates.length * 48)}}>
+            <div style={{display:'grid',gridTemplateColumns:`92px repeat(${dates.length}, 1fr)`,gap:4,alignItems:'center',marginBottom:6}}>
+              <span />
+              {dates.map(date => <span key={date} style={{fontSize:10,color:C.hint,textAlign:'center'}}>{String(date).slice(5)}</span>)}
+            </div>
+            {devices.map(device => (
+              <div key={device} style={{display:'grid',gridTemplateColumns:`92px repeat(${dates.length}, 1fr)`,gap:4,alignItems:'center',marginBottom:4}}>
+                <span style={{fontSize:11,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{device}</span>
+                {dates.map(date => {
+                  const cell = getCell(date, device)
+                  const intensity = Math.max(0, Math.min(100, Number(cell?.intensity_pct || 0)))
+                  return (
+                    <div
+                      key={`${date}-${device}`}
+                      title={cell ? `${fmtN(cell.screen_page_views)} views · ${sec(cell.average_session_duration)} · ${fmtN(cell.conversions)} conversii` : 'fara date'}
+                      style={{
+                        height:26,
+                        borderRadius:6,
+                        border:`0.5px solid ${C.border}`,
+                        background:intensity > 0 ? `rgba(59,130,196,${0.12 + intensity / 130})` : C.softPanel,
+                        display:'flex',
+                        alignItems:'center',
+                        justifyContent:'center',
+                        color:intensity > 55 ? '#fff' : C.muted,
+                        fontSize:10,
+                        fontWeight:600,
+                      }}
+                    >
+                      {cell?.screen_page_views ? fmtN(cell.screen_page_views) : ''}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+            <p style={{fontSize:11,color:C.hint,margin:'8px 0 0'}}>Intensitatea combina views cu durata medie. Pentru heatmap real pe click-uri pe ecran este nevoie de tool dedicat, de tip Hotjar/Microsoft Clarity.</p>
+          </div>
+        ) : (
+          <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista suficiente date pentru heatmap pe intervalul selectat.</p>
+        )}
       </Card>
     </Sec>
   )
@@ -230,6 +340,13 @@ export function TabConciergeTraffic({ data }) {
         <MiniTable title="Top referreri" rows={analysis.referrers || []} labelField="page_referrer"/>
         <MiniTable title="Top surse / medium" rows={analysis.sources || []} labelField="session_source_medium"/>
       </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:12}}>
+        <InteractionTable rows={analysis.topClicks || []}/>
+        <TimeSpentTable rows={analysis.timeSpent || []}/>
+      </div>
+
+      <ConciergeHeatmap heatmap={analysis.heatmap}/>
 
       <Sec title="Device mix">
         <Card>
