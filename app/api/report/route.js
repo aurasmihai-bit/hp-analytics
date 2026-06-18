@@ -8,15 +8,22 @@ import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats } from '../..
 export const maxDuration = 60
 
 const DEFAULT_GA4_ACCOUNT = '521779420'
+const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const EXIT_ANALYSIS_SCHEMA_VERSION = 1
 const REQUEST_FORM_EVENTS_SCHEMA_VERSION = 1
 const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 1
+const HEADER_MENU_TEST_NAME = 'Header main menu'
 const HOMEPAGE_VARIANTS = [
   { path:'/', label:'Homepage actual' },
   { path:'/home3', label:'/home3' },
   { path:'/invers', label:'/invers' },
   { path:'/simplu', label:'/simplu' },
   { path:'/platforma', label:'/platforma' },
+]
+const HEADER_MENU_VARIANTS = [
+  { key:'control', label:'Meniu actual' },
+  { key:'simplu', label:'Meniu pe intentie' },
+  { key:'variant_c', label:'Varianta C' },
 ]
 
 function getGa4Account() {
@@ -795,6 +802,275 @@ function buildHomepageVariantAnalysisFromPayloads(currentPayloads = [], previous
   }
 
   return { schemaVersion: 1, variants: rows, timeline, bestVariant: best, recommendations }
+}
+
+function platformAbConfig() {
+  const url = getOptionalEnv('PLATFORM_SUPABASE_URL') || DEFAULT_PLATFORM_SUPABASE_URL
+  const key = getOptionalEnv('PLATFORM_SUPABASE_SERVICE_KEY') || getOptionalEnv('PLATFORM_SUPABASE_ANON_KEY')
+  if (!url || !key) return null
+  return { url: url.replace(/\/$/, ''), key }
+}
+
+async function platformAbFetch(path, params) {
+  const config = platformAbConfig()
+  if (!config) {
+    throw new Error('Lipseste PLATFORM_SUPABASE_SERVICE_KEY in analytics pentru citirea evenimentelor A/B din HomePitch.')
+  }
+  const qs = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString()
+  const res = await fetch(`${config.url}/rest/v1/${path}?${qs}`, {
+    cache: 'no-store',
+    headers: {
+      apikey: config.key,
+      Authorization: `Bearer ${config.key}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const text = await res.text()
+  let json = null
+  try { json = text ? JSON.parse(text) : null } catch {}
+  if (!res.ok) {
+    throw new Error(`Platform Supabase ${res.status}: ${json?.message || text || res.statusText}`)
+  }
+  return Array.isArray(json) ? json : []
+}
+
+function eventDate(value) {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
+
+function emptyHeaderVariant(key, label) {
+  return {
+    key,
+    label,
+    views: 0,
+    clicks: 0,
+    contact_clicks: 0,
+    request_cta_clicks: 0,
+    property_cta_clicks: 0,
+    requests_created: 0,
+    properties_created: 0,
+    unique_sessions: 0,
+    click_rate: 0,
+    request_rate: 0,
+    property_rate: 0,
+    previous_request_rate: 0,
+    previous_property_rate: 0,
+    previous_views: 0,
+  }
+}
+
+function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
+  const byVariant = new Map(HEADER_MENU_VARIANTS.map(v => [v.key, { ...emptyHeaderVariant(v.key, v.label), __sessions: new Set() }]))
+  const previousByVariant = new Map(HEADER_MENU_VARIANTS.map(v => [v.key, { views: 0, requests_created: 0, properties_created: 0 }]))
+  const timeline = new Map()
+
+  const normalizeVariant = variant => HEADER_MENU_VARIANTS.some(v => v.key === variant) ? variant : 'control'
+
+  events.forEach(row => {
+    const variant = normalizeVariant(row.variant)
+    const eventType = row.event_type
+    const target = byVariant.get(variant)
+    if (!target) return
+    if (row.session_id) target.__sessions.add(row.session_id)
+    if (eventType === 'header_menu_view') target.views += 1
+    if (eventType === 'header_menu_click') target.clicks += 1
+    if (eventType === 'cta_contact') target.contact_clicks += 1
+    if (eventType === 'cta_create_request') target.request_cta_clicks += 1
+    if (eventType === 'cta_add_property') target.property_cta_clicks += 1
+    if (eventType === 'request_created' || eventType === 'guest_request_created') target.requests_created += 1
+    if (eventType === 'property_created') target.properties_created += 1
+
+    const date = eventDate(row.created_at)
+    if (date) {
+      const key = `${date}::${variant}`
+      if (!timeline.has(key)) {
+        timeline.set(key, {
+          date,
+          variant,
+          label: target.label,
+          views: 0,
+          clicks: 0,
+          requests_created: 0,
+          properties_created: 0,
+        })
+      }
+      const day = timeline.get(key)
+      if (eventType === 'header_menu_view') day.views += 1
+      if (eventType === 'header_menu_click') day.clicks += 1
+      if (eventType === 'request_created' || eventType === 'guest_request_created') day.requests_created += 1
+      if (eventType === 'property_created') day.properties_created += 1
+    }
+  })
+
+  previousEvents.forEach(row => {
+    const target = previousByVariant.get(normalizeVariant(row.variant))
+    if (!target) return
+    if (row.event_type === 'header_menu_view') target.views += 1
+    if (row.event_type === 'request_created' || row.event_type === 'guest_request_created') target.requests_created += 1
+    if (row.event_type === 'property_created') target.properties_created += 1
+  })
+
+  const variants = HEADER_MENU_VARIANTS.map(v => {
+    const row = byVariant.get(v.key) || { ...emptyHeaderVariant(v.key, v.label), __sessions: new Set() }
+    const prev = previousByVariant.get(v.key) || {}
+    row.unique_sessions = row.__sessions.size
+    row.click_rate = parseFloat(rateFromViews(row.clicks, row.views).toFixed(2))
+    row.request_rate = parseFloat(rateFromViews(row.requests_created, row.views).toFixed(2))
+    row.property_rate = parseFloat(rateFromViews(row.properties_created, row.views).toFixed(2))
+    row.previous_views = prev.views || 0
+    row.previous_request_rate = parseFloat(rateFromViews(prev.requests_created || 0, prev.views || 0).toFixed(2))
+    row.previous_property_rate = parseFloat(rateFromViews(prev.properties_created || 0, prev.views || 0).toFixed(2))
+    delete row.__sessions
+    return row
+  })
+
+  const timelineRows = Array.from(timeline.values())
+    .map(row => ({
+      ...row,
+      click_rate: parseFloat(rateFromViews(row.clicks, row.views).toFixed(2)),
+      request_rate: parseFloat(rateFromViews(row.requests_created, row.views).toFixed(2)),
+      property_rate: parseFloat(rateFromViews(row.properties_created, row.views).toFixed(2)),
+    }))
+    .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.variant || '').localeCompare(String(b.variant || '')))
+
+  const totalViews = variants.reduce((sum, row) => sum + row.views, 0)
+  const totalRequests = variants.reduce((sum, row) => sum + row.requests_created, 0)
+  const totalProperties = variants.reduce((sum, row) => sum + row.properties_created, 0)
+  const bestRequestVariant = variants
+    .filter(row => row.views >= 20)
+    .sort((a, b) => b.request_rate - a.request_rate)[0] || null
+  const bestPropertyVariant = variants
+    .filter(row => row.views >= 20)
+    .sort((a, b) => b.property_rate - a.property_rate)[0] || null
+
+  const recommendations = []
+  if (totalViews === 0) {
+    recommendations.push({
+      type: 'neutral',
+      title: 'Testul de header nu are inca expuneri',
+      body: 'Verifica daca migrarea Supabase este rulata si daca switch-ul din /admin/pagini este activ. Evenimentul de baza este header_menu_view.',
+    })
+  } else {
+    const control = variants.find(v => v.key === 'control')
+    const intent = variants.find(v => v.key === 'simplu')
+    if (control && intent && control.views > 0 && intent.views > 0) {
+      const intentShare = intent.views / Math.max(totalViews, 1) * 100
+      if (Math.abs(intentShare - 50) > 15 && totalViews >= 80) {
+        recommendations.push({
+          type: 'neutral',
+          title: 'Distributia nu este inca aproape de 50/50',
+          body: `Varianta pe intentie are ${intentShare.toFixed(0)}% din expuneri. Daca ramane asa dupa trafic suficient, reseteaza asignarile A/B din admin.`,
+        })
+      }
+      if (intent.request_rate > control.request_rate && intent.views >= 20) {
+        recommendations.push({
+          type: 'positive',
+          title: 'Meniul pe intentie pare mai bun pentru cereri',
+          body: `Rata cereri: ${intent.request_rate.toFixed(1)}% vs ${control.request_rate.toFixed(1)}%. Pastreaza testul pana strange suficient trafic si urmareste si proprietatile create.`,
+        })
+      }
+      if (intent.click_rate < control.click_rate && intent.views >= 20) {
+        recommendations.push({
+          type: 'negative',
+          title: 'Varianta noua primeste mai putine clickuri in header',
+          body: `CTR header: ${intent.click_rate.toFixed(1)}% vs ${control.click_rate.toFixed(1)}%. Verifica ordinea itemilor si claritatea primelor doua actiuni.`,
+        })
+      }
+    }
+    if (totalRequests === 0 && totalProperties === 0 && totalViews >= 50) {
+      recommendations.push({
+        type: 'neutral',
+        title: 'Exista expuneri, dar inca nu conversii finale',
+        body: 'Urmareste daca clickurile merg spre /vreau si /proprietati/nou. Conversiile finale se citesc din request_created, guest_request_created si property_created.',
+      })
+    }
+  }
+
+  return {
+    schemaVersion: 1,
+    variants,
+    timeline: timelineRows,
+    summary: {
+      totalViews,
+      totalClicks: variants.reduce((sum, row) => sum + row.clicks, 0),
+      totalRequests,
+      totalProperties,
+      bestRequestVariant,
+      bestPropertyVariant,
+    },
+    recommendations,
+  }
+}
+
+async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
+  try {
+    const testParams = new URLSearchParams()
+    testParams.set('select', 'id,name,enabled,traffic_percent,traffic_percent_c,url_control,url_variant,url_variant_c,selected_conversions,created_at,updated_at')
+    testParams.set('name', `eq.${HEADER_MENU_TEST_NAME}`)
+    testParams.set('order', 'created_at.desc')
+    testParams.set('limit', '1')
+    const tests = await platformAbFetch('ab_tests', testParams)
+    const test = tests[0] || null
+    if (!test) {
+      return {
+        schemaVersion: 1,
+        setupIssue: 'Testul Header main menu nu exista in Supabase HomePitch.',
+        variants: HEADER_MENU_VARIANTS.map(v => emptyHeaderVariant(v.key, v.label)),
+        timeline: [],
+        recommendations: [{
+          type: 'neutral',
+          title: 'Lipseste testul Header main menu',
+          body: 'Ruleaza migrarea Supabase pentru A/B testul de header sau activeaza switch-ul din /admin/pagini.',
+        }],
+      }
+    }
+
+    const fetchEvents = async (from, to) => {
+      const params = new URLSearchParams()
+      params.set('select', 'variant,event_type,session_id,user_id,metadata,created_at')
+      params.set('ab_test_id', `eq.${test.id}`)
+      params.set('created_at', `gte.${new Date(`${from}T00:00:00.000Z`).toISOString()}`)
+      params.append('created_at', `lte.${new Date(`${to}T23:59:59.999Z`).toISOString()}`)
+      params.set('order', 'created_at.asc')
+      params.set('limit', '50000')
+      return platformAbFetch('ab_test_events', params)
+    }
+
+    const [events, previousEvents] = await Promise.all([
+      fetchEvents(currFrom, currTo),
+      fetchEvents(prevFrom, prevTo),
+    ])
+    return {
+      ...summarizeHeaderMenuEvents(events, previousEvents),
+      test: {
+        id: test.id,
+        name: test.name,
+        enabled: Boolean(test.enabled),
+        traffic_percent: Number(test.traffic_percent || 0),
+        traffic_percent_c: Number(test.traffic_percent_c || 0),
+        updated_at: test.updated_at,
+      },
+    }
+  } catch (error) {
+    return {
+      schemaVersion: 1,
+      setupIssue: error.message,
+      variants: HEADER_MENU_VARIANTS.map(v => emptyHeaderVariant(v.key, v.label)),
+      timeline: [],
+      recommendations: [{
+        type: 'negative',
+        title: 'Nu pot citi datele A/B pentru header',
+        body: error.message,
+      }],
+    }
+  }
+}
+
+async function attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo) {
+  data.headerMenuTest = await fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo)
+  return data
 }
 
 function aggregateConciergeRows(rows = []) {
@@ -1639,6 +1915,7 @@ export async function GET(request) {
       attachExitAnalysis(data)
       attachHomepageVariantAnalysis(data)
       attachConciergeTrafficAnalysis(data)
+      await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
       data.recommendations = generateRecommendations({ ...data, days })
       return NextResponse.json({
         generatedAt: now.toISOString(),
@@ -1677,6 +1954,7 @@ export async function GET(request) {
           attachExitAnalysis(built)
           attachHomepageVariantAnalysis(built)
           attachConciergeTrafficAnalysis(built)
+          await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -1698,6 +1976,7 @@ export async function GET(request) {
           attachExitAnalysis(built)
           attachHomepageVariantAnalysis(built)
           attachConciergeTrafficAnalysis(built)
+          await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -1745,6 +2024,7 @@ export async function GET(request) {
     attachExitAnalysis(data)
     attachHomepageVariantAnalysis(data)
     attachConciergeTrafficAnalysis(data)
+    await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
     data.recommendations = generateRecommendations({ ...data, days })
 
     // ── 3. Save to Supabase ────────────────────────────────────────

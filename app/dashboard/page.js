@@ -8,7 +8,7 @@ import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
 import { TabExitIntent } from './tabs6'
-import { TabHomepageConversions, TabConciergeTraffic } from './tabs8'
+import { TabHomepageConversions, TabConciergeTraffic, TabHeaderMenuAB } from './tabs8'
 import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from './theme'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
@@ -297,6 +297,7 @@ const TABS=[
   {id:'pagini',    label:'Pagini'},
   {id:'exit',      label:'Exit intent'},
   {id:'homepages', label:'Homepages A/B'},
+  {id:'header_ab', label:'Header A/B'},
   {id:'concierge_traffic', label:'Trafic concierge'},
   {id:'funnel',    label:'Funnel'},
   {id:'cerere',    label:'Analiza LP cereri'},
@@ -447,6 +448,7 @@ export default function Dashboard() {
           {tab==='pagini'      &&<TabPagini      data={data}/>}
           {tab==='exit'        &&<TabExitIntent  data={data}/>}
           {tab==='homepages'   &&<TabHomepageConversions data={data}/>}
+          {tab==='header_ab'   &&<TabHeaderMenuAB data={data}/>}
           {tab==='concierge_traffic' &&<TabConciergeTraffic data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}
           {tab==='cerere'      &&<TabCerereNoua      data={data}/>}
