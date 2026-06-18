@@ -9,6 +9,7 @@ export const maxDuration = 60
 
 const DEFAULT_GA4_ACCOUNT = '521779420'
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
+const DEFAULT_HP_ANALYTICS_EXPORT_URL = `${DEFAULT_PLATFORM_SUPABASE_URL}/functions/v1/hp-analytics-export`
 const EXIT_ANALYSIS_SCHEMA_VERSION = 1
 const REQUEST_FORM_EVENTS_SCHEMA_VERSION = 1
 const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 1
@@ -817,6 +818,18 @@ function platformAbConfigs() {
 
 function platformAbIssue(error) {
   const message = String(error?.message || error || '')
+  if (/HP Analytics export token is not configured|Lipseste HP_ANALYTICS_TOKEN/i.test(message)) {
+    return {
+      code: 'analytics_token_missing',
+      message: 'Lipseste `HP_ANALYTICS_TOKEN` in Vercel pentru hp-analytics. Seteaza acelasi token ca in Edge Function-ul HomePitch `hp-analytics-export`, apoi redeploy.',
+    }
+  }
+  if (/HP Analytics export 401|Invalid HP_ANALYTICS_TOKEN|Unauthorized/i.test(message)) {
+    return {
+      code: 'analytics_token_invalid',
+      message: '`HP_ANALYTICS_TOKEN` din Vercel nu se potriveste cu tokenul setat in Edge Function-ul HomePitch `hp-analytics-export`.',
+    }
+  }
   if (/Lipseste PLATFORM_SUPABASE_SERVICE_KEY|Platform Supabase is not configured/i.test(message)) {
     return {
       code: 'platform_key_missing',
@@ -833,6 +846,51 @@ function platformAbIssue(error) {
     code: 'platform_unavailable',
     message,
   }
+}
+
+function hpAnalyticsExportConfig() {
+  const token = getOptionalEnv('HP_ANALYTICS_TOKEN')
+  if (!token) return null
+  return {
+    token,
+    url: (getOptionalEnv('HP_ANALYTICS_EXPORT_URL') || DEFAULT_HP_ANALYTICS_EXPORT_URL).replace(/\/$/, ''),
+  }
+}
+
+async function hpAnalyticsExport(resource, params = {}) {
+  const config = hpAnalyticsExportConfig()
+  if (!config) throw new Error('HP Analytics export token is not configured')
+
+  const url = new URL(config.url)
+  url.searchParams.set('resource', resource)
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== '') {
+      url.searchParams.set(key, String(value))
+    }
+  })
+
+  const res = await fetch(url.toString(), {
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const text = await res.text()
+  let json = null
+  try { json = text ? JSON.parse(text) : null } catch {}
+  if (!res.ok) {
+    const details = json?.message || json?.error || text || res.statusText
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`HP Analytics export 401: ${details}`)
+    }
+    throw new Error(`HP Analytics export ${res.status}: ${details}`)
+  }
+  if (Array.isArray(json)) return json
+  if (Array.isArray(json?.data)) return json.data
+  if (Array.isArray(json?.rows)) return json.rows
+  if (Array.isArray(json?.result)) return json.result
+  return []
 }
 
 async function platformAbFetch(path, params) {
@@ -871,6 +929,18 @@ function eventDate(value) {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return null
   return d.toISOString().slice(0, 10)
+}
+
+function isoStartOfDay(date) {
+  return new Date(`${date}T00:00:00.000Z`).toISOString()
+}
+
+function isoEndOfDay(date) {
+  return new Date(`${date}T23:59:59.999Z`).toISOString()
+}
+
+function sortNewestFirst(a, b) {
+  return String(b.created_at || b.updated_at || '').localeCompare(String(a.created_at || a.updated_at || ''))
 }
 
 function emptyHeaderVariant(key, label) {
@@ -1039,13 +1109,40 @@ function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
 
 async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
   try {
-    const testParams = new URLSearchParams()
-    testParams.set('select', 'id,name,enabled,traffic_percent,traffic_percent_c,url_control,url_variant,url_variant_c,selected_conversions,created_at,updated_at')
-    testParams.set('name', `eq.${HEADER_MENU_TEST_NAME}`)
-    testParams.set('order', 'created_at.desc')
-    testParams.set('limit', '1')
-    const tests = await platformAbFetch('ab_tests', testParams)
-    const test = tests[0] || null
+    const exportConfig = hpAnalyticsExportConfig()
+    let tests = []
+    let fetchEvents
+
+    if (exportConfig) {
+      tests = await hpAnalyticsExport('ab_tests', { limit: 1000 })
+      fetchEvents = (from, to, testId) => hpAnalyticsExport('ab_test_events', {
+        since: isoStartOfDay(from),
+        until: isoEndOfDay(to),
+        ab_test_id: testId,
+        limit: 50000,
+      })
+    } else {
+      const testParams = new URLSearchParams()
+      testParams.set('select', 'id,name,enabled,traffic_percent,traffic_percent_c,url_control,url_variant,url_variant_c,selected_conversions,created_at,updated_at')
+      testParams.set('name', `eq.${HEADER_MENU_TEST_NAME}`)
+      testParams.set('order', 'created_at.desc')
+      testParams.set('limit', '1')
+      tests = await platformAbFetch('ab_tests', testParams)
+      fetchEvents = (from, to, testId) => {
+        const params = new URLSearchParams()
+        params.set('select', 'variant,event_type,session_id,user_id,metadata,created_at')
+        params.set('ab_test_id', `eq.${testId}`)
+        params.set('created_at', `gte.${isoStartOfDay(from)}`)
+        params.append('created_at', `lte.${isoEndOfDay(to)}`)
+        params.set('order', 'created_at.asc')
+        params.set('limit', '50000')
+        return platformAbFetch('ab_test_events', params)
+      }
+    }
+
+    const test = (tests || [])
+      .filter(row => row.name === HEADER_MENU_TEST_NAME)
+      .sort(sortNewestFirst)[0] || null
     if (!test) {
       return {
         schemaVersion: 1,
@@ -1060,20 +1157,9 @@ async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
       }
     }
 
-    const fetchEvents = async (from, to) => {
-      const params = new URLSearchParams()
-      params.set('select', 'variant,event_type,session_id,user_id,metadata,created_at')
-      params.set('ab_test_id', `eq.${test.id}`)
-      params.set('created_at', `gte.${new Date(`${from}T00:00:00.000Z`).toISOString()}`)
-      params.append('created_at', `lte.${new Date(`${to}T23:59:59.999Z`).toISOString()}`)
-      params.set('order', 'created_at.asc')
-      params.set('limit', '50000')
-      return platformAbFetch('ab_test_events', params)
-    }
-
     const [events, previousEvents] = await Promise.all([
-      fetchEvents(currFrom, currTo),
-      fetchEvents(prevFrom, prevTo),
+      fetchEvents(currFrom, currTo, test.id),
+      fetchEvents(prevFrom, prevTo, test.id),
     ])
     return {
       ...summarizeHeaderMenuEvents(events, previousEvents),
