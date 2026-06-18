@@ -757,9 +757,31 @@ const MONITORING_AREAS = [
 ]
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
+const RISK_ORDER = { Scazut: 1, Mediu: 2, Ridicat: 3 }
+const SORTABLE_COLUMNS = [
+  { label:'Proces', key:'name', align:'left' },
+  { label:'Frecventa', key:'frequency', align:'left' },
+  { label:'Target', key:'target', align:'left' },
+  { label:'Resurse consumate', key:'resources', align:'left' },
+  { label:'Ce monitorizam', key:'monitor', align:'left' },
+  { label:'Risc', key:'risk', align:'right' },
+]
 
 function normalize(value) {
   return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
+function sortValue(row, key) {
+  if (key === 'risk') return RISK_ORDER[row.risk] || 99
+  return normalize(row[key])
+}
+
+function compareRows(left, right, key, direction) {
+  const a = sortValue(left, key)
+  const b = sortValue(right, key)
+  const multiplier = direction === 'desc' ? -1 : 1
+  if (typeof a === 'number' && typeof b === 'number') return (a - b) * multiplier
+  return String(a).localeCompare(String(b), 'ro', { numeric:true, sensitivity:'base' }) * multiplier
 }
 
 function uniqueOptions(rows, key) {
@@ -855,6 +877,28 @@ function ProcessRow({ row }) {
   )
 }
 
+function SortHeader({ column, sortConfig, onSort }) {
+  const active = sortConfig.key === column.key
+  const arrow = active ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '↕'
+  return (
+    <th style={{padding:'0',textAlign:column.align,fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:700}}>
+      <button
+        onClick={() => onSort(column.key)}
+        title={`Sorteaza dupa ${column.label}`}
+        style={{
+          width:'100%',height:'100%',padding:'9px 10px',border:'none',background:'transparent',
+          color:active ? C.blue : C.hint,cursor:'pointer',fontSize:10,fontWeight:700,
+          textTransform:'uppercase',letterSpacing:'.06em',display:'flex',gap:5,
+          justifyContent:column.align === 'right' ? 'flex-end' : 'flex-start',alignItems:'center',
+        }}
+      >
+        <span>{column.label}</span>
+        <span style={{fontSize:11,lineHeight:1,color:active ? C.blue : C.hint}}>{arrow}</span>
+      </button>
+    </th>
+  )
+}
+
 export default function AutomatedProcessesPage() {
   const [darkMode, setDarkMode] = useState(false)
   const [query, setQuery] = useState('')
@@ -864,6 +908,7 @@ export default function AutomatedProcessesPage() {
   const [risk, setRisk] = useState('toate')
   const [pageSize, setPageSize] = useState(20)
   const [page, setPage] = useState(1)
+  const [sortConfig, setSortConfig] = useState({ key:'name', direction:'asc' })
 
   useEffect(() => {
     setDarkMode(localStorage.getItem(THEME_STORAGE_KEY) === 'dark')
@@ -889,13 +934,25 @@ export default function AutomatedProcessesPage() {
     })
   }, [query, category, type, status, risk])
 
+  const sortedRows = useMemo(() => {
+    return [...filtered].sort((left, right) => compareRows(left, right, sortConfig.key, sortConfig.direction))
+  }, [filtered, sortConfig])
+
   useEffect(() => {
     setPage(1)
   }, [query, category, type, status, risk, pageSize])
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  function handleSort(key) {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    }))
+    setPage(1)
+  }
+
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize))
   const safePage = Math.min(page, pageCount)
-  const visibleRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+  const visibleRows = sortedRows.slice((safePage - 1) * pageSize, safePage * pageSize)
   const externalCount = PROCESS_CATALOG.filter(row => /Brevo|Stripe|Google|Cloudflare|CRM|Whatchimp|Twilio|ImmoFlux|REBS|Renet|API extern/i.test(row.resources)).length
   const cronCount = PROCESS_CATALOG.filter(row => row.type === 'Cron' && row.status === 'Activ').length
   const highRiskCount = PROCESS_CATALOG.filter(row => row.risk === 'Ridicat').length
@@ -974,10 +1031,8 @@ export default function AutomatedProcessesPage() {
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
                 <tr style={{borderBottom:`0.5px solid ${C.border}`,background:C.softPanel}}>
-                  {['Proces','Frecventa','Target','Resurse consumate','Ce monitorizam','Risc'].map(header => (
-                    <th key={header} style={{padding:'9px 10px',textAlign:header === 'Risc' ? 'right' : 'left',fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:700}}>
-                      {header}
-                    </th>
+                  {SORTABLE_COLUMNS.map(column => (
+                    <SortHeader key={column.key} column={column} sortConfig={sortConfig} onSort={handleSort}/>
                   ))}
                 </tr>
               </thead>
