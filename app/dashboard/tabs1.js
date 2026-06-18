@@ -67,8 +67,8 @@ function TabSemnale({ data }) {
   const h3r=h3&&h3.screen_page_views>0?h3.conversions/h3.screen_page_views*100:0
   const hpr=hp&&hp.screen_page_views>0?hp.conversions/hp.screen_page_views*100:0
   const cereriPage=pages.find(p=>p.page_path==='/cereri')
-  const ceNouPage=pages.find(p=>p.page_path==='/cerere-noua')
-  const funnelDrop=cereriPage&&ceNouPage?((ceNouPage.screen_page_views/cereriPage.screen_page_views)*100):null
+  const vreauPage=pages.find(p=>p.page_path==='/vreau')
+  const funnelDrop=cereriPage&&vreauPage?((vreauPage.screen_page_views/cereriPage.screen_page_views)*100):null
   const sigs=[]
   const sd=dlt(tc,tp)
   if(sd!==null){
@@ -80,7 +80,7 @@ function TabSemnale({ data }) {
     const d2=dlt(social.sessions,socialP.sessions)
     if(d2!==null&&Math.abs(d2)>20) sigs.push({type:d2>0?'positive':'negative',title:`Social Media ${d2>0?'+':''}${d2.toFixed(0)}%`,body:`${fmtN(social.sessions)} sesiuni din social. ${d2>0?'Identifica postul viral si replica formatul.':'Activitate in scadere — verifica frecventa postarilor.'}`})
   }
-  if(funnelDrop!==null) sigs.push({type:funnelDrop<15?'negative':'neutral',title:`Funnel cerere: ${funnelDrop.toFixed(0)}% din /cereri ajung la /cerere-noua`,body:`${fmtN(cereriPage?.screen_page_views)} vizite pe /cereri, doar ${fmtN(ceNouPage?.screen_page_views)} pe /cerere-noua. ${funnelDrop<15?'Drop major — adauga CTA mai vizibil pe lista de cereri.':'Drop normal dar optimizabil.'}`})
+  if(funnelDrop!==null) sigs.push({type:funnelDrop<15?'negative':'neutral',title:`Funnel cerere: ${funnelDrop.toFixed(0)}% din /cereri ajung la /vreau`,body:`${fmtN(cereriPage?.screen_page_views)} vizite pe /cereri, doar ${fmtN(vreauPage?.screen_page_views)} pe /vreau. ${funnelDrop<15?'Drop major — adauga CTA mai vizibil pe lista de cereri.':'Drop normal dar optimizabil.'}`})
   const gD=dlt(gC,gP)
   if(gD!==null&&Math.abs(gD)>10) sigs.push({type:gD>0?'positive':'negative',title:`SEO: ${gD>0?'+':''}${gD.toFixed(0)}% clicks organice`,body:`${Math.round(gC)} clicks vs ${Math.round(gP)} perioada anterioara.`})
   if(custConv===0) sigs.push({type:'neutral',title:'Conversii custom = 0 — Key Events neconfigurate',body:'conversions_signup, offer_accepted si bravo_cerere_noua returneaza 0. GA4 Admin - Events - Mark as conversion.'})
@@ -252,7 +252,7 @@ function TabSEO({ data }) {
             desc: 'Oamenii care cauta exact ce ofera HomePitch. Volum mediu, intent maxim.',
             keywords: [
               {kw:'cerere cumparare apartament',vol:'~500/luna',dif:'mica',tip:'pagina /cereri',ai:'DA'},
-              {kw:'adauga cerere imobiliara',vol:'~200/luna',dif:'mica',tip:'pagina /cerere-noua',ai:'DA'},
+              {kw:'adauga cerere imobiliara',vol:'~200/luna',dif:'mica',tip:'pagina /vreau',ai:'DA'},
               {kw:'cum sa gasesti un apartament fara agent',vol:'~800/luna',dif:'medie',tip:'articol blog',ai:'DA'},
               {kw:'platforma cumparare apartament Romania',vol:'~300/luna',dif:'medie',tip:'homepage',ai:'DA'},
               {kw:'cerere oferta imobiliara',vol:'~150/luna',dif:'mica',tip:'pagina /cereri',ai:'NU'},
@@ -299,9 +299,9 @@ function TabSEO({ data }) {
             col: C.blue,
             desc: 'Volume mici, competitie minima, intent clar. Cele mai rapide de rankat.',
             keywords: [
-              {kw:'vreau sa cumpar apartament in bucuresti',vol:'~300/luna',dif:'mica',tip:'/vreau sau /cerere-noua',ai:'DA'},
+              {kw:'vreau sa cumpar apartament in bucuresti',vol:'~300/luna',dif:'mica',tip:'/vreau',ai:'DA'},
               {kw:'agenti imobiliari care vin la tine cu oferte',vol:'~100/luna',dif:'mica',tip:'homepage',ai:'DA'},
-              {kw:'adauga cerere si primesti oferte imobiliare',vol:'~80/luna',dif:'mica',tip:'/cerere-noua',ai:'DA'},
+              {kw:'adauga cerere si primesti oferte imobiliare',vol:'~80/luna',dif:'mica',tip:'/vreau',ai:'DA'},
               {kw:'caut apartament 2 camere bucuresti buget 100000',vol:'~200/luna',dif:'mica',tip:'cerere filtrata',ai:'NU'},
               {kw:'scor cumparator imobiliare',vol:'~50/luna',dif:'mica',tip:'/scor-cumparator',ai:'DA'},
             ]
@@ -349,7 +349,7 @@ function TabSEO({ data }) {
         <div style={{background:C.softGreen,border:`0.5px solid ${C.green}`,borderRadius:10,padding:'14px 16px',marginTop:8}}>
           <p style={{fontSize:12,fontWeight:600,color:C.green,margin:'0 0 8px'}}>Cum sa incepi — plan in 3 pasi</p>
           {[
-            '1. Quick wins (saptamana 1): Optimizeaza paginile existente pentru long-tail — /cerere-noua, /vreau, /scor-cumparator. Adauga H1 cu query-ul exact, 200 cuvinte de continut relevant, meta description cu CTA.',
+            '1. Quick wins (saptamana 1): Optimizeaza paginile existente pentru long-tail — /vreau, /cereri, /scor-cumparator. Adauga H1 cu query-ul exact, 200 cuvinte de continut relevant, meta description cu CTA.',
             '2. Pagini noi (luna 1-2): Creeaza /agenti-imobiliari-bucuresti si /cum-functioneaza cu continut de 800+ cuvinte. Acestea targeteaza si AI Search — ChatGPT si Perplexity le vor cita in raspunsuri.',
             '3. Continut long-form (luna 2-3): Ghid "Cum sa cumperi apartament in Romania 2025" — articol de 2000+ cuvinte care rankeaza pentru zeci de queries long-tail simultan.',
           ].map((s,i)=>(

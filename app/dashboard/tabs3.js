@@ -57,7 +57,7 @@ function metricForAction(action, type, summary) {
   if (type === 'speed') {
     return summary.speedRiskPage ? `${summary.speedRiskPage} · ${summary.speedRiskBounce}% bounce` : BACKLOG_TYPES.speed.metric
   }
-  if (title.includes('/vreau')) return '/vreau vs /cerere-noua'
+  if (title.includes('/vreau')) return '/vreau flux activ'
   if (title.includes('/cereri')) return `funnel ${summary.funnelRate || 0}%`
   if (title.includes('target cereri') || title.includes('cereri noi')) return `${summary.dailyRequestRate || 0}/${summary.requestDailyTarget || 2} cereri/zi`
   if (title.includes('cumparatorii fara cerere') || title.includes('cumparatori')) return `${summary.cereriConvRate || 0}% buyer→cerere`
@@ -147,7 +147,6 @@ function verifyBacklogItem(item, summary) {
   const trackingCoverage = platformCereri > 0 ? ga4Cereri / platformCereri : ga4Cereri > 0 ? 1 : 0
   const funnelRate = Number(summary.funnelRate || 0)
   const vreauR = Number(summary.vreauR || 0)
-  const ceNouR = Number(summary.ceNouR || 0)
   const dailyRequestRate = Number(summary.dailyRequestRate || 0)
   const requestDailyTarget = Number(summary.requestDailyTarget || 2)
   const requestSessionRate = Number(summary.requestSessionRate || 0)
@@ -177,9 +176,9 @@ function verifyBacklogItem(item, summary) {
       ok: false,
       title: 'Nu e confirmat: GA4 inca pierde cereri reale',
       detail: platformCereri > 0
-        ? `Platforma are ${platformCereri} cereri, dar GA4 vede ${ga4Cereri}. Verifica eventul bravo_cerere_noua pe toate rutele si payload-ul gtag.`
+        ? `Platforma are ${platformCereri} cereri, dar GA4 vede ${ga4Cereri}. Verifica eventul bravo_cerere_noua pe /vreau si payload-ul gtag.`
         : 'Nu exista inca destule cereri reale ca sa confirm verificarea. Ruleaza sync dupa ce apar cereri noi.',
-      suggestions: ['Testeaza submit pe /cerere-noua, /cereri/nou si /vreau in GA4 DebugView.', 'Verifica daca eventul se trimite dupa raspunsul de succes din backend, nu doar la click.'],
+      suggestions: ['Testeaza submit pe /vreau in GA4 DebugView.', 'Verifica daca eventul se trimite dupa raspunsul de succes din backend, nu doar la click.'],
     }
   }
 
@@ -300,18 +299,18 @@ function verifyBacklogItem(item, summary) {
   }
 
   if (text.includes('/vreau') || text.includes('/cerere-noua')) {
-    if (vreauR >= 3 && vreauR >= ceNouR * 1.5) {
+    if (vreauR >= 3) {
       return {
         ok: true,
-        title: 'Confirmat: /vreau ramane ruta mai eficienta',
-        detail: `/vreau are ${vreauR.toFixed(1)}% conv rate vs /cerere-noua ${ceNouR.toFixed(1)}%.`,
+        title: 'Confirmat: /vreau ramane fluxul activ masurabil',
+        detail: `/vreau are ${vreauR.toFixed(1)}% conv rate. Rutele vechi se folosesc doar ca audit/redirect.`,
       }
     }
     return {
       ok: false,
       title: 'Nu e confirmat: performanta /vreau nu a ajuns la prag',
-      detail: `/vreau are ${vreauR.toFixed(1)}% conv rate vs /cerere-noua ${ceNouR.toFixed(1)}%. Pragul pentru confirmare este /vreau >= 3% si cu 50% peste /cerere-noua.`,
-      suggestions: ['Verifica daca butoanele principale trimit spre /vreau.', 'Pastreaza testul 14 zile sau pana ai minim 100 views pe ruta.'],
+      detail: `/vreau are ${vreauR.toFixed(1)}% conv rate. Pragul pentru confirmare este /vreau >= 3%.`,
+      suggestions: ['Verifica daca butoanele principale trimit spre /vreau.', 'Pastreaza masurarea 14 zile sau pana ai minim 100 views pe ruta activa.'],
     }
   }
 
@@ -725,6 +724,10 @@ function TabCerereNoua({ data }) {
   const maxViews = Math.max(...paths.map(p=>p.views), 1)
   const totalViews = paths.reduce((s,p)=>s+p.views, 0)
   const totalConv  = paths.reduce((s,p)=>s+p.conv, 0)
+  const activePath = paths.find(p => p.path === '/vreau') || paths[2]
+  const legacyPaths = paths.filter(p => p.path !== '/vreau')
+  const legacyViews = legacyPaths.reduce((s, p) => s + p.views, 0)
+  const activeConvRate = activePath.views > 0 ? activePath.conv / activePath.views * 100 : 0
 
   // Build unified daily chart — align dates
   const allDates = [...new Set([
@@ -750,10 +753,11 @@ function TabCerereNoua({ data }) {
     <div>
       {/* Intro */}
       <div style={{background:'linear-gradient(135deg,#1A2B4A,#2d4a7a)',borderRadius:12,padding:'16px 20px',marginBottom:20,color:'#fff'}}>
-        <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.5)',margin:'0 0 4px'}}>Analiza comparativa</p>
-        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>Analiza LP cereri — 3 rute pentru cerere noua</h2>
+        <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.5)',margin:'0 0 4px'}}>Flux activ + trafic legacy</p>
+        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>Analiza formular cereri — /vreau este ruta activa</h2>
         <p style={{fontSize:13,color:'rgba(255,255,255,.65)',margin:0}}>
-          {fmtN(totalViews)} vizite totale · {fmtN(totalConv)} conversii GA4 · conv rate combinat {totalViews>0?(totalConv/totalViews*100).toFixed(1):0}%
+          /vreau: {fmtN(activePath.views)} vizite · {fmtN(activePath.conv)} conversii GA4 · conv rate {activeConvRate.toFixed(1)}%.
+          {legacyViews > 0 ? ` Rute vechi monitorizate separat: ${fmtN(legacyViews)} vizite.` : ' Rutele vechi nu au trafic pe interval.'}
         </p>
       </div>
 
@@ -769,6 +773,16 @@ function TabCerereNoua({ data }) {
               <PageLink path={p.path} style={{fontFamily:'monospace',fontSize:13,fontWeight:600,color:p.color}}>
                 /{p.label}
               </PageLink>
+              <span style={{
+                fontSize:10,
+                fontWeight:600,
+                padding:'1px 6px',
+                borderRadius:99,
+                background:p.status === 'active' ? C.softGreen : C.softAmber,
+                color:p.status === 'active' ? C.green : C.amber,
+              }}>
+                {p.status === 'active' ? 'activ' : 'legacy'}
+              </span>
               {p.convRate === Math.max(...paths.map(x=>x.convRate)) && p.convRate > 0 && (
                 <span style={{fontSize:10,fontWeight:500,padding:'1px 6px',borderRadius:99,background:C.softGreen,color:C.green}}>best</span>
               )}
@@ -897,19 +911,19 @@ function TabCerereNoua({ data }) {
 
       {/* Insights */}
       <Sec title="Observatii si recomandari">
-        <Signal type={paths[2].convRate > paths[0].convRate ? 'positive' : 'neutral'}
-          title={`/vreau are ${paths[2].convRate.toFixed(2)}% conv rate — ${paths[2].convRate > paths[0].convRate ? 'cel mai eficient' : 'sub asteptari'}`}
-          body={`Cu ${fmtN(paths[2].views)} views si ${paths[2].conv} conversii, /vreau are cel mai bun raport. Dar volumul e mic — ${fmtN(paths[0].views)} views pe /cerere-noua vs ${fmtN(paths[2].views)} pe /vreau. Redirectand mai mult trafic spre /vreau ai putea creste conv rate combinat.`}
+        <Signal type={activeConvRate > 0 ? 'positive' : 'neutral'}
+          title={`/vreau este fluxul activ — ${activeConvRate.toFixed(2)}% conv rate`}
+          body={`Cu ${fmtN(activePath.views)} views si ${activePath.conv} conversii GA4, acesta este singurul flux folosit pentru analiza formularului curent. Cererile reale se valideaza separat din buyer_requests, nu din traficul pe rutele legacy.`}
         />
-        {paths[1].conv === 0 && (
-          <Signal type="negative"
-            title={`/cereri/nou — ${fmtN(paths[1].views)} views, 0 conversii GA4`}
-            body="Aceasta pagina primeste trafic dar nu genereaza conversii trackate. Fie Key Event-ul nu e configurat pentru aceasta ruta, fie formularul are o problema tehnica. Verifica in GA4 daca evenimentul bravo_cerere_noua se triggereaza si de pe /cereri/nou."
+        {legacyViews > 0 && (
+          <Signal type="info"
+            title={`Trafic legacy ramas: ${fmtN(legacyViews)} vizite pe rute vechi`}
+            body="Aceste vizite pot veni din istoric GA4, linkuri vechi, bookmark-uri, indexari sau redirecturi fara 301. Nu inseamna ca userii mai trimit cereri prin pagina veche; inseamna ca merita verificat ca rutele vechi duc spre /vreau."
           />
         )}
         <Signal type="info"
-          title="Traficul combinat: 3 rute diferite pentru acelasi flux"
-          body={`${fmtN(totalViews)} vizite totale pe cele 3 rute de cerere noua. Consolidarea intr-o singura ruta cu redirect 301 de pe /cerere-noua si /cereri/nou catre /vreau (cel mai eficient) ar putea imbunatati conv rate general si simplifica tracking-ul.`}
+          title="Interpretare corecta"
+          body="In acest tab, /vreau este formularul activ. /cerere-noua si /cereri/nou raman in raport doar ca audit pentru trafic ratacit, ca sa nu pierdem vizite venite din linkuri vechi sau rezultate indexate."
         />
       </Sec>
     </div>

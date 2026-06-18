@@ -149,7 +149,7 @@ function getCereriNoiCount(tracking, pages) {
   const keyEventTotal = sumField(tracking, 'conversions_bravo_cerere_noua')
   if (keyEventTotal > 0) return keyEventTotal
 
-  const cererePaths = new Set(['/cerere-noua', '/cereri/nou', '/vreau'])
+  const cererePaths = new Set(['/vreau'])
   return pages
     .filter(p => cererePaths.has(normalizePath(p.page_path)))
     .reduce((s, p) => s + numberValue(p.conversions), 0)
@@ -179,7 +179,8 @@ function extractMetrics(data) {
   const hp     = getPage('/')
   const h3     = getPage('/home3')
 
-  const totalFormViews = metric(ceNou, 'screen_page_views') + metric(vreau, 'screen_page_views') + metric(cereriNou, 'screen_page_views')
+  const totalFormViews = metric(vreau, 'screen_page_views')
+  const legacyFormViews = metric(ceNou, 'screen_page_views') + metric(cereriNou, 'screen_page_views')
   const cereriViews = metric(cereri, 'screen_page_views')
   const funnelRate = cereriViews > 0 ? +(totalFormViews/cereriViews*100).toFixed(2) : 0
 
@@ -207,9 +208,9 @@ function extractMetrics(data) {
     homepage_rate: rate(hp),
     home3_rate:    rate(h3),
     vreau_rate:    rate(vreau),
-    cenoua_rate:   rate(ceNou),
     cereri_views:  cereriViews,
     form_views:    totalFormViews,
+    legacy_form_views: legacyFormViews,
     funnel_rate:   funnelRate,
   }
 }
@@ -248,8 +249,7 @@ function generateWeeklyInsights(curr, prev) {
   if (curr.homepage_rate > 8) insights.push({ type:'positive', title:`Homepage: ${curr.homepage_rate}% conv rate — performanta excelenta`, body:'Peste target de 8%. Mentine.' })
   else if (curr.homepage_rate < 5) insights.push({ type:'negative', title:`Homepage: ${curr.homepage_rate}% conv rate sub asteptari`, body:'Target: 8%+. Verifica CTA-urile.' })
 
-  // /vreau vs /cerere-noua
-  if (curr.vreau_rate > curr.cenoua_rate * 1.5) insights.push({ type:'info', title:`/vreau (${curr.vreau_rate}%) mult mai bun decat /cerere-noua (${curr.cenoua_rate}%)`, body:'Considera redirectul traficului spre /vreau.' })
+  if (curr.legacy_form_views > 20) insights.push({ type:'info', title:`${curr.legacy_form_views} views pe rute vechi de cerere`, body:'Fluxul activ este /vreau. Verifica redirect 301 si linkurile interne vechi.' })
 
   // Actiuni
   if (curr.cereri_noi < 2) actions.push({ urgency:'urgent', title:'Cereri noi sub 2 saptamana aceasta — verifica CTA pe /cereri', fix:'Insereaza card CTA dupa pozitia 4 din gridul de cereri.' })

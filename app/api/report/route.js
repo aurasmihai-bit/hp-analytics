@@ -833,13 +833,13 @@ function platformAbIssue(error) {
   if (/Lipseste PLATFORM_SUPABASE_SERVICE_KEY|Platform Supabase is not configured/i.test(message)) {
     return {
       code: 'platform_key_missing',
-      message: 'Lipseste cheia Supabase HomePitch in analytics. Seteaza in Vercel `PLATFORM_SUPABASE_SERVICE_KEY` sau `PLATFORM_SUPABASE_ANON_KEY` pentru proiectul HomePitch `bwfexvoapabfvkmmnxkg`, apoi redeploy.',
+      message: 'Lipseste conexiunea pentru datele A/B HomePitch. Recomandat: seteaza in Vercel `HP_ANALYTICS_TOKEN` cu acelasi token ca Edge Function-ul `hp-analytics-export`. Fallback: `PLATFORM_SUPABASE_ANON_KEY` cu RLS/RPC potrivit.',
     }
   }
   if (/Platform Supabase 401|Invalid API key/i.test(message)) {
     return {
       code: 'platform_key_invalid',
-      message: 'Cheia Supabase HomePitch setata in analytics este invalida sau apartine altui proiect. Pentru evenimentele A/B ai nevoie de o cheie valida din proiectul HomePitch `bwfexvoapabfvkmmnxkg`, apoi redeploy.',
+      message: 'Conexiunea direct Supabase HomePitch este invalida sau apartine altui proiect. Pentru A/B header foloseste preferabil `HP_ANALYTICS_TOKEN` + Edge Function `hp-analytics-export`, ca service_role sa ramana in Lovable Cloud.',
     }
   }
   return {
@@ -896,7 +896,7 @@ async function hpAnalyticsExport(resource, params = {}) {
 async function platformAbFetch(path, params) {
   const configs = platformAbConfigs()
   if (!configs.length) {
-    throw new Error('Lipseste PLATFORM_SUPABASE_SERVICE_KEY in analytics pentru citirea evenimentelor A/B din HomePitch.')
+    throw new Error('Lipseste HP_ANALYTICS_TOKEN sau o configuratie directa Supabase pentru citirea evenimentelor A/B din HomePitch.')
   }
   const qs = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString()
   let lastAuthError = null
@@ -1182,7 +1182,7 @@ async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
       timeline: [],
       recommendations: [{
         type: issue.code === 'platform_unavailable' ? 'negative' : 'neutral',
-        title: issue.code === 'platform_unavailable' ? 'Nu pot citi datele A/B pentru header' : 'Conecteaza cheia HomePitch pentru A/B header',
+        title: issue.code === 'platform_unavailable' ? 'Nu pot citi datele A/B pentru header' : 'Conecteaza exportul HomePitch pentru A/B header',
         body: issue.message,
       }],
     }
@@ -1340,7 +1340,7 @@ function exitRecommendation(path, row) {
   const duration = Number(row.average_session_duration || 0)
   if (path === '/cereri') return 'Adauga CTA catre /vreau imediat dupa filtre si in sticky mobile; masoara click_request_start.'
   if (path === '/vreau') return 'Verifica pasul unde se abandoneaza wizard-ul si salveaza progresul dupa fiecare pas.'
-  if (path === '/cerere-noua' || path === '/cereri/nou') return 'Trimite traficul nou spre wizard-ul /vreau si pastreaza formularul lung pentru editare/advanced.'
+  if (path === '/cerere-noua' || path === '/cereri/nou') return 'Ruta legacy: verifica redirectul catre /vreau si actualizeaza linkurile interne.'
   if (path === '/proprietati') return 'Segmenteaza CTA-ul: cumparatorii catre /vreau, agentii/proprietarii catre publicare proprietate.'
   if (path === '/' || path === '/home3') return 'Testeaza un CTA de intent: "Spune ce cauti si primesti oferte" above the fold.'
   if (path.includes('/cereri/')) return 'Pe detaliu cerere, fa mai vizibil CTA-ul pentru agenti: "Trimite oferta potrivita".'
@@ -1598,9 +1598,11 @@ function generateRecommendations(data) {
   const cereriNou = get('/cereri/nou'), proprietati = get('/proprietati')
   const reset = get('/resetare-parola')
 
-  const h3r = rate(h3), hpr = rate(hp), vreauR = rate(vreau), ceNouR = rate(ceNou)
+  const h3r = rate(h3), hpr = rate(hp), vreauR = rate(vreau)
   const cereriViews = cereri?.screen_page_views || 0
-  const totalFormViews = (ceNou?.screen_page_views||0)+(vreau?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
+  const activeFormViews = vreau?.screen_page_views || 0
+  const legacyFormViews = (ceNou?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
+  const totalFormViews = activeFormViews
   const funnelRate = cereriViews > 0 ? totalFormViews/cereriViews*100 : 0
 
   const platformCereriNoi = Number(data.platformRequests?.count || 0)
@@ -1684,12 +1686,8 @@ function generateRecommendations(data) {
   if (socialConvR > directConvR * 1.3)
     insights.push({ type:'info', tag:'PRIORITATE', title:`Social Media: ${socialConvR.toFixed(1)}% conv rate — cel mai eficient canal`, body:`De ${(socialConvR/Math.max(directConvR,0.1)).toFixed(1)}x mai eficient decat Direct. Cu ${(social?.sessions||0).toLocaleString('ro')} sesiuni din social, dublarea postari = dublarea conversiilor.` })
 
-  // /vreau vs /cerere-noua
-  if (vreauR > 0 && ceNouR > 0) {
-    if (vreauR > ceNouR * 2)
-      insights.push({ type:'positive', tag:'NOU', title:`/vreau (${vreauR.toFixed(1)}%) de ${(vreauR/Math.max(ceNouR,0.1)).toFixed(1)}x mai eficient decat /cerere-noua (${ceNouR.toFixed(1)}%)`, body:'Redirecteaza traficul spre /vreau sau copiaza structura sa pe /cerere-noua.' })
-    else if (vreauR > 0)
-      insights.push({ type:'neutral', title:`/vreau functioneaza — ${vreauR.toFixed(1)}% conv rate`, body:`Monitorizare in continuare. Target: 5% conv rate.` })
+  if (vreauR > 0) {
+    insights.push({ type: vreauR >= 3 ? 'positive' : 'neutral', title:`/vreau este fluxul activ — ${vreauR.toFixed(1)}% conv rate`, body:'Monitorizeaza formularul activ si foloseste rutele vechi doar ca audit/redirect.' })
   }
 
   // Homepage gap
@@ -1750,13 +1748,12 @@ function generateRecommendations(data) {
     })
   }
 
-  // /cereri/nou broken
-  if (cereriNou && (cereriNou.conversions||0) === 0 && (cereriNou.screen_page_views||0) > 20)
-    insights.push({ type:'negative', title:`/cereri/nou: ${cereriNou.screen_page_views} views, ${Math.round(cereriNou.average_session_duration||0)}s, 0 conversii — tracking broken`, body:'Key Event nesetat. Pierdere de date.' })
+  if (legacyFormViews > 20)
+    insights.push({ type:'info', title:`${legacyFormViews} views pe rute legacy de cerere`, body:'Fluxul activ este /vreau. Vizitele pe /cerere-noua sau /cereri/nou indica linkuri vechi, bookmark-uri, istoric GA4 sau redirecturi care merita verificate.' })
 
   // ── ACTIUNI ───────────────────────────────────────────────────────
-  if (cereriNou && (cereriNou.conversions||0) === 0 && (cereriNou.screen_page_views||0) > 20)
-    actions.push({ urgency:'urgent', title:`/cereri/nou: ${cereriNou.screen_page_views} views, 0 conversii — Key Event inca nesetat`, body:'Pierdere directa de date. Persista din saptamana anterioara.', fix:"Adauga la submit reusit pe /cereri/nou: gtag('event', 'conversions_bravo_cerere_noua', {page_source: 'cereri_nou'}). Verifica in GA4 DebugView. Durata: 5 minute." })
+  if (legacyFormViews > 20)
+    actions.push({ urgency:'important', title:`Rute legacy cerere: ${legacyFormViews} views inca ajung pe URL-uri vechi`, body:'Nu mai tratam /cerere-noua sau /cereri/nou ca formulare active. Ele trebuie monitorizate doar ca trafic ratacit.', fix:'Verifica redirect 301 de pe /cerere-noua si /cereri/nou catre /vreau si actualizeaza linkurile interne care mai trimit catre rutele vechi.' })
 
   if (funnelRate < 15)
     actions.push({ urgency:'urgent', title:`Funnel /cereri → formulare: ${funnelRate.toFixed(0)}% — CTA inline lipseste`, body:`${cereriViews.toLocaleString('ro')} vizite pe /cereri dar doar ${totalFormViews} (${funnelRate.toFixed(0)}%) ajung la formulare.`, fix:"Insereaza card dark-navy dupa pozitia 4 din gridul de cereri: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati. Efort: 30 minute." })
@@ -1807,8 +1804,8 @@ function generateRecommendations(data) {
   if (proprietati && (proprietati.screen_page_views||0) > 200 && (proprietati.conversions||0) === 0)
     actions.push({ urgency:'urgent', title:`/proprietati: ${(proprietati.screen_page_views||0).toLocaleString('ro')} views, 0 conversii, ${Math.round((proprietati.bounce_rate||0)*100)}% bounce`, body:'A doua pagina ca trafic fara niciun CTA activ.', fix:"Adauga CTA conditionat: Agent/Proprietar → 'Publica o proprietate' → /proprietati/nou. Cumparator → 'Adauga o cerere' → /vreau. Masoara uplift-ul 14 zile in GA4 si buyer_requests." })
 
-  if (vreauR > 0 && ceNouR > 0 && vreauR > ceNouR * 2)
-    actions.push({ urgency:'important', title:`/vreau (${vreauR.toFixed(1)}%) de ${(vreauR/Math.max(ceNouR,0.1)).toFixed(1)}x mai eficient decat /cerere-noua (${ceNouR.toFixed(1)}%)`, body:'Acelasi obiectiv, performante complet diferite.', fix:"Schimba destinatia butonului '+ Cerere noua' din /cereri catre /vreau. Masoara conv rate 14 zile." })
+  if (vreauR > 0 && legacyFormViews > 20)
+    actions.push({ urgency:'important', title:`/vreau este fluxul activ pentru cereri`, body:`Rutele vechi mai au ${legacyFormViews} views in interval, dar nu ar trebui folosite pentru submit.`, fix:'Pastreaza /vreau ca destinatie unica pentru CTA-uri si foloseste rutele vechi doar ca redirect/audit.' })
 
   if (!homepageGapClosed && h3r > hpr * 1.5 && (h3?.screen_page_views||0) > 20)
     actions.push({ urgency:'important', title:`/home3 (${h3r.toFixed(1)}%) inca mai bun decat homepage (${hpr.toFixed(1)}%)`, body:'Gap exista inca. Copiaza elementele diferite de pe /home3 pe /', fix:'Identifica ce e diferit pe /home3 vs /. Aplica pe homepage si monitorizeaza 14 zile.' })
@@ -1817,7 +1814,7 @@ function generateRecommendations(data) {
     actions.push({ urgency:'important', title:`/resetare-parola — engagement ${Math.round((reset.engagement_rate||0)*100)}% (emailul imbunatatit, verifica daca bounce persista)`, body:'Am optimizat emailul de reset (expirare 30 min, CTA clar). Daca bounce-ul persista, problema e tehnica.', fix:'Testeaza manual: solicita reset > verifica inbox + spam > apasa link > confirma ca functioneaza. Verifica in Supabase Auth logs timpul de expirare.' })
 
   if (convD !== null && convD < -20)
-    actions.push({ urgency:'urgent', title:`Conversii -${Math.abs(convD).toFixed(0)}% fata de perioada anterioara`, body:`${totalConv} conversii vs ${totalConvPrev}.`, fix:'Verifica GA4 pentru erori JS. Verifica /cerere-noua, /vreau si /home3.' })
+    actions.push({ urgency:'urgent', title:`Conversii -${Math.abs(convD).toFixed(0)}% fata de perioada anterioara`, body:`${totalConv} conversii vs ${totalConvPrev}.`, fix:'Verifica GA4 pentru erori JS. Prioritar: /vreau, /home3 si paginile active din testele de homepage.' })
 
   if (socialConvR > Math.max(organicConvR, directConvR, 0.5) * 1.2 && socialSessions > 0)
     actions.push({
@@ -1853,7 +1850,7 @@ function generateRecommendations(data) {
       urgency:'luna asta',
       title:'Speed: activeaza masurare Web Vitals pe paginile de conversie',
       body:'Raportul are proxy din bounce/durata, dar nu are inca LCP, CLS sau INP pentru diagnostic tehnic precis.',
-      fix:"Trimite in GA4 eventuri web_vital_lcp, web_vital_cls si web_vital_inp pentru /, /cereri, /vreau, /cerere-noua si /proprietati. Adauga praguri: LCP < 2.5s, CLS < 0.1, INP < 200ms.",
+      fix:"Trimite in GA4 eventuri web_vital_lcp, web_vital_cls si web_vital_inp pentru /, /cereri, /vreau si /proprietati. Adauga praguri: LCP < 2.5s, CLS < 0.1, INP < 200ms.",
     })
 
   if (seoD !== null && Math.abs(seoD) > 15)
@@ -1884,7 +1881,7 @@ function generateRecommendations(data) {
       totalSess, totalConv, totalSessPrev, totalConvPrev,
       socialConvR: parseFloat(socialConvR.toFixed(1)),
       vreauR: parseFloat(vreauR.toFixed(1)),
-      ceNouR: parseFloat(ceNouR.toFixed(1)),
+      legacyFormViews,
       hpr: parseFloat(hpr.toFixed(1)),
       h3r: parseFloat(h3r.toFixed(1)),
       funnelRate: parseFloat(funnelRate.toFixed(1)),

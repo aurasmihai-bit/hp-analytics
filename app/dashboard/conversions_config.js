@@ -38,13 +38,13 @@ export const CONV_DEFINITIONS = [
     label: 'Cerere noua (Key Event)',
     description: 'Event GA4 pentru cerere noua finalizata',
     category: 'Cereri noi',
-    page: '/cerere-noua',
+    page: '/vreau',
     value: 20, icon: '📋', defaultOn: true,
   },
   {
     id: 'cerere_noua_page',
     label: 'Vizita /cerere-noua',
-    description: 'Formularul clasic de cerere noua; valorile curente vin din GA4 in tabul de analiza LP.',
+    description: 'Ruta legacy pentru cerere noua; folosita doar ca semnal de trafic vechi/redirect.',
     category: 'Cereri noi',
     page: '/cerere-noua',
     value: 8, icon: '📝', defaultOn: true, isPageView: true,
@@ -52,7 +52,7 @@ export const CONV_DEFINITIONS = [
   {
     id: 'cereri_nou_page',
     label: 'Vizita /cereri/nou',
-    description: 'Ruta alternativa pentru cerere noua; verifica separat conversiile GA4 si cererile reale din platforma.',
+    description: 'Ruta legacy pentru cerere noua; verifica daca mai primeste trafic ratacit.',
     category: 'Cereri noi',
     page: '/cereri/nou',
     value: 8, icon: '📄', defaultOn: true, isPageView: true,
@@ -60,7 +60,7 @@ export const CONV_DEFINITIONS = [
   {
     id: 'vreau_page',
     label: 'Vizita /vreau',
-    description: 'Pagina de intent rapid; compara performanta curenta cu celelalte rute de cerere.',
+    description: 'Fluxul activ de adaugare cerere.',
     category: 'Cereri noi',
     page: '/vreau',
     value: 12, icon: '🎯', defaultOn: true, isPageView: true,
@@ -136,24 +136,27 @@ export const CONV_DEFINITIONS = [
 
 export const CATEGORIES = [...new Set(CONV_DEFINITIONS.map(c => c.category))]
 
-// Cele 3 pagini pentru cerere noua — pentru zona de comparatie
+// /vreau este fluxul activ. Rutele vechi raman doar pentru audit/redirect.
 export const CERERE_PAGES = [
   {
     path: '/cerere-noua',
     label: 'cerere-noua',
     color: '#3B82C4',
-    description: 'Formularul clasic, direct accesibil',
+    status: 'legacy',
+    description: 'Ruta veche; monitorizata doar pentru trafic ratacit sau linkuri externe.',
   },
   {
     path: '/cereri/nou',
     label: 'cereri/nou',
     color: '#D97706',
-    description: 'Ruta alternativa din pagina de cereri',
+    status: 'legacy',
+    description: 'Ruta veche din pagina de cereri; ar trebui sa redirectioneze spre /vreau.',
   },
   {
     path: '/vreau',
     label: 'vreau',
     color: '#16A34A',
-    description: 'Pagina de intent rapida',
+    status: 'active',
+    description: 'Fluxul activ pentru adaugarea unei cereri.',
   },
 ]

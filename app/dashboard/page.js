@@ -172,22 +172,22 @@ function TabActiuni({ data }) {
   const h3r=h3&&h3.screen_page_views>0?h3.conversions/h3.screen_page_views*100:0
   const hpr=hp&&hp.screen_page_views>0?hp.conversions/hp.screen_page_views*100:0
   const vreauR=vreau&&vreau.screen_page_views>0?vreau.conversions/vreau.screen_page_views*100:0
-  const ceNouR=ceNou&&ceNou.screen_page_views>0?ceNou.conversions/ceNou.screen_page_views*100:0
   const homepageGapClosed=h3r>0&&hpr>0&&(h3r-hpr)<1.5
   const lowCtr=queries.filter(q=>(q.organic_google_search_impressions||0)>50&&(q.organic_google_search_click_through_rate||0)<0.03).sort((a,b)=>(b.organic_google_search_impressions||0)-(a.organic_google_search_impressions||0))[0]
   const nearTop=queries.filter(q=>(q.organic_google_search_average_position||0)>=4&&(q.organic_google_search_average_position||0)<=8).sort((a,b)=>(b.organic_google_search_clicks||0)-(a.organic_google_search_clicks||0))[0]
   const cereriViews=cereri?.screen_page_views||0
-  const totalFormViews=(ceNou?.screen_page_views||0)+(vreau?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
+  const totalFormViews=vreau?.screen_page_views||0
+  const legacyFormViews=(ceNou?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
   const funnelRate=cereriViews>0?totalFormViews/cereriViews*100:0
 
   const actions=[]
 
-  // 1. /cereri/nou tracking broken — persista
-  if(cereriNou&&(cereriNou.conversions||0)===0&&(cereriNou.screen_page_views||0)>20) {
-    actions.push({urgency:'urgent',
-      title:`/cereri/nou: ${fmtN(cereriNou.screen_page_views)} views, ${Math.round(cereriNou.average_session_duration||0)}s, 0 conversii — Key Event inca nesetat`,
-      body:'Problema persista. Userii completeaza formularul dar evenimentul nu se triggereaza. Pierdere directa de date.',
-      fix:"Adauga la submit reusit pe /cereri/nou: gtag('event', 'conversions_bravo_cerere_noua', {page_source: 'cereri_nou'}). Verifica in GA4 DebugView. Durata: 5 minute."})
+  // 1. Rute vechi pentru cerere noua — audit redirect
+  if(legacyFormViews>20) {
+    actions.push({urgency:'important',
+      title:`Rute legacy cerere: ${fmtN(legacyFormViews)} views pe /cerere-noua sau /cereri/nou`,
+      body:'Fluxul activ este /vreau. Vizitele pe rute vechi vin din linkuri istorice, bookmark-uri sau indexari si trebuie tratate ca trafic de redirectat.',
+      fix:'Verifica redirect 301 catre /vreau si actualizeaza linkurile interne care mai trimit spre rutele vechi.'})
   }
 
   // 2. CTA pe /cereri — inca neluat
@@ -206,12 +206,12 @@ function TabActiuni({ data }) {
       fix:"Adauga CTA conditionat: Agent/Proprietar → 'Publica o proprietate' → /proprietati/nou. Cumparator → 'Adauga o cerere si primesti oferte' → /vreau. Masoara uplift-ul 14 zile in GA4 si buyer_requests."})
   }
 
-  // 4. /vreau vs /cerere-noua — redirect oportunitate
-  if(vreauR>0&&ceNouR>0&&vreauR>ceNouR*2) {
+  // 4. /vreau este destinatia unica pentru cerere noua
+  if(vreauR>0&&legacyFormViews>20) {
     actions.push({urgency:'important',
-      title:`/vreau (${vreauR.toFixed(1)}% conv) de ${(vreauR/Math.max(ceNouR,0.1)).toFixed(1)}x mai eficient decat /cerere-noua (${ceNouR.toFixed(1)}%)`,
-      body:'Acelasi obiectiv, performante complet diferite. Traficul trimis spre /cerere-noua ar converti de 5x mai bine daca ar ajunge pe /vreau.',
-      fix:"Schimba destinatia butonului '+ Cerere noua' din /cereri catre /vreau. Masoara conv rate timp de 14 zile. Daca se confirma, aplica peste tot."})
+      title:`/vreau este formularul activ pentru cereri`,
+      body:`/vreau are ${vreauR.toFixed(1)}% conv rate GA4 pe interval. Rutele vechi se pastreaza doar pentru audit de trafic ratacit.`,
+      fix:'Pastreaza toate CTA-urile de creare cerere spre /vreau si foloseste /cerere-noua + /cereri/nou doar ca redirect.'})
   }
 
   // 5. Homepage vs home3 — daca gap s-a inchis, felicitare + urmatorul pas
@@ -253,7 +253,7 @@ function TabActiuni({ data }) {
   if(cd!==null&&cd<-20) actions.push({urgency:'urgent',
     title:`Conversii -${Math.abs(cd).toFixed(0)}% fata de perioada anterioara`,
     body:`${cc} conversii vs ${cp}. Scadere semnificativa — posibila problema tehnica.`,
-    fix:'Verifica GA4 pentru erori JS. Verifica /cerere-noua, /vreau si /home3 pentru probleme.'})
+    fix:'Verifica GA4 pentru erori JS. Prioritar: /vreau, /home3 si paginile active din testele homepage.'})
 
   if(actions.length===0) actions.push({urgency:'luna asta',
     title:'Saptamana fara alerte majore',
@@ -300,7 +300,7 @@ const TABS=[
   {id:'header_ab', label:'Header A/B'},
   {id:'concierge_traffic', label:'Trafic concierge'},
   {id:'funnel',    label:'Funnel'},
-  {id:'cerere',    label:'Analiza LP cereri'},
+  {id:'cerere',    label:'Analiza formular cereri'},
   {id:'tracking',  label:'Tracking cereri'},
   {id:'conversii', label:'Conversii'},
   {id:'raport',    label:'📅 Raport sapt.'},

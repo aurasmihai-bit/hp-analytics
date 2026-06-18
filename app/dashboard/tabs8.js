@@ -289,7 +289,7 @@ export function TabHeaderMenuAB({ data }) {
   const totalProperties = summary.totalProperties ?? variants.reduce((sum, row) => sum + Number(row.properties_created || 0), 0)
   const timeline = headerTimelineRows(analysis.timeline || [])
   const visibleRows = variants.filter(row => row.key !== 'variant_c' || Number(row.views || 0) > 0)
-  const hasConfigIssue = ['platform_key_missing', 'platform_key_invalid'].includes(analysis.setupIssueCode)
+  const hasConfigIssue = ['analytics_token_missing', 'analytics_token_invalid', 'platform_key_missing', 'platform_key_invalid'].includes(analysis.setupIssueCode)
 
   return (
     <div>
@@ -297,7 +297,7 @@ export function TabHeaderMenuAB({ data }) {
         <Sec title="Setup">
           <Signal
             type={hasConfigIssue ? 'neutral' : 'negative'}
-            title={hasConfigIssue ? 'Conexiunea cu Supabase HomePitch trebuie corectata' : 'Datele A/B pentru header nu sunt inca disponibile'}
+            title={hasConfigIssue ? 'Conexiunea cu exportul HomePitch trebuie corectata' : 'Datele A/B pentru header nu sunt inca disponibile'}
             body={analysis.setupIssue}
           />
         </Sec>
@@ -313,8 +313,9 @@ export function TabHeaderMenuAB({ data }) {
       <Sec title="Comparatie meniu actual vs meniu pe intentie">
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <Card>
-            <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 12px'}}>Rata cereri create</p>
-            <BarChart data={visibleRows} labelField="label" valueField="request_rate" color={C.green} maxBars={3}/>
+            <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 12px'}}>Cereri create pe variantă</p>
+            <BarChart data={visibleRows} labelField="label" valueField="requests_created" color={C.green} maxBars={3}/>
+            <p style={{fontSize:11,color:C.hint,margin:'8px 0 0'}}>Numar brut de cereri. Rata se vede in tabel si in comparatia din dreapta.</p>
           </Card>
           <Card>
             <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 10px'}}>Ce masoara testul</p>
@@ -326,10 +327,12 @@ export function TabHeaderMenuAB({ data }) {
               <div style={{border:`0.5px solid ${C.border}`,borderRadius:8,padding:10}}>
                 <p style={{fontSize:10,color:C.hint,textTransform:'uppercase',margin:'0 0 4px'}}>Control</p>
                 <p style={{fontSize:16,fontWeight:700,color:C.text,margin:0}}>{pct(control.request_rate || 0)}</p>
+                <p style={{fontSize:11,color:C.hint,margin:'3px 0 0'}}>{fmtN(control.requests_created || 0)} cereri / {fmtN(control.views || 0)} expuneri</p>
               </div>
               <div style={{border:`0.5px solid ${C.border}`,borderRadius:8,padding:10,background:Number(intent.request_rate || 0) > Number(control.request_rate || 0) ? C.softGreen : 'transparent'}}>
                 <p style={{fontSize:10,color:C.hint,textTransform:'uppercase',margin:'0 0 4px'}}>Varianta B</p>
                 <p style={{fontSize:16,fontWeight:700,color:C.text,margin:0}}>{pct(intent.request_rate || 0)}</p>
+                <p style={{fontSize:11,color:C.hint,margin:'3px 0 0'}}>{fmtN(intent.requests_created || 0)} cereri / {fmtN(intent.views || 0)} expuneri</p>
               </div>
             </div>
           </Card>

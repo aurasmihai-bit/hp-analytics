@@ -153,7 +153,7 @@ function TabPagini({ data }) {
                 if(path==='/bun-venit-cumparator'||path==='/bun-venit-proprietar'||path==='/bun-venit-agent') return {col:C.blue,text:'Pagina post-inregistrare — userii pleaca intentionat dupa confirmare.'}
                 if(path==='/logare'||path==='/login') return {col:C.blue,text:'Redirect rapid daca userul e deja logat — normal.'}
                 if(path.includes('/proprietati/')&&path.split('/').length>4) return {col:C.amber,text:'Pagina de detalii proprietate — bounce poate insemna ca nu corespunde asteptarilor.'}
-                if(path==='/cumparatori')     return {col:C.amber,text:'Pagina de prezentare — adauga CTA clar catre /cerere-noua sau /vreau.'}
+                if(path==='/cumparatori')     return {col:C.amber,text:'Pagina de prezentare — adauga CTA clar catre /vreau.'}
                 if(path.includes('/cereri/')&&!path.includes('/nou')&&!path.includes('/edit')) return {col:C.amber,text:'Pagina detalii cerere — verifica daca agentii pot aplica usor.'}
                 if(pct>20)  return {col:C.red,  text:'Bounce ridicat — verifica CTA-uri si continuarea fluxului.'}
                 if(pct>10)  return {col:C.amber,text:'Bounce moderat — monitorizeaza tendinta.'}
@@ -201,7 +201,7 @@ function TabPagini({ data }) {
                 if(path==='/proprietati/nou')   return {col:C.green,  text:'Formular adaugare proprietate — durata mare poate fi pozitiva daca userii completeaza cu atentie.'}
                 if(path==='/setari-crm')        return {col:C.green,  text:'Sectiune CRM — timp mare = agentii configureaza activ.'}
                 if(path==='/resetare-parola')   return {col:C.red,    text:'Durata si bounce ridicate — userii pot fi blocati in flux. Verifica emailul si tokenul de reset.'}
-                if(path==='/cereri/nou')        return {col:C.blue,   text:'Formular cerere noua — daca durata e mare dar conversiile GA4 sunt 0, verifica Key Event-ul.'}
+                if(path==='/cereri/nou')        return {col:C.amber,  text:'Ruta legacy pentru cerere noua — verifica redirectul catre /vreau.'}
                 if(path==='/vreau') {
                   const convRate = p.screen_page_views > 0 ? p.conversions / p.screen_page_views * 100 : 0
                   return {col:C.green, text:`${Math.round(dur)}s si ${convRate.toFixed(1)}% conv rate — pagina de intent, merita scalata daca mentine performanta.`}
@@ -333,7 +333,7 @@ function TabFunnel({ data }) {
   const curr=data.traffic.current, pages=data.pages.current
   const totalSess=sum(curr,'sessions'), totalConv=sum(curr,'conversions')
   const get=path=>pages.find(p=>p.page_path===path)
-  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),ceNou=get('/cerere-noua'),cereri=get('/cereri')
+  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),vreau=get('/vreau'),cereri=get('/cereri')
   const convs=data.conversions
   const signup=sum(convs,'conversions_signup'), offers=sum(convs,'conversions_offer_accepted'), cer=sum(convs,'conversions_bravo_cerere_noua')
   const ag=sum(convs,'conversions_bun_venit_agent'), cum=sum(convs,'conversions_bun_venit_cumparator'), prop=sum(convs,'conversions_bun_venit_proprietar')
@@ -342,9 +342,9 @@ function TabFunnel({ data }) {
   const hpr=rate(hp), h3r=rate(h3), inversR=rate(invers), simpr=rate(simp), platformaR=rate(platforma)
   const landingViews=(h3?.screen_page_views||0)+(invers?.screen_page_views||0)+(simp?.screen_page_views||0)+(platforma?.screen_page_views||0)+(hp?.screen_page_views||0)
   const cereriViews=cereri?.screen_page_views||0
-  const ceNouViews=ceNou?.screen_page_views||0
+  const vreauViews=vreau?.screen_page_views||0
   const loginViews=login?.screen_page_views||0
-  const funnelDrop=cereriViews>0?(ceNouViews/cereriViews*100):null
+  const funnelDrop=cereriViews>0?(vreauViews/cereriViews*100):null
   const requestEvents=data.requestFormEvents||{}
   const eventCounts=(requestEvents.events||[]).reduce((acc,row)=>{acc[row.event_name]=row.event_count||0;return acc},{})
   const requestEventSteps=[
@@ -359,7 +359,7 @@ function TabFunnel({ data }) {
     {label:'Sesiuni totale',path:null,v:totalSess,pct:100,col:'#3B82C4'},
     {label:'Landing vizitat (/, /home3, /invers, /simplu, /platforma)',path:'/',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
     {label:'/cereri — lista cereri',path:'/cereri',v:cereriViews,pct:totalSess>0?cereriViews/totalSess*100:0,col:'#7C3AED'},
-    {label:'/cerere-noua — formular',path:'/cerere-noua',v:ceNouViews,pct:totalSess>0?ceNouViews/totalSess*100:0,col:'#D97706'},
+    {label:'/vreau — formular activ',path:'/vreau',v:vreauViews,pct:totalSess>0?vreauViews/totalSess*100:0,col:'#D97706'},
     {label:'/login',path:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
     {label:'Conversii GA4 totale',path:null,v:totalConv,pct:totalSess>0?totalConv/totalSess*100:0,col:'#16A34A'},
   ]
@@ -380,7 +380,7 @@ function TabFunnel({ data }) {
         ))}
         {funnelDrop!==null&&(
           <div style={{marginTop:12,padding:'10px 14px',background:funnelDrop<15?C.softRed:C.softAmber,border:`0.5px solid ${funnelDrop<15?C.red:C.amber}`,borderRadius:8,fontSize:13}}>
-            <strong style={{color:funnelDrop<15?C.red:C.amber}}>Drop /cereri → /cerere-noua: {funnelDrop.toFixed(0)}%</strong>
+            <strong style={{color:funnelDrop<15?C.red:C.amber}}>Drop /cereri → /vreau: {funnelDrop.toFixed(0)}%</strong>
             <span style={{color:C.muted,marginLeft:8}}>{funnelDrop<15?'Foarte mic — adauga CTA mai vizibil pe pagina /cereri':'Progresie normala, dar optimizabila'}</span>
           </div>
         )}
