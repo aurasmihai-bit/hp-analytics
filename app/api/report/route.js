@@ -804,34 +804,67 @@ function buildHomepageVariantAnalysisFromPayloads(currentPayloads = [], previous
   return { schemaVersion: 1, variants: rows, timeline, bestVariant: best, recommendations }
 }
 
-function platformAbConfig() {
+function platformAbConfigs() {
   const url = getOptionalEnv('PLATFORM_SUPABASE_URL') || DEFAULT_PLATFORM_SUPABASE_URL
-  const key = getOptionalEnv('PLATFORM_SUPABASE_SERVICE_KEY') || getOptionalEnv('PLATFORM_SUPABASE_ANON_KEY')
-  if (!url || !key) return null
-  return { url: url.replace(/\/$/, ''), key }
+  const keys = [
+    getOptionalEnv('PLATFORM_SUPABASE_SERVICE_KEY'),
+    getOptionalEnv('PLATFORM_SUPABASE_ANON_KEY'),
+  ].filter(Boolean)
+  const uniqueKeys = Array.from(new Set(keys))
+  if (!url || !uniqueKeys.length) return []
+  return uniqueKeys.map(key => ({ url: url.replace(/\/$/, ''), key }))
+}
+
+function platformAbIssue(error) {
+  const message = String(error?.message || error || '')
+  if (/Lipseste PLATFORM_SUPABASE_SERVICE_KEY|Platform Supabase is not configured/i.test(message)) {
+    return {
+      code: 'platform_key_missing',
+      message: 'Lipseste cheia Supabase HomePitch in analytics. Seteaza in Vercel `PLATFORM_SUPABASE_SERVICE_KEY` sau `PLATFORM_SUPABASE_ANON_KEY` pentru proiectul HomePitch `bwfexvoapabfvkmmnxkg`, apoi redeploy.',
+    }
+  }
+  if (/Platform Supabase 401|Invalid API key/i.test(message)) {
+    return {
+      code: 'platform_key_invalid',
+      message: 'Cheia Supabase HomePitch setata in analytics este invalida sau apartine altui proiect. Pentru evenimentele A/B ai nevoie de o cheie valida din proiectul HomePitch `bwfexvoapabfvkmmnxkg`, apoi redeploy.',
+    }
+  }
+  return {
+    code: 'platform_unavailable',
+    message,
+  }
 }
 
 async function platformAbFetch(path, params) {
-  const config = platformAbConfig()
-  if (!config) {
+  const configs = platformAbConfigs()
+  if (!configs.length) {
     throw new Error('Lipseste PLATFORM_SUPABASE_SERVICE_KEY in analytics pentru citirea evenimentelor A/B din HomePitch.')
   }
   const qs = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString()
-  const res = await fetch(`${config.url}/rest/v1/${path}?${qs}`, {
-    cache: 'no-store',
-    headers: {
-      apikey: config.key,
-      Authorization: `Bearer ${config.key}`,
-      'Content-Type': 'application/json',
-    },
-  })
-  const text = await res.text()
-  let json = null
-  try { json = text ? JSON.parse(text) : null } catch {}
-  if (!res.ok) {
-    throw new Error(`Platform Supabase ${res.status}: ${json?.message || text || res.statusText}`)
+  let lastAuthError = null
+  for (const config of configs) {
+    const res = await fetch(`${config.url}/rest/v1/${path}?${qs}`, {
+      cache: 'no-store',
+      headers: {
+        apikey: config.key,
+        Authorization: `Bearer ${config.key}`,
+        'Content-Type': 'application/json',
+      },
+    })
+    const text = await res.text()
+    let json = null
+    try { json = text ? JSON.parse(text) : null } catch {}
+    if (!res.ok) {
+      const details = json?.message || text || res.statusText
+      if (res.status === 401) {
+        lastAuthError = new Error('Platform Supabase 401: Invalid API key')
+        continue
+      }
+      throw new Error(`Platform Supabase ${res.status}: ${details}`)
+    }
+    return Array.isArray(json) ? json : []
   }
-  return Array.isArray(json) ? json : []
+  throw lastAuthError || new Error('Platform Supabase auth failed')
 }
 
 function eventDate(value) {
@@ -1054,15 +1087,17 @@ async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
       },
     }
   } catch (error) {
+    const issue = platformAbIssue(error)
     return {
       schemaVersion: 1,
-      setupIssue: error.message,
+      setupIssue: issue.message,
+      setupIssueCode: issue.code,
       variants: HEADER_MENU_VARIANTS.map(v => emptyHeaderVariant(v.key, v.label)),
       timeline: [],
       recommendations: [{
-        type: 'negative',
-        title: 'Nu pot citi datele A/B pentru header',
-        body: error.message,
+        type: issue.code === 'platform_unavailable' ? 'negative' : 'neutral',
+        title: issue.code === 'platform_unavailable' ? 'Nu pot citi datele A/B pentru header' : 'Conecteaza cheia HomePitch pentru A/B header',
+        body: issue.message,
       }],
     }
   }

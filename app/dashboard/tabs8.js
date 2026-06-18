@@ -289,14 +289,15 @@ export function TabHeaderMenuAB({ data }) {
   const totalProperties = summary.totalProperties ?? variants.reduce((sum, row) => sum + Number(row.properties_created || 0), 0)
   const timeline = headerTimelineRows(analysis.timeline || [])
   const visibleRows = variants.filter(row => row.key !== 'variant_c' || Number(row.views || 0) > 0)
+  const hasConfigIssue = ['platform_key_missing', 'platform_key_invalid'].includes(analysis.setupIssueCode)
 
   return (
     <div>
       {analysis.setupIssue && (
         <Sec title="Setup">
           <Signal
-            type="negative"
-            title="Datele A/B pentru header nu sunt inca disponibile"
+            type={hasConfigIssue ? 'neutral' : 'negative'}
+            title={hasConfigIssue ? 'Conexiunea cu Supabase HomePitch trebuie corectata' : 'Datele A/B pentru header nu sunt inca disponibile'}
             body={analysis.setupIssue}
           />
         </Sec>

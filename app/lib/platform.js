@@ -6,13 +6,56 @@ const REPORT_TIME_ZONE = 'Europe/Bucharest'
 
 function getPlatformConfig() {
   const url = getOptionalEnv('PLATFORM_SUPABASE_URL') || DEFAULT_PLATFORM_SUPABASE_URL
-  const key = getOptionalEnv('PLATFORM_SUPABASE_ANON_KEY')
-  if (!url || !key) return null
+  const keys = [
+    getOptionalEnv('PLATFORM_SUPABASE_SERVICE_KEY'),
+    getOptionalEnv('PLATFORM_SUPABASE_ANON_KEY'),
+  ].filter(Boolean)
+  const uniqueKeys = Array.from(new Set(keys))
+  if (!url || !uniqueKeys.length) return null
   return {
     url: url.replace(/\/$/, ''),
-    key,
+    key: uniqueKeys[0],
+    keys: uniqueKeys,
     requestsTable: getOptionalEnv('PLATFORM_REQUESTS_TABLE') || DEFAULT_REQUESTS_TABLE,
   }
+}
+
+function platformSupabaseError(status, text, fallback = 'Supabase request failed') {
+  const raw = String(text || fallback || '')
+  if (status === 401 || /Invalid API key/i.test(raw)) {
+    return 'Cheia Supabase HomePitch din analytics este invalida sau apartine altui proiect. Seteaza in Vercel `PLATFORM_SUPABASE_ANON_KEY` sau `PLATFORM_SUPABASE_SERVICE_KEY` cu o cheie valida din proiectul HomePitch `bwfexvoapabfvkmmnxkg`, apoi redeploy.'
+  }
+  return `Platform Supabase ${status}: ${raw}`
+}
+
+async function platformRest(config, params, extraHeaders = {}) {
+  const qs = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString()
+  let lastAuthError = null
+  for (const key of config.keys || [config.key]) {
+    const res = await fetch(`${config.url}/rest/v1/${config.requestsTable}?${qs}`, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        ...extraHeaders,
+      },
+      cache: 'no-store',
+    })
+    const text = await res.text()
+    let rows = []
+    try { rows = text ? JSON.parse(text) : [] } catch {}
+    if (!res.ok) {
+      if (res.status === 401) {
+        lastAuthError = new Error(platformSupabaseError(res.status, text, res.statusText))
+        continue
+      }
+      throw new Error(platformSupabaseError(res.status, text, res.statusText))
+    }
+    return {
+      rows: Array.isArray(rows) ? rows : [],
+      total: parseCount(res.headers.get('content-range')),
+    }
+  }
+  throw lastAuthError || new Error('Platform Supabase auth failed')
 }
 
 function addDaysIso(date, days) {
@@ -332,19 +375,10 @@ export async function fetchPlatformRequestStats({ start, end }) {
   params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
   params.set('limit', '1')
 
-  const res = await fetch(`${config.url}/rest/v1/${config.requestsTable}?${params}`, {
-    headers: {
-      apikey: config.key,
-      Authorization: `Bearer ${config.key}`,
-      Prefer: 'count=exact',
-    },
-    cache: 'no-store',
-  })
-  const text = await res.text()
-  if (!res.ok) throw new Error(`Platform Supabase ${res.status}: ${text || res.statusText}`)
+  const result = await platformRest(config, params, { Prefer: 'count=exact' })
 
   return {
-    count: parseCount(res.headers.get('content-range')),
+    count: result.total,
     source: config.requestsTable,
     start,
     end,
@@ -363,17 +397,7 @@ export async function fetchPlatformRequestDailyStats({ start, end }) {
   params.set('order', 'created_at.asc')
   params.set('limit', '10000')
 
-  const res = await fetch(`${config.url}/rest/v1/${config.requestsTable}?${params}`, {
-    headers: {
-      apikey: config.key,
-      Authorization: `Bearer ${config.key}`,
-    },
-    cache: 'no-store',
-  })
-  const text = await res.text()
-  let rows = []
-  try { rows = text ? JSON.parse(text) : [] } catch {}
-  if (!res.ok) throw new Error(`Platform Supabase ${res.status}: ${text || res.statusText}`)
+  const { rows } = await platformRest(config, params)
 
   const days = {}
   rows.forEach(row => {
@@ -399,26 +423,14 @@ export async function inspectPlatformRequestFields({ limit = 200 } = {}) {
   params.set('order', 'created_at.desc')
   params.set('limit', String(safeLimit))
 
-  const res = await fetch(`${config.url}/rest/v1/${config.requestsTable}?${params}`, {
-    headers: {
-      apikey: config.key,
-      Authorization: `Bearer ${config.key}`,
-      Prefer: 'count=exact',
-    },
-    cache: 'no-store',
-  })
-  const text = await res.text()
-  let rows = []
-  try { rows = text ? JSON.parse(text) : [] } catch {}
-  if (!res.ok) throw new Error(`Platform Supabase ${res.status}: ${text || res.statusText}`)
-  if (!Array.isArray(rows)) rows = []
+  const { rows, total } = await platformRest(config, params, { Prefer: 'count=exact' })
 
   const fields = inspectRows(rows)
   const analyticsFields = fields.filter(field => field.extractableForAnalytics)
   return {
     table: config.requestsTable,
     sampleRows: rows.length,
-    totalAccessibleRows: parseCount(res.headers.get('content-range')),
+    totalAccessibleRows: total,
     fields,
     analyticsFields,
     categories: analyticsFields.reduce((acc, field) => {
@@ -468,24 +480,12 @@ export async function fetchPlatformRequestAnalytics({ start, end, limit = 1000 }
   params.set('order', 'created_at.desc')
   params.set('limit', String(safeLimit))
 
-  const res = await fetch(`${config.url}/rest/v1/${config.requestsTable}?${params}`, {
-    headers: {
-      apikey: config.key,
-      Authorization: `Bearer ${config.key}`,
-      Prefer: 'count=exact',
-    },
-    cache: 'no-store',
-  })
-  const text = await res.text()
-  let rows = []
-  try { rows = text ? JSON.parse(text) : [] } catch {}
-  if (!res.ok) throw new Error(`Platform Supabase ${res.status}: ${text || res.statusText}`)
-  if (!Array.isArray(rows)) rows = []
+  const { rows, total } = await platformRest(config, params, { Prefer: 'count=exact' })
 
   const sanitizedRows = rows.map(sanitizeRequestRow)
   return {
     table: config.requestsTable,
-    totalAccessibleRows: parseCount(res.headers.get('content-range')),
+    totalAccessibleRows: total,
     returnedRows: sanitizedRows.length,
     rows: sanitizedRows,
     summary: analyticsSummary(sanitizedRows),
