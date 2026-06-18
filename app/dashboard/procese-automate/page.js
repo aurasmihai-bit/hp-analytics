@@ -756,6 +756,251 @@ const MONITORING_AREAS = [
   },
 ]
 
+const OPTIMIZATION_RECOMMENDATIONS = [
+  {
+    title:'Ruleaza matching incremental, nu full-scan global',
+    process:'notify-matching-agents, process-pending-matches',
+    area:'Server',
+    priority:'Critic',
+    effort:'Mare',
+    saving:'DB scan + Edge duration',
+    warning:'Matchingul este cel mai probabil cel mai scump proces: compara cereri active cu proprietati active si poate creste rapid cu volumul.',
+    recommendation:'Cand apare o cerere noua, ruleaza matching doar pentru acea cerere. Cand apare o proprietate noua, ruleaza doar contra cererilor eligibile. Pastreaza cron-ul de 2 ori/zi doar ca reconciliere/light audit.',
+    metric:'p95 duration, randuri scanate, matching_results create/invocation, timeout rate',
+  },
+  {
+    title:'Deduplicare hard pentru notificari inainte de Brevo/WhatsApp',
+    process:'send-notification-email, process-delayed-notifications, dispatch-whatchimp-notification',
+    area:'Resurse externe',
+    priority:'Critic',
+    effort:'Mediu',
+    saving:'Brevo quota + WhatsApp cost',
+    warning:'Orice duplicat in tabela notifications poate consuma email/WhatsApp si poate irita userii.',
+    recommendation:'Adauga o cheie de idempotenta per user + notification_type + entity_id + milestone_day. Blocheaza trimiterea daca exista delivery cu status sent/recent.',
+    metric:'notificari duplicate, email sent/user/day, failed/retry count, cost WhatsApp',
+  },
+  {
+    title:'Cache agresiv pentru analytics si rapoarte GA4',
+    process:'analytics-traffic, /api/report, /api/sync',
+    area:'Viteza',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'Google API quota + load time dashboard',
+    warning:'Taburile analytics pot deveni lente daca fiecare deschidere citeste live din GA4/GSC.',
+    recommendation:'Pastreaza daily cache in Supabase pentru fiecare tab si reimprospateaza incremental doar zilele lipsa. Pentru UI, afiseaza cache imediat si ruleaza refresh manual/async.',
+    metric:'cache hit rate, GA4 calls/day, time to first dashboard render',
+  },
+  {
+    title:'Mutare backfill geo intr-o coada batch cu hash de geometrie',
+    process:'backfill-request-cartier, backfill-request-neighborhoods, backfill-property-cartier',
+    area:'Server',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'CPU geo + DB writes',
+    warning:'Pin/polygon/cartiere sunt recalculate la creare/editare; aceeasi geometrie poate fi procesata repetat.',
+    recommendation:'Salveaza geometry_hash si refoloseste rezultatul pentru aceeasi zona. Ruleaza batch async pentru polygon-uri mari, cu status vizibil in admin.',
+    metric:'cereri fara cartiere, durata backfill, cache hits geometry_hash',
+  },
+  {
+    title:'Nu mai apela matching complet din create-guest-request',
+    process:'create-guest-request',
+    area:'Viteza',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'Timp submit formular + Edge duration',
+    warning:'Daca submitul cererii asteapta prea multe procese secundare, userul simte eroare sau delay.',
+    recommendation:'Dupa insert, returneaza rapid succes catre user. Pune recompute score, geo backfill si matching intr-o coada async cu retry si audit.',
+    metric:'time_to_request_created, submit error rate, queue processing lag',
+  },
+  {
+    title:'Indexuri si materialized view pentru admin procese grele',
+    process:'admin/matching, admin/notificari, process-pending-matches',
+    area:'Server',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'DB query time',
+    warning:'Paginile admin pot scana tabele mari de matching, notifications, requests si properties.',
+    recommendation:'Adauga indexuri pe status + created_at + user_id/entity_id si view-uri agregate pentru count-uri din taburi. Evita COUNT global live la fiecare render.',
+    metric:'query duration, rows read, admin page load p95',
+  },
+  {
+    title:'Sterge definitiv cron-urile legacy dezactivate',
+    process:'remind-no-map',
+    area:'Server',
+    priority:'Mediu',
+    effort:'Mic',
+    saving:'Invocari inutile + zgomot operational',
+    warning:'no_map_24h/no_map_48h este vechi si nu se mai aplica dupa harta obligatorie.',
+    recommendation:'Pastreaza logica documentata ca deprecated, dar elimina schedule-ul si orice trigger ramas in DB ca sa nu mai apara in rapoarte sau notificari.',
+    metric:'0 invocari remind-no-map, 0 notificari no_map_*',
+  },
+  {
+    title:'Rate limit si circuit breaker pentru importuri CRM',
+    process:'import-immoflux, import-crm-rebs, import-crm-renet, webhooks CRM',
+    area:'Resurse externe',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'API calls CRM + DB writes',
+    warning:'Importurile pot retrimite aceleasi proprietati sau pot dezactiva date gresit daca providerul are raspunsuri incomplete.',
+    recommendation:'Adauga last_successful_sync, etag/external_updated_at si circuit breaker dupa N erori consecutive. Nu rescrie randuri daca payload-ul nu s-a schimbat.',
+    metric:'API calls/sync, rows unchanged skipped, consecutive errors, inactive reason source',
+  },
+  {
+    title:'Precalculeaza scorul cumparator si serveste breakdown din DB',
+    process:'recompute-request-buyer-score, get_buyer_score_breakdown',
+    area:'Viteza',
+    priority:'Mediu',
+    effort:'Mediu',
+    saving:'Page load + RPC latency',
+    warning:'Pagina de cerere este sensibila la scor; daca RPC-ul e lent sau lipseste, userul vede eroare langa un scor vizibil.',
+    recommendation:'Pastreaza scorul total si categoriile in tabela dedicata, cu updated_at. RPC-ul doar citeste breakdown-ul, nu recalculare live.',
+    metric:'RPC duration, buyer score errors, scoruri 0 anormale',
+  },
+  {
+    title:'Cache pentru sitemap si og-image',
+    process:'sitemap, og-image, share',
+    area:'Viteza',
+    priority:'Mediu',
+    effort:'Mic',
+    saving:'Edge render + DB read',
+    warning:'Crawlerele pot apela repetat sitemap/OG si pot produce load inutil.',
+    recommendation:'Cache pe Cloudflare/Vercel pentru sitemap si OG images cu invalidare la publicare cerere/proprietate sau purge manual.',
+    metric:'cache hit ratio, OG render duration, crawler request volume',
+  },
+  {
+    title:'Fallback lightweight pentru send-concierge-request-email',
+    process:'send-concierge-request-email',
+    area:'Reliability',
+    priority:'Ridicat',
+    effort:'Mic',
+    saving:'Pierderi lead + retry manual',
+    warning:'Daca analytics Supabase sau Brevo cade, cererea concierge poate fi incompleta in CRM.',
+    recommendation:'Scrie intai cererea local/audit, apoi trimite email si sync analytics in pasi separati cu retry. Marcheaza clar sync_status.',
+    metric:'concierge email sent, crm row created, sync failures, retry success',
+  },
+  {
+    title:'Evita generarea AI/SEO pe request sincron',
+    process:'generate-seo, generate-seo-landing',
+    area:'AI',
+    priority:'Mediu',
+    effort:'Mediu',
+    saving:'AI/API cost + timp publicare',
+    warning:'Generarea SEO/AI poate consuma cost si poate bloca flow-uri daca ruleaza sincron.',
+    recommendation:'Ruleaza generarea in background, cache pe slug si template. Refoloseste continutul pentru pagini similare si marcheaza necesita_review.',
+    metric:'AI calls/day, cost/call, generated pages reviewed, publish latency',
+  },
+  {
+    title:'Batch pentru notificari low-priority',
+    process:'remind-inactive-buyers, remind-inactive-agents, remind-no-viewing',
+    area:'Resurse externe',
+    priority:'Mediu',
+    effort:'Mediu',
+    saving:'Brevo quota + user fatigue',
+    warning:'Multe remindere de reactivare au valoare mai mica decat notificari tranzactionale.',
+    recommendation:'Grupeaza low-priority reminders intr-un digest zilnic/saptamanal si pastreaza email instant doar pentru oferte, plati, expirari si matching important.',
+    metric:'email/user/week, unsubscribe, reactivari/email, Brevo daily cap usage',
+  },
+  {
+    title:'Audit pentru functiile publice cu verify_jwt=false',
+    process:'create-guest-request, create-checkout, webhooks, public SEO endpoints',
+    area:'Securitate',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'Risc operational + spam traffic',
+    warning:'Functiile publice sunt necesare, dar pot fi abuzate daca lipsesc rate-limit, semnatura sau idempotenta.',
+    recommendation:'Fa inventar lunar pentru functii publice, adauga rate-limit pe IP/user-agent, semnatura pentru webhooks si audit table pentru request-uri sensibile.',
+    metric:'rate-limit hits, 401/403, webhook signature failures, requests/IP/hour',
+  },
+  {
+    title:'Health score pentru fiecare integrare externa',
+    process:'Stripe, Brevo, Cloudflare, GA4, ImmoFlux, REBS, Renet, Whatchimp/Twilio',
+    area:'Observability',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'Timp diagnostic + pierderi lead/plati',
+    warning:'Cand o integrare cade, simptomele apar in multe locuri: emailuri lipsa, CRM fara date, plati neconfirmate.',
+    recommendation:'Creeaza status per provider: ultimul success, ultimele 5 erori, rata de succes 24h si buton de test. Afiseaza alerta daca providerul are 3 erori consecutive.',
+    metric:'success rate/provider, last_success_at, consecutive_errors, affected workflows',
+  },
+  {
+    title:'Data quality checks pentru cereri si proprietati',
+    process:'create-guest-request, imports CRM, edit request/property',
+    area:'Calitate date',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'Matching gresit + suport manual',
+    warning:'Campuri lipsa sau mapate gresit pot strica scorul, matchingul si SEO fara sa produca erori tehnice evidente.',
+    recommendation:'Ruleaza zilnic check-uri pentru cereri fara avans/metoda plata, fara cartiere mapate, proprietati fara localitate/cartier/pret si scoruri 0 nejustificate.',
+    metric:'records with missing critical fields, scoruri 0, unmatched geo, CRM mapping issues',
+  },
+  {
+    title:'SLO pentru flow-uri de conversie critice',
+    process:'/vreau, create-guest-request, /concierge, create-checkout',
+    area:'UX & conversie',
+    priority:'Critic',
+    effort:'Mediu',
+    saving:'Conversii pierdute',
+    warning:'Chiar daca serverul raspunde, conversia poate cadea daca formularul sau plata au erori silentioase.',
+    recommendation:'Defineste SLO-uri: submit cerere < 2s, error rate < 1%, checkout link creat < 3s. Alerta cand scade funnel-ul sau cresc validari blocate.',
+    metric:'form_start -> request_created, validation_error rate, checkout_created rate, p95 submit latency',
+  },
+  {
+    title:'Replay safe pentru webhooks si procese financiare',
+    process:'stripe-webhook, CRM webhooks, payment-reminder',
+    area:'Reliability',
+    priority:'Ridicat',
+    effort:'Mediu',
+    saving:'Corectitudine plati + audit',
+    warning:'Webhookurile pot ajunge de mai multe ori sau in ordine diferita; fara idempotenta pot dubla efecte.',
+    recommendation:'Stocheaza provider_event_id si payload hash, marcheaza processed/skipped/error si permite replay manual doar pentru event-uri esuate.',
+    metric:'duplicate webhook skipped, failed replay success, payment_status mismatches',
+  },
+  {
+    title:'Separare notificari tranzactionale vs growth',
+    process:'send-notification-email, campaign/reminder functions',
+    area:'Resurse externe',
+    priority:'Mediu',
+    effort:'Mic',
+    saving:'Deliverability + Brevo reputation',
+    warning:'Daca emailurile de growth consuma reputatia/daily cap, pot afecta notificari importante de oferta/plata.',
+    recommendation:'Foloseste categorii de prioritate si sender/template separat pentru tranzactional, operational si growth. Rezerva quota pentru plati, oferte si expirari.',
+    metric:'deliverability by category, daily cap reserve, transactional delay',
+  },
+  {
+    title:'Arhivare date voluminoase si TTL pentru audit logs',
+    process:'notifications, matching_results, crm import logs, analytics cache',
+    area:'Server',
+    priority:'Mediu',
+    effort:'Mediu',
+    saving:'DB storage + query speed',
+    warning:'Tabelele de audit si matching cresc constant si pot incetini pagini admin sau cron-uri.',
+    recommendation:'Pastreaza active/recent in tabele rapide, muta istoricul vechi in arhiva lunara si adauga politici TTL pentru logs fara valoare operationala.',
+    metric:'table size, index bloat, query p95, archived rows/month',
+  },
+  {
+    title:'Buget lunar pentru AI si generare automata',
+    process:'generate-seo, recommendations, any AI helper',
+    area:'AI',
+    priority:'Mediu',
+    effort:'Mic',
+    saving:'Cost AI predictibil',
+    warning:'Procesele AI pot parea ieftine per apel, dar cresc cu pagini, recomandari si regenerari manuale.',
+    recommendation:'Logheaza fiecare apel AI cu feature, tokens/cost estimat si user/admin trigger. Pune prag lunar si fallback pe template cand depaseste bugetul.',
+    metric:'AI calls/month, estimated cost, cache reuse, manual regenerations',
+  },
+  {
+    title:'Prioritizeaza joburile dupa impact business',
+    process:'process-delayed-notifications, reminders, matching, imports',
+    area:'Observability',
+    priority:'Mediu',
+    effort:'Mediu',
+    saving:'Resurse pe joburi cu valoare mare',
+    warning:'Cron-urile ruleaza uniform, dar nu toate au aceeasi valoare cand resursele sau providerii sunt limitati.',
+    recommendation:'Adauga priority queue: plati/oferte/expirari > matching > CRM sync > growth reminders > SEO/social. Cand providerul e aproape de limita, ruleaza doar prioritatile mari.',
+    metric:'jobs skipped by priority, business events protected, queue lag by priority',
+  },
+]
+
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 const RISK_ORDER = { Scazut: 1, Mediu: 2, Ridicat: 3 }
 const SORTABLE_COLUMNS = [
@@ -800,6 +1045,25 @@ function statusColor(status) {
   return C.green
 }
 
+function priorityColor(priority) {
+  if (priority === 'Critic') return C.red
+  if (priority === 'Ridicat') return C.amber
+  return C.blue
+}
+
+function areaColor(area) {
+  if (area === 'Viteza') return C.blue
+  if (area === 'Server') return C.purple
+  if (area === 'AI') return C.teal
+  if (area === 'Resurse externe') return C.amber
+  if (area === 'Reliability') return C.green
+  if (area === 'Securitate') return C.red
+  if (area === 'Calitate date') return C.purple
+  if (area === 'UX & conversie') return C.green
+  if (area === 'Observability') return C.blue
+  return C.gray
+}
+
 function Badge({ children, color, soft }) {
   return (
     <span style={{
@@ -808,6 +1072,21 @@ function Badge({ children, color, soft }) {
     }}>
       {children}
     </span>
+  )
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding:'9px 14px',border:'none',borderBottom:`2px solid ${active ? C.blue : 'transparent'}`,
+        background:'transparent',color:active ? C.blue : C.muted,cursor:'pointer',fontSize:13,
+        fontWeight:active ? 700 : 500,
+      }}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -824,6 +1103,107 @@ function HeaderShell({ darkMode, toggleTheme }) {
       <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
       <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
       <a href="/dashboard/concierge" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.amber}`,borderRadius:6,background:C.softAmber,color:C.amber,textDecoration:'none'}}>Concierge CRM</a>
+    </div>
+  )
+}
+
+function OptimizationRecommendations() {
+  const [area, setArea] = useState('toate')
+  const [priority, setPriority] = useState('toate')
+  const [query, setQuery] = useState('')
+  const areas = uniqueOptions(OPTIMIZATION_RECOMMENDATIONS, 'area')
+  const priorities = uniqueOptions(OPTIMIZATION_RECOMMENDATIONS, 'priority')
+  const rows = useMemo(() => {
+    const q = normalize(query)
+    return OPTIMIZATION_RECOMMENDATIONS.filter(item => {
+      const text = normalize(`${item.title} ${item.process} ${item.area} ${item.priority} ${item.warning} ${item.recommendation} ${item.metric} ${item.saving}`)
+      return (!q || text.includes(q))
+        && (area === 'toate' || item.area === area)
+        && (priority === 'toate' || item.priority === priority)
+    }).sort((a, b) => {
+      const priorityRank = { Critic: 1, Ridicat: 2, Mediu: 3 }
+      return (priorityRank[a.priority] || 9) - (priorityRank[b.priority] || 9)
+    })
+  }, [area, priority, query])
+  const critical = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.priority === 'Critic').length
+  const serverSavings = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.area === 'Server').length
+  const externalSavings = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.area === 'Resurse externe').length
+  const aiSavings = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.area === 'AI').length
+
+  return (
+    <div>
+      <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:8,marginBottom:16}}>
+        <SummaryCard label="Warnings totale" value={OPTIMIZATION_RECOMMENDATIONS.length} sub="optimizari propuse"/>
+        <SummaryCard label="Critice" value={critical} sub="prioritate imediata" color={C.red}/>
+        <SummaryCard label="Saving server" value={serverSavings} sub="DB scan / Edge duration" color={C.purple}/>
+        <SummaryCard label="Saving extern" value={externalSavings} sub="Brevo, CRM, WhatsApp" color={C.amber}/>
+        <SummaryCard label="Saving AI" value={aiSavings} sub="generare/cache" color={C.teal}/>
+      </section>
+
+      <section style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:14,padding:'14px',marginBottom:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1.4fr) minmax(130px,.7fr) minmax(130px,.7fr)',gap:8}}>
+          <label>
+            <span style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:5}}>Search recomandari</span>
+            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Cauta proces, saving, AI, Brevo, matching..." style={{width:'100%',boxSizing:'border-box',padding:'9px 10px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,color:C.text,fontSize:13,outline:'none'}}/>
+          </label>
+          <label>
+            <span style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:5}}>Obiectiv</span>
+            <select value={area} onChange={event => setArea(event.target.value)} style={{width:'100%',boxSizing:'border-box',padding:'9px 8px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,color:C.text,fontSize:12}}>
+              <option value="toate">Toate</option>
+              {areas.map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+          <label>
+            <span style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:5}}>Prioritate</span>
+            <select value={priority} onChange={event => setPriority(event.target.value)} style={{width:'100%',boxSizing:'border-box',padding:'9px 8px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,color:C.text,fontSize:12}}>
+              <option value="toate">Toate</option>
+              {priorities.map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section style={{display:'grid',gap:10}}>
+        {rows.map(item => {
+          const pColor = priorityColor(item.priority)
+          const aColor = areaColor(item.area)
+          return (
+            <article key={item.title} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:14,padding:'14px 16px',borderLeft:`4px solid ${pColor}`}}>
+              <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',flexWrap:'wrap',marginBottom:8}}>
+                <div style={{minWidth:220,flex:'1 1 420px'}}>
+                  <h2 style={{fontSize:15,lineHeight:1.25,color:C.text,margin:'0 0 6px'}}>{item.title}</h2>
+                  <p style={{fontSize:12,color:C.hint,margin:0}}>{item.process}</p>
+                </div>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                  <Badge color={pColor}>{item.priority}</Badge>
+                  <Badge color={aColor}>{item.area}</Badge>
+                  <Badge color={C.gray}>{item.effort}</Badge>
+                </div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
+                <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'10px 12px'}}>
+                  <p style={{fontSize:10,color:C.red,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:700,margin:'0 0 5px'}}>Warning</p>
+                  <p style={{fontSize:13,color:C.text,lineHeight:1.5,margin:0}}>{item.warning}</p>
+                </div>
+                <div style={{background:C.softGreen,border:`0.5px solid ${C.green}`,borderRadius:10,padding:'10px 12px'}}>
+                  <p style={{fontSize:10,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:700,margin:'0 0 5px'}}>Recomandare</p>
+                  <p style={{fontSize:13,color:C.text,lineHeight:1.5,margin:0}}>{item.recommendation}</p>
+                </div>
+                <div style={{background:C.softBlue,border:`0.5px solid ${C.blue}`,borderRadius:10,padding:'10px 12px'}}>
+                  <p style={{fontSize:10,color:C.blue,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:700,margin:'0 0 5px'}}>Monitorizare</p>
+                  <p style={{fontSize:13,color:C.text,lineHeight:1.5,margin:'0 0 7px'}}>{item.metric}</p>
+                  <p style={{fontSize:12,color:C.muted,lineHeight:1.45,margin:0}}><strong style={{color:C.text}}>Saving:</strong> {item.saving}</p>
+                </div>
+              </div>
+            </article>
+          )
+        })}
+        {rows.length === 0 && (
+          <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:14,padding:'26px',textAlign:'center',color:C.hint,fontSize:13}}>
+            Nu exista recomandari pentru filtrele selectate.
+          </div>
+        )}
+      </section>
     </div>
   )
 }
@@ -909,6 +1289,7 @@ export default function AutomatedProcessesPage() {
   const [pageSize, setPageSize] = useState(20)
   const [page, setPage] = useState(1)
   const [sortConfig, setSortConfig] = useState({ key:'name', direction:'asc' })
+  const [activeTab, setActiveTab] = useState('inventory')
 
   useEffect(() => {
     setDarkMode(localStorage.getItem(THEME_STORAGE_KEY) === 'dark')
@@ -989,6 +1370,13 @@ export default function AutomatedProcessesPage() {
           ))}
         </section>
 
+        <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:14,display:'flex',gap:0,overflowX:'auto',marginBottom:16}}>
+          <TabButton active={activeTab === 'inventory'} onClick={() => setActiveTab('inventory')}>Inventar procese</TabButton>
+          <TabButton active={activeTab === 'optimizations'} onClick={() => setActiveTab('optimizations')}>Warnings & optimizari</TabButton>
+        </div>
+
+        {activeTab === 'inventory' ? (
+          <>
         <section style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:14,padding:'14px 14px 10px',marginBottom:16}}>
           <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1.6fr) repeat(5,minmax(120px,1fr))',gap:8,alignItems:'end'}}>
             <label style={{display:'block'}}>
@@ -1069,6 +1457,10 @@ export default function AutomatedProcessesPage() {
             </p>
           </div>
         </section>
+          </>
+        ) : (
+          <OptimizationRecommendations/>
+        )}
       </main>
     </div>
   )
