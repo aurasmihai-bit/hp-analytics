@@ -1029,6 +1029,94 @@ function compareRows(left, right, key, direction) {
   return String(a).localeCompare(String(b), 'ro', { numeric:true, sensitivity:'base' }) * multiplier
 }
 
+function buildDynamicOptimizationRecommendations() {
+  const highRisk = PROCESS_CATALOG.filter(row => row.risk === 'Ridicat')
+  const activeCron = PROCESS_CATALOG.filter(row => row.type === 'Cron' && row.status === 'Activ')
+  const external = PROCESS_CATALOG.filter(row => /Brevo|Stripe|Google|Cloudflare|CRM|Whatchimp|Twilio|ImmoFlux|REBS|Renet|API extern/i.test(row.resources))
+  const legacy = PROCESS_CATALOG.filter(row => normalize(row.status).includes('dezactivat') || row.category === 'Legacy')
+  const matching = PROCESS_CATALOG.filter(row => row.category === 'Matching AI')
+  const crm = PROCESS_CATALOG.filter(row => row.category === 'CRM')
+
+  return [
+    highRisk.length > 0 && {
+      title:`Auto: ${highRisk.length} procese cu risc ridicat necesita praguri de alerta`,
+      process:highRisk.slice(0, 5).map(row => row.name).join(', '),
+      area:'Observability',
+      priority:'Ridicat',
+      effort:'Mic',
+      saving:'Diagnostic rapid + reducere timp incident',
+      warning:`Catalogul contine ${highRisk.length} procese marcate cu risc ridicat. Fara praguri, problemele apar abia cand userii raporteaza.`,
+      recommendation:'Seteaza praguri simple: error rate > 2%, p95 peste prag, 3 erori consecutive sau 0 rezultate cand ar trebui sa existe activitate.',
+      metric:'error_rate, p95_duration, consecutive_errors, zero_result_anomaly',
+    },
+    activeCron.length > 8 && {
+      title:`Auto: ${activeCron.length} cron-uri active pot concura pe resurse`,
+      process:activeCron.slice(0, 6).map(row => row.name).join(', '),
+      area:'Server',
+      priority:'Mediu',
+      effort:'Mic',
+      saving:'Edge concurrency + DB load',
+      warning:'Multe joburi programate in aceleasi ferestre orare pot genera varfuri de DB si Edge Runtime.',
+      recommendation:'Grupeaza cron-urile dupa prioritate si evita ca matching, importuri CRM si notificari batch sa ruleze simultan. Adauga jitter de 5-15 minute pentru procese non-critice.',
+      metric:'concurrent cron invocations, DB CPU, queue lag, p95 duration by hour',
+    },
+    external.length > 0 && {
+      title:`Auto: ${external.length} procese depind de API-uri externe`,
+      process:external.slice(0, 6).map(row => row.name).join(', '),
+      area:'Resurse externe',
+      priority:'Ridicat',
+      effort:'Mediu',
+      saving:'Quota + cost provider + stabilitate',
+      warning:'Dependintele externe pot produce costuri, rate limits si erori partiale care nu apar ca erori DB.',
+      recommendation:'Adauga health score per provider, retry cu backoff si circuit breaker. Pentru Brevo/WhatsApp/CRM, logheaza costul si statusul per request.',
+      metric:'provider_success_rate, provider_latency, quota_used, retry_count',
+    },
+    legacy.length > 0 && {
+      title:`Auto: ${legacy.length} proces legacy/dezactivat trebuie curatat din runtime`,
+      process:legacy.map(row => row.name).join(', '),
+      area:'Server',
+      priority:'Mediu',
+      effort:'Mic',
+      saving:'Zgomot operational + invocari inutile',
+      warning:'Procesele legacy pot ramane in cron, docs sau notificari si pot crea confuzie in analiza.',
+      recommendation:'Verifica pg_cron, config admin si notification types. Pastreaza doar documentatia de istoric, nu schedule activ.',
+      metric:'0 invocari legacy, 0 notificari deprecated, 0 cron jobs obsolete',
+    },
+    matching.length >= 2 && {
+      title:'Auto: matchingul are nevoie de metrici pe pereche, nu doar pe rulare',
+      process:matching.map(row => row.name).join(', '),
+      area:'Calitate date',
+      priority:'Ridicat',
+      effort:'Mediu',
+      saving:'Recomandari mai bune + mai putine rulari inutile',
+      warning:'Daca vezi doar cate recomandari s-au creat, nu stii daca scorul, zona sau pretul au blocat matchingul.',
+      recommendation:'Logheaza per rulare cate perechi au fost evaluate, respinse pe pret, respinse pe zona, aprobate si transformate in oferte.',
+      metric:'pairs_evaluated, price_rejected, zone_rejected, approved_to_offer_rate',
+    },
+    crm.length > 0 && {
+      title:`Auto: ${crm.length} procese CRM necesita audit de dezactivare proprietati`,
+      process:crm.slice(0, 6).map(row => row.name).join(', '),
+      area:'Calitate date',
+      priority:'Ridicat',
+      effort:'Mediu',
+      saving:'Prevenire dezactivari gresite + matching corect',
+      warning:'Importurile CRM pot modifica statusuri si campuri critice fara feedback vizibil pentru agent.',
+      recommendation:'Pentru fiecare proprietate dezactivata, salveaza source: manual, CRM, webhook, import, API, auto-cleanup. Afiseaza motivul in admin/proprietati.',
+      metric:'inactive_by_source, crm_payload_changes, properties_reactivated',
+    },
+  ].filter(Boolean)
+}
+
+function mergeRecommendations(dynamicRows, curatedRows) {
+  const seen = new Set()
+  return [...dynamicRows, ...curatedRows].filter(item => {
+    const key = normalize(item.title)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function uniqueOptions(rows, key) {
   return Array.from(new Set(rows.map(row => row[key]).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b), 'ro'))
 }
@@ -1111,11 +1199,18 @@ function OptimizationRecommendations() {
   const [area, setArea] = useState('toate')
   const [priority, setPriority] = useState('toate')
   const [query, setQuery] = useState('')
-  const areas = uniqueOptions(OPTIMIZATION_RECOMMENDATIONS, 'area')
-  const priorities = uniqueOptions(OPTIMIZATION_RECOMMENDATIONS, 'priority')
+  const [analysisVersion, setAnalysisVersion] = useState(0)
+  const [generatedAt, setGeneratedAt] = useState(() => new Date().toISOString())
+  const dynamicRecommendations = useMemo(() => buildDynamicOptimizationRecommendations(), [analysisVersion])
+  const recommendations = useMemo(
+    () => mergeRecommendations(dynamicRecommendations, OPTIMIZATION_RECOMMENDATIONS),
+    [dynamicRecommendations],
+  )
+  const areas = uniqueOptions(recommendations, 'area')
+  const priorities = uniqueOptions(recommendations, 'priority')
   const rows = useMemo(() => {
     const q = normalize(query)
-    return OPTIMIZATION_RECOMMENDATIONS.filter(item => {
+    return recommendations.filter(item => {
       const text = normalize(`${item.title} ${item.process} ${item.area} ${item.priority} ${item.warning} ${item.recommendation} ${item.metric} ${item.saving}`)
       return (!q || text.includes(q))
         && (area === 'toate' || item.area === area)
@@ -1124,16 +1219,21 @@ function OptimizationRecommendations() {
       const priorityRank = { Critic: 1, Ridicat: 2, Mediu: 3 }
       return (priorityRank[a.priority] || 9) - (priorityRank[b.priority] || 9)
     })
-  }, [area, priority, query])
-  const critical = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.priority === 'Critic').length
-  const serverSavings = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.area === 'Server').length
-  const externalSavings = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.area === 'Resurse externe').length
-  const aiSavings = OPTIMIZATION_RECOMMENDATIONS.filter(item => item.area === 'AI').length
+  }, [area, priority, query, recommendations])
+  const critical = recommendations.filter(item => item.priority === 'Critic').length
+  const serverSavings = recommendations.filter(item => item.area === 'Server').length
+  const externalSavings = recommendations.filter(item => item.area === 'Resurse externe').length
+  const aiSavings = recommendations.filter(item => item.area === 'AI').length
+  const rerunAnalysis = () => {
+    setAnalysisVersion(current => current + 1)
+    setGeneratedAt(new Date().toISOString())
+  }
 
   return (
     <div>
       <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:8,marginBottom:16}}>
-        <SummaryCard label="Warnings totale" value={OPTIMIZATION_RECOMMENDATIONS.length} sub="optimizari propuse"/>
+        <SummaryCard label="Warnings totale" value={recommendations.length} sub="optimizari propuse"/>
+        <SummaryCard label="Auto-generate" value={dynamicRecommendations.length} sub="din catalogul curent" color={C.blue}/>
         <SummaryCard label="Critice" value={critical} sub="prioritate imediata" color={C.red}/>
         <SummaryCard label="Saving server" value={serverSavings} sub="DB scan / Edge duration" color={C.purple}/>
         <SummaryCard label="Saving extern" value={externalSavings} sub="Brevo, CRM, WhatsApp" color={C.amber}/>
@@ -1141,7 +1241,7 @@ function OptimizationRecommendations() {
       </section>
 
       <section style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:14,padding:'14px',marginBottom:14}}>
-        <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1.4fr) minmax(130px,.7fr) minmax(130px,.7fr)',gap:8}}>
+        <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1.4fr) minmax(130px,.7fr) minmax(130px,.7fr) minmax(190px,.8fr)',gap:8,alignItems:'end'}}>
           <label>
             <span style={{fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:5}}>Search recomandari</span>
             <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Cauta proces, saving, AI, Brevo, matching..." style={{width:'100%',boxSizing:'border-box',padding:'9px 10px',border:`0.5px solid ${C.border}`,borderRadius:8,background:C.input,color:C.text,fontSize:13,outline:'none'}}/>
@@ -1160,6 +1260,17 @@ function OptimizationRecommendations() {
               {priorities.map(option => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
+          <div>
+            <button
+              onClick={rerunAnalysis}
+              style={{width:'100%',padding:'9px 10px',border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,fontSize:12,fontWeight:700,cursor:'pointer'}}
+            >
+              Reincarca recomandari
+            </button>
+            <p style={{fontSize:10,color:C.hint,margin:'6px 0 0',lineHeight:1.3}}>
+              Ultima analiza: {new Date(generatedAt).toLocaleString('ro-RO')}
+            </p>
+          </div>
         </div>
       </section>
 
