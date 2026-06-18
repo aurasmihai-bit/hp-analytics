@@ -35,7 +35,8 @@ async function checkPayments() {
     try {
       const session = await retrieveStripeSession(row.stripe_session_id)
       const paymentStatus = crmStatusFromStripe(session)
-      const stage = paymentStatus === 'paid' ? 'oferta_platita' : row.stage
+      const paymentStageAlreadyClosed = row.stage === 'oferta_platita' || row.stage === 'finalizata'
+      const stage = paymentStatus === 'paid' && !paymentStageAlreadyClosed ? 'oferta_platita' : row.stage
       const updates = {
         payment_status: paymentStatus,
         payment_checked_at: new Date().toISOString(),

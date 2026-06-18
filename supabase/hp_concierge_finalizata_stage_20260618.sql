@@ -1,23 +1,15 @@
--- HomePitch Analytics: update Concierge CRM stage pipeline.
+-- HomePitch Analytics: add finalizata stage to Concierge CRM.
 -- Ruleaza in Supabase analytics (rstihjcnuazzyksdwczp) daca tabela hp_concierge_crm exista deja.
 
 UPDATE public.hp_concierge_crm
 SET stage = CASE stage
-  WHEN 'new' THEN 'nou'
-  WHEN 'contactare' THEN 'contactat'
-  WHEN 'consultanta' THEN 'discutie_consultanta'
-  WHEN 'oferta_finala' THEN 'oferta_trimisa'
-  WHEN 'plata_trimis' THEN 'plata_pending'
-  WHEN 'platit' THEN 'oferta_platita'
-  WHEN 'livrare' THEN 'oferta_platita'
   WHEN 'inchis' THEN 'finalizata'
   WHEN 'finalizat' THEN 'finalizata'
   WHEN 'closed' THEN 'finalizata'
   WHEN 'completed' THEN 'finalizata'
-  WHEN 'pierdut' THEN 'refuz'
   ELSE stage
 END
-WHERE stage IN ('new','contactare','consultanta','oferta_finala','plata_trimis','platit','livrare','inchis','finalizat','closed','completed','pierdut');
+WHERE stage IN ('inchis','finalizat','closed','completed');
 
 ALTER TABLE public.hp_concierge_crm
   DROP CONSTRAINT IF EXISTS hp_concierge_crm_stage_check;
@@ -32,8 +24,13 @@ ALTER TABLE public.hp_concierge_crm
       'refuz',
       'modificare_oferta',
       'oferta_trimisa',
-      'oferta_platita',
       'plata_pending',
+      'oferta_platita',
       'finalizata'
     )
   );
+
+CREATE INDEX IF NOT EXISTS hp_concierge_crm_stage_updated_idx
+  ON public.hp_concierge_crm(stage, updated_at DESC);
+
+NOTIFY pgrst, 'reload schema';

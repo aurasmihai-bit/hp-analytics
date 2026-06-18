@@ -14,6 +14,7 @@ export const CONCIERGE_STAGES = new Set([
   'oferta_trimisa',
   'oferta_platita',
   'plata_pending',
+  'finalizata',
 ])
 
 const STAGE_ALIASES = {
@@ -24,7 +25,11 @@ const STAGE_ALIASES = {
   plata_trimis: 'plata_pending',
   platit: 'oferta_platita',
   livrare: 'oferta_platita',
-  inchis: 'oferta_platita',
+  inchis: 'finalizata',
+  finalizat: 'finalizata',
+  finalizata: 'finalizata',
+  closed: 'finalizata',
+  completed: 'finalizata',
   pierdut: 'refuz',
 }
 
@@ -37,6 +42,7 @@ const LEGACY_STAGE_FALLBACKS = {
   oferta_trimisa: 'oferta_finala',
   oferta_platita: 'platit',
   plata_pending: 'plata_trimis',
+  finalizata: 'oferta_platita',
 }
 
 export function normalizeConciergeStage(value) {

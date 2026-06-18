@@ -53,7 +53,7 @@ export async function POST(request) {
 
     await upsertConciergeCrmCase({
       requestId,
-      stage: 'plata_pending',
+      stage: session.payment_status === 'paid' ? 'oferta_platita' : 'plata_pending',
       comments,
       services,
       finalTotalEur: amountEur,

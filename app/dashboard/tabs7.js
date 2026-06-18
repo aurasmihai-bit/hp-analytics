@@ -9,10 +9,13 @@ const STAGES = [
   ['discutie_consultanta', 'Discutie consultanta'],
   ['modificare_oferta', 'Modificare oferta'],
   ['oferta_trimisa', 'Oferta trimisa'],
-  ['oferta_platita', 'Oferta platita'],
   ['plata_pending', 'Plata pending'],
+  ['oferta_platita', 'Oferta platita'],
+  ['finalizata', 'Finalizata'],
   ['refuz', 'Refuz'],
 ]
+
+const CLOSED_STAGES = new Set(['refuz', 'finalizata'])
 
 const PAYMENT_LABELS = {
   not_created: 'Fara link',
@@ -176,7 +179,7 @@ function serviceTasks(services, existingTasks = []) {
 }
 
 function isPaidForTasks(row) {
-  return row?.stage === 'oferta_platita' || row?.paymentStatus === 'paid'
+  return row?.stage === 'oferta_platita' || row?.stage === 'finalizata' || row?.paymentStatus === 'paid'
 }
 
 function taskProgress(row) {
@@ -215,7 +218,7 @@ function automaticTimeline(draft, meta) {
 }
 
 function stageColor(stage) {
-  if (stage === 'oferta_platita') return C.green
+  if (stage === 'oferta_platita' || stage === 'finalizata') return C.green
   if (stage === 'oferta_trimisa' || stage === 'modificare_oferta') return C.blue
   if (stage === 'refuz') return C.red
   if (stage === 'contactat' || stage === 'nu_a_raspuns' || stage === 'discutie_consultanta' || stage === 'plata_pending') return C.amber
@@ -454,6 +457,13 @@ function getNextAction(draft, finalTotal) {
     return {
       title: 'Continua livrarea',
       body: 'Plata este confirmata. Urmareste task-urile pentru serviciile cumparate.',
+      color: C.green,
+    }
+  }
+  if (draft.stage === 'finalizata') {
+    return {
+      title: 'Caz finalizat',
+      body: 'Cererea este inchisa operational. Pastreaza istoricul si task-urile pentru raportare.',
       color: C.green,
     }
   }
@@ -1224,7 +1234,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments, users = [] }) {
   const meta = crmMeta(draft.comments)
   const paymentEmail = defaultPaymentEmail(draft, finalTotal)
   const tasks = serviceTasks(draft.services, meta.service_tasks || [])
-  const paymentFinalized = draft.stage === 'oferta_platita' || draft.paymentStatus === 'paid'
+  const paymentFinalized = draft.stage === 'oferta_platita' || draft.stage === 'finalizata' || draft.paymentStatus === 'paid'
   const tasksReady = paymentFinalized
   const servicesPanelOpen = !paymentFinalized || servicesExpanded
   const timelineEvents = automaticTimeline(draft, meta)
@@ -1639,12 +1649,25 @@ export function TabConcierge() {
     setSortBy('newest')
   }
 
+  function changeCrmView(id) {
+    setCrmView(id)
+    setStageFilter(current => {
+      if (id === 'inchise' && current && !CLOSED_STAGES.has(current)) return ''
+      if (id === 'cereri' && CLOSED_STAGES.has(current)) return ''
+      return current
+    })
+  }
+
+  const closedRows = useMemo(() => rows.filter(row => CLOSED_STAGES.has(row.stage)), [rows])
+  const activeRows = useMemo(() => rows.filter(row => !CLOSED_STAGES.has(row.stage)), [rows])
+  const listingRows = crmView === 'inchise' ? closedRows : activeRows
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : 0
     const toTime = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : 0
     const minTotal = Number(minValue)
-    const result = rows.filter(row => {
+    const result = listingRows.filter(row => {
       if (stageFilter && row.stage !== stageFilter) return false
       if (paymentFilter && row.paymentStatus !== paymentFilter) return false
       if (sourceFilter && row.source !== sourceFilter) return false
@@ -1687,7 +1710,7 @@ export function TabConcierge() {
       }
       return timestamp(b.createdAt) - timestamp(a.createdAt)
     })
-  }, [rows, users, stageFilter, paymentFilter, sourceFilter, assistantFilter, dateFrom, dateTo, minValue, sortBy, query])
+  }, [listingRows, users, stageFilter, paymentFilter, sourceFilter, assistantFilter, dateFrom, dateTo, minValue, sortBy, query])
 
   const assistantFilterOptions = useMemo(() => {
     const map = new Map()
@@ -1703,9 +1726,9 @@ export function TabConcierge() {
     return Array.from(map.entries())
   }, [rows, users])
 
-  const paid = rows.filter(row => row.paymentStatus === 'paid').length
-  const pendingPayment = rows.filter(row => row.paymentStatus === 'pending').length
-  const totalValue = rows.reduce((sum, row) => sum + Number(row.finalTotalEur || 0), 0)
+  const paid = listingRows.filter(row => row.paymentStatus === 'paid').length
+  const pendingPayment = listingRows.filter(row => row.paymentStatus === 'pending').length
+  const totalValue = listingRows.reduce((sum, row) => sum + Number(row.finalTotalEur || 0), 0)
   const filteredValue = filtered.reduce((sum, row) => sum + rowTotal(row), 0)
   const activeFilters = [
     query.trim(),
@@ -1751,12 +1774,13 @@ export function TabConcierge() {
       <div style={{display:'flex',gap:6,marginBottom:14,borderBottom:`0.5px solid ${C.border}`}}>
         {[
           ['cereri', 'Cereri'],
+          ['inchise', 'Refuz / finalizate'],
           ['rapoarte', 'Rapoarte'],
           ...(session.canManageUsers ? [['useri', 'Useri']] : []),
         ].map(([id, label]) => (
           <button
             key={id}
-            onClick={() => setCrmView(id)}
+            onClick={() => changeCrmView(id)}
             style={{
               padding:'10px 13px',border:'none',borderBottom:`2px solid ${crmView === id ? C.blue : 'transparent'}`,
               background:'transparent',color:crmView === id ? C.blue : C.muted,fontSize:12,fontWeight:crmView === id ? 700 : 500,
@@ -1775,7 +1799,7 @@ export function TabConcierge() {
       ) : (
         <>
           <Grid>
-            <KPI label="Cereri concierge" curr={rows.length}/>
+            <KPI label={crmView === 'inchise' ? 'Cereri inchise' : 'Cereri active'} curr={listingRows.length}/>
             <KPI label="Plati pending" curr={pendingPayment}/>
             <KPI label="Plati confirmate" curr={paid}/>
             <KPI label="Valoare pipeline" curr={totalValue} sub="EUR"/>
@@ -1801,7 +1825,7 @@ export function TabConcierge() {
             </div>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:10,flexWrap:'wrap'}}>
               <p style={{fontSize:12,color:C.muted,margin:0}}>
-                {filtered.length} din {rows.length} cereri · pipeline filtrat {fmtN(filteredValue)} EUR
+                {filtered.length} din {listingRows.length} cereri · pipeline filtrat {fmtN(filteredValue)} EUR
               </p>
               <button onClick={resetFilters} disabled={!activeFilters} style={{padding:'7px 10px',fontSize:12,border:`0.5px solid ${C.border}`,borderRadius:7,background:'transparent',color:activeFilters?C.blue:C.hint,cursor:activeFilters?'pointer':'not-allowed'}}>
                 Reseteaza filtre
