@@ -1194,6 +1194,171 @@ async function attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prev
   return data
 }
 
+function paymentRangeStart(date) {
+  return `${date}T00:00:00.000Z`
+}
+
+function paymentRangeEnd(date) {
+  return `${date}T23:59:59.999Z`
+}
+
+function normalizePaymentEvent(row = {}) {
+  const amount = Number(row.amount_total || 0)
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  return {
+    id: row.id || row.stripe_event_id || row.stripe_session_id,
+    event_type: row.event_type || 'unknown',
+    user_id: row.user_id || '',
+    user_email: metadata.user_email || metadata.email || '',
+    stripe_session_id: row.stripe_session_id || '',
+    stripe_event_id: row.stripe_event_id || '',
+    payment_type: row.payment_type || metadata.payment_type || 'unknown',
+    amount_total: Number.isFinite(amount) ? amount : 0,
+    currency: row.currency || 'eur',
+    page_url: row.page_url || '',
+    page_path: row.page_path || '/',
+    referrer: row.referrer || '(direct)',
+    source: row.source || row.utm_source || '(not set)',
+    utm_source: row.utm_source || '',
+    utm_medium: row.utm_medium || '',
+    utm_campaign: row.utm_campaign || '',
+    created_at: row.created_at || null,
+    date: row.created_at ? String(row.created_at).slice(0, 10) : '',
+    metadata,
+  }
+}
+
+function aggregatePaymentRows(rows, keyFn, seedFn) {
+  const groups = new Map()
+  rows.forEach(row => {
+    const key = keyFn(row)
+    if (!key) return
+    if (!groups.has(key)) groups.set(key, seedFn(row))
+    const acc = groups.get(key)
+    acc.checkout_started = Number(acc.checkout_started || 0) + (row.event_type === 'checkout_started' ? 1 : 0)
+    acc.payment_completed = Number(acc.payment_completed || 0) + (row.event_type === 'payment_completed' ? 1 : 0)
+    acc.payment_failed = Number(acc.payment_failed || 0) + (row.event_type === 'payment_failed' ? 1 : 0)
+    acc.revenue = Number(acc.revenue || 0) + (row.event_type === 'payment_completed' ? Number(row.amount_total || 0) : 0)
+  })
+  return Array.from(groups.values())
+    .map(row => ({
+      ...row,
+      conversion_rate: Number(row.checkout_started || 0) > 0 ? Number(row.payment_completed || 0) / Number(row.checkout_started || 1) * 100 : 0,
+    }))
+    .sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0) || Number(b.payment_completed || 0) - Number(a.payment_completed || 0))
+}
+
+function buildPaymentAnalytics(currentRows = [], previousRows = [], setupIssue = '') {
+  const rows = currentRows.map(normalizePaymentEvent)
+  const previous = previousRows.map(normalizePaymentEvent)
+  const started = rows.filter(row => row.event_type === 'checkout_started')
+  const paid = rows.filter(row => row.event_type === 'payment_completed')
+  const failed = rows.filter(row => row.event_type === 'payment_failed')
+  const prevPaid = previous.filter(row => row.event_type === 'payment_completed')
+  const revenue = paid.reduce((sum, row) => sum + Number(row.amount_total || 0), 0)
+  const previousRevenue = prevPaid.reduce((sum, row) => sum + Number(row.amount_total || 0), 0)
+  const conversionRate = started.length > 0 ? paid.length / started.length * 100 : 0
+  const previousStarted = previous.filter(row => row.event_type === 'checkout_started')
+  const previousConversionRate = previousStarted.length > 0 ? prevPaid.length / previousStarted.length * 100 : 0
+
+  const pages = aggregatePaymentRows(
+    rows,
+    row => row.page_path || '/',
+    row => ({ page_path: row.page_path || '/', checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
+  )
+  const referrers = aggregatePaymentRows(
+    rows,
+    row => row.referrer || '(direct)',
+    row => ({ referrer: row.referrer || '(direct)', checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
+  )
+  const users = aggregatePaymentRows(
+    rows,
+    row => row.user_email || row.user_id || '(anonim)',
+    row => ({ user: row.user_email || row.user_id || '(anonim)', checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
+  )
+  const types = aggregatePaymentRows(
+    rows,
+    row => row.payment_type || 'unknown',
+    row => ({ payment_type: row.payment_type || 'unknown', checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
+  )
+  const timeline = aggregatePaymentRows(
+    rows,
+    row => row.date,
+    row => ({ date: row.date, checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
+  ).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
+
+  const recommendations = []
+  if (setupIssue) {
+    recommendations.push({
+      type: 'neutral',
+      title: 'Exportul de plăți nu este complet configurat',
+      body: setupIssue,
+    })
+  }
+  if (started.length > 0 && conversionRate < 65) {
+    recommendations.push({
+      type: 'negative',
+      title: 'Mulți useri pornesc checkout, dar nu finalizează plata',
+      body: 'Verifică paginile cu checkout_started mare și payment_completed mic. Prioritizează claritatea prețului, garanțiile și mesajele de confirmare înainte de redirectul Stripe.',
+    })
+  }
+  const topPage = pages[0]
+  if (topPage?.revenue > 0) {
+    recommendations.push({
+      type: 'positive',
+      title: `Pagina cu cea mai mare valoare plătită: ${topPage.page_path}`,
+      body: `A generat ${Math.round(topPage.revenue).toLocaleString('ro-RO')} EUR. Merită replicat CTA-ul și contextul de acolo în paginile cu trafic mare și venit mic.`,
+    })
+  }
+  if (paid.length === 0 && rows.length > 0) {
+    recommendations.push({
+      type: 'neutral',
+      title: 'Există evenimente de checkout, dar încă nu există plăți confirmate',
+      body: 'Dacă Stripe confirmă plăți în dashboard, verifică webhook-ul `stripe-webhook` și tabela `stripe_payment_events`.',
+    })
+  }
+
+  return {
+    schemaVersion: 1,
+    setupIssue,
+    summary: {
+      checkout_started: started.length,
+      payment_completed: paid.length,
+      payment_failed: failed.length,
+      revenue,
+      previous_revenue: previousRevenue,
+      conversion_rate: conversionRate,
+      previous_conversion_rate: previousConversionRate,
+      average_order_value: paid.length > 0 ? revenue / paid.length : 0,
+    },
+    rows,
+    recent: rows.slice().sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, 30),
+    pages,
+    referrers,
+    users,
+    types,
+    timeline,
+    recommendations,
+  }
+}
+
+async function fetchPaymentAnalytics(currFrom, currTo, prevFrom, prevTo) {
+  try {
+    const [currentRows, previousRows] = await Promise.all([
+      hpAnalyticsExport('stripe_payment_events', { since: paymentRangeStart(currFrom), until: paymentRangeEnd(currTo), limit: 50000 }),
+      hpAnalyticsExport('stripe_payment_events', { since: paymentRangeStart(prevFrom), until: paymentRangeEnd(prevTo), limit: 50000 }),
+    ])
+    return buildPaymentAnalytics(currentRows, previousRows)
+  } catch (e) {
+    return buildPaymentAnalytics([], [], e.message || 'Nu pot citi stripe_payment_events din HomePitch.')
+  }
+}
+
+async function attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo) {
+  data.paymentAnalytics = await fetchPaymentAnalytics(currFrom, currTo, prevFrom, prevTo)
+  return data
+}
+
 function aggregateConciergeRows(rows = []) {
   const aggregate = (keyFn, seedFn) => {
     const groups = new Map()
@@ -1784,6 +1949,13 @@ function generateRecommendations(data) {
   const socialSessions = Number(social?.sessions || 0)
   const directShare = totalSess > 0 ? directSessions / totalSess * 100 : 0
   const organicShare = totalSess > 0 ? organicSessions / totalSess * 100 : 0
+  const payments = data.paymentAnalytics || {}
+  const paymentSummary = payments.summary || {}
+  const paymentRevenue = Number(paymentSummary.revenue || 0)
+  const paymentCompleted = Number(paymentSummary.payment_completed || 0)
+  const paymentStarted = Number(paymentSummary.checkout_started || 0)
+  const paymentConversionRate = Number(paymentSummary.conversion_rate || 0)
+  const topPaymentPage = (payments.pages || [])[0]
 
   const insights = []
   const actions  = []
@@ -1859,6 +2031,22 @@ function generateRecommendations(data) {
       type:'info',
       title:`Canal principal: ${topChannel.session_default_channel_group} cu ${Number(topChannel.sessions || 0).toLocaleString('ro')} sesiuni`,
       body:`Direct reprezinta ${directShare.toFixed(0)}% din trafic, Organic Search ${organicShare.toFixed(0)}%. Recomandarile noi includ idei de crestere trafic pe canalele care au deja semnal.`,
+    })
+  }
+
+  if (paymentCompleted > 0) {
+    insights.push({
+      type:'positive',
+      title:`${paymentCompleted} plăți Stripe confirmate · ${Math.round(paymentRevenue).toLocaleString('ro')} EUR`,
+      body: topPaymentPage?.page_path
+        ? `Pagina cu cel mai mare venit este ${topPaymentPage.page_path}, cu ${Math.round(Number(topPaymentPage.revenue || 0)).toLocaleString('ro')} EUR.`
+        : `Rata checkout → plată este ${paymentConversionRate.toFixed(1)}%.`,
+    })
+  } else if (paymentStarted > 0) {
+    insights.push({
+      type:'neutral',
+      title:`${paymentStarted} checkout-uri Stripe pornite, dar 0 plăți confirmate`,
+      body:'Dacă Stripe are plăți reale, verifică webhook-ul stripe-webhook și exportul stripe_payment_events.',
     })
   }
 
@@ -1967,6 +2155,22 @@ function generateRecommendations(data) {
       fix:"Trimite in GA4 eventuri web_vital_lcp, web_vital_cls si web_vital_inp pentru /, /cereri, /vreau si /proprietati. Adauga praguri: LCP < 2.5s, CLS < 0.1, INP < 200ms.",
     })
 
+  if (payments.setupIssue) {
+    actions.push({
+      urgency:'urgent',
+      title:'Plăți: exportul Stripe nu este conectat complet în analytics',
+      body: payments.setupIssue,
+      fix:'Rulează migrarea `stripe_payment_events`, redeploy `create-checkout`, `stripe-webhook` și `hp-analytics-export`, apoi verifică tab-ul Plăți.',
+    })
+  } else if (paymentStarted > 0 && paymentConversionRate < 65) {
+    actions.push({
+      urgency:'important',
+      title:`Plăți: checkout → paid este ${paymentConversionRate.toFixed(1)}%`,
+      body:`Sunt ${paymentStarted} checkout-uri pornite și ${paymentCompleted} plăți confirmate. Diferența poate veni din preț neclar, lipsă încredere înainte de redirect sau abandon în Stripe.`,
+      fix:'Adaugă pe paginile cu checkout_started mare: preț final, ce primește userul după plată, garanție/FAQ scurt și link de suport. Măsoară din nou în 7 zile.',
+    })
+  }
+
   if (seoD !== null && Math.abs(seoD) > 15)
     insights.push({ type: seoD > 0 ? 'positive' : 'negative', title:`SEO ${seoD > 0 ? '+' : '-'}${Math.abs(seoD).toFixed(0)}% clicks organice`, body:`${Math.round(seoClicks)} clicks vs ${Math.round(seoClicksPrev)} perioada anterioara. ${seoImpressions.toLocaleString('ro')} impressions in perioada curenta.` })
 
@@ -2028,6 +2232,11 @@ function generateRecommendations(data) {
       topTrafficChannel: topChannel?.session_default_channel_group || null,
       directShare: parseFloat(directShare.toFixed(1)),
       organicShare: parseFloat(organicShare.toFixed(1)),
+      paymentStarted,
+      paymentCompleted,
+      paymentRevenue: Math.round(paymentRevenue),
+      paymentConversionRate: parseFloat(paymentConversionRate.toFixed(1)),
+      topPaymentPage: topPaymentPage?.page_path || null,
       requestFormEventTotal,
       formStartedEvents,
       formStepCompletedEvents,
@@ -2148,6 +2357,7 @@ export async function GET(request) {
       attachHomepageVariantAnalysis(data)
       attachConciergeTrafficAnalysis(data)
       await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
+      await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
       data.recommendations = generateRecommendations({ ...data, days })
       return NextResponse.json({
         generatedAt: now.toISOString(),
@@ -2187,6 +2397,7 @@ export async function GET(request) {
           attachHomepageVariantAnalysis(built)
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
+          await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -2209,6 +2420,7 @@ export async function GET(request) {
           attachHomepageVariantAnalysis(built)
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
+          await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -2257,6 +2469,7 @@ export async function GET(request) {
     attachHomepageVariantAnalysis(data)
     attachConciergeTrafficAnalysis(data)
     await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
+    await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
     data.recommendations = generateRecommendations({ ...data, days })
 
     // ── 3. Save to Supabase ────────────────────────────────────────

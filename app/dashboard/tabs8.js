@@ -507,3 +507,128 @@ export function TabHeaderMenuAB({ data }) {
     </div>
   )
 }
+
+function eur(value) {
+  return `${Math.round(Number(value || 0)).toLocaleString('ro-RO')} EUR`
+}
+
+function paymentFallback() {
+  return {
+    summary: { checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0, conversion_rate: 0, average_order_value: 0 },
+    pages: [],
+    referrers: [],
+    users: [],
+    types: [],
+    timeline: [],
+    recent: [],
+    recommendations: [{ type:'neutral', title:'Nu există încă date de plăți', body:'După ce HomePitch exportă `stripe_payment_events`, aici vor apărea sursa plăților, referrerul și venitul.' }],
+  }
+}
+
+function PaymentBreakdown({ title, rows, labelField }) {
+  return (
+    <Sec title={title}>
+      <Card style={{padding:'10px 14px'}}>
+        {(rows || []).slice(0, 10).map((row, index) => (
+          <div key={`${row[labelField]}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 74px 74px 92px',gap:10,alignItems:'center',borderBottom:index < Math.min(rows.length, 10) - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+            <span style={{fontSize:12,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row[labelField]}>
+              {labelField === 'page_path' && row[labelField]?.startsWith('/') ? <PageLink path={row[labelField]}>{row[labelField]}</PageLink> : row[labelField] || '(not set)'}
+            </span>
+            <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.checkout_started)}</span>
+            <span style={{fontSize:12,color:C.green,textAlign:'right',fontWeight:600}}>{fmtN(row.payment_completed)}</span>
+            <span style={{fontSize:12,color:C.text,textAlign:'right',fontWeight:600}}>{eur(row.revenue)}</span>
+          </div>
+        ))}
+        {(!rows || rows.length === 0) && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu există date pentru intervalul selectat.</p>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 74px 74px 92px',gap:10,marginTop:8,paddingTop:8,borderTop:`0.5px solid ${C.border}`}}>
+          <span style={{fontSize:10,color:C.hint,textTransform:'uppercase'}}>Sursă</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Checkout</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Plăți</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Venit</span>
+        </div>
+      </Card>
+    </Sec>
+  )
+}
+
+export function TabPayments({ data }) {
+  const analysis = data.paymentAnalytics?.summary ? data.paymentAnalytics : paymentFallback()
+  const summary = analysis.summary || {}
+  const timeline = analysis.timeline || []
+
+  return (
+    <div>
+      {analysis.setupIssue && (
+        <Sec title="Setup">
+          <Signal
+            type="neutral"
+            title="Datele de plată nu sunt încă disponibile complet"
+            body={analysis.setupIssue}
+          />
+        </Sec>
+      )}
+
+      <Grid>
+        <KPI label="Checkout-uri pornite" curr={summary.checkout_started || 0}/>
+        <KPI label="Plăți confirmate" curr={summary.payment_completed || 0}/>
+        <KPI label="Venit Stripe" curr={summary.revenue || 0} sub={eur(summary.revenue)}/>
+        <KPI label="Checkout → paid" curr={summary.conversion_rate || 0} type="pctN"/>
+        <KPI label="Valoare medie" curr={summary.average_order_value || 0} sub={eur(summary.average_order_value)}/>
+      </Grid>
+
+      <Sec title="Evoluție plăți">
+        <Card>
+          <LineChart
+            data={timeline}
+            metrics={[
+              { field:'checkout_started', label:'Checkout', color:C.blue },
+              { field:'payment_completed', label:'Plăți', color:C.green },
+              { field:'revenue', label:'Venit EUR', color:C.amber },
+            ]}
+            height={220}
+          />
+        </Card>
+      </Sec>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:12}}>
+        <PaymentBreakdown title="Top pagini sursă" rows={analysis.pages || []} labelField="page_path"/>
+        <PaymentBreakdown title="Top referreri" rows={analysis.referrers || []} labelField="referrer"/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:12}}>
+        <PaymentBreakdown title="Top useri / conturi" rows={analysis.users || []} labelField="user"/>
+        <PaymentBreakdown title="Tipuri de plată" rows={analysis.types || []} labelField="payment_type"/>
+      </div>
+
+      <Sec title="Ultimele evenimente Stripe">
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead>
+              <tr style={{borderBottom:`0.5px solid ${C.border}`}}>
+                {['Data','Eveniment','Tip plată','User','Pagină','Referrer','Valoare'].map(h => (
+                  <th key={h} style={{textAlign:'left',padding:'7px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(analysis.recent || []).slice(0, 30).map(row => (
+                <tr key={row.id || `${row.created_at}-${row.stripe_session_id}`} style={{borderBottom:`0.5px solid ${C.border}`}}>
+                  <td style={{padding:'8px',color:C.muted,whiteSpace:'nowrap'}}>{row.created_at ? new Date(row.created_at).toLocaleString('ro-RO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'}</td>
+                  <td style={{padding:'8px',fontWeight:600,color:row.event_type === 'payment_completed' ? C.green : C.text}}>{row.event_type}</td>
+                  <td style={{padding:'8px',color:C.muted}}>{row.payment_type || '—'}</td>
+                  <td style={{padding:'8px',color:C.muted,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.user_email || row.user_id}>{row.user_email || row.user_id || '—'}</td>
+                  <td style={{padding:'8px',color:C.muted,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.page_path}>{row.page_path?.startsWith('/') ? <PageLink path={row.page_path}>{row.page_path}</PageLink> : row.page_path || '—'}</td>
+                  <td style={{padding:'8px',color:C.muted,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.referrer}>{row.referrer || '—'}</td>
+                  <td style={{padding:'8px',fontWeight:600,color:C.text,textAlign:'right'}}>{row.event_type === 'payment_completed' ? eur(row.amount_total) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(!analysis.recent || analysis.recent.length === 0) && <Card><p style={{fontSize:13,color:C.hint,margin:0}}>Nu există evenimente de plată în interval.</p></Card>}
+        </div>
+      </Sec>
+
+      <RecommendationList items={analysis.recommendations}/>
+    </div>
+  )
+}
