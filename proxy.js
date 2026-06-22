@@ -54,6 +54,11 @@ async function isCrmSessionAuthorized(request, secret) {
 export async function proxy(request) {
   const { pathname } = request.nextUrl
 
+  if (pathname.startsWith('/cereri/') || pathname.startsWith('/proprietati/')) {
+    const url = new URL(request.url)
+    return NextResponse.redirect(`https://homepitch.ro${pathname}${url.search}`)
+  }
+
   if (pathname === '/' || pathname === '/login' || pathname.startsWith('/api/auth')) {
     return NextResponse.next()
   }

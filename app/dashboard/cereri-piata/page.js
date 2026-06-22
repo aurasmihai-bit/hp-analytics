@@ -114,6 +114,7 @@ export default function CereriPiataPage() {
         <ThemeSwitch darkMode={darkMode} onToggle={toggleTheme}/>
         <PeriodControls days={days} customFrom={customFrom} customTo={customTo} onDays={selectDays} onCustom={selectCustom}/>
         <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
+        <a href="/dashboard/cereri-oferte" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.purple}`,borderRadius:6,background:'rgba(124,58,237,.10)',color:C.purple,textDecoration:'none'}}>Cereri/Oferte</a>
         <a href="/dashboard/procese-automate" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.blue}`,borderRadius:6,background:C.softBlue,color:C.blue,textDecoration:'none'}}>Procese automate</a>
       </div>
       <div style={{width:'100%',boxSizing:'border-box',padding:'20px 16px'}}>

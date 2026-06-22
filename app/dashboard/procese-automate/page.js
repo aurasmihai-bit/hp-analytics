@@ -1191,6 +1191,7 @@ function HeaderShell({ darkMode, toggleTheme }) {
       <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
       <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
       <a href="/dashboard/concierge" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.amber}`,borderRadius:6,background:C.softAmber,color:C.amber,textDecoration:'none'}}>Concierge CRM</a>
+      <a href="/dashboard/cereri-oferte" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.purple}`,borderRadius:6,background:'rgba(124,58,237,.10)',color:C.purple,textDecoration:'none'}}>Cereri/Oferte</a>
     </div>
   )
 }
