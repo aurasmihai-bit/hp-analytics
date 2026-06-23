@@ -218,25 +218,27 @@ export function isMissingConciergeImportedRequestsTable(error) {
   return isMissingTable(error, 'hp_concierge_imported_requests')
 }
 
-export async function getConciergeRequests(limit = 100) {
+export async function getConciergeRequests(limit = 100, serviceType = 'concierge') {
   const safeLimit = Math.max(1, Math.min(Number(limit || 100), 500))
+  const serviceFilter = serviceType ? `&service_type=eq.${encodeValue(serviceType)}` : ''
   return platformFetch(
-    `/concierge_requests?select=id,user_id,full_name,email,phone,message,status,admin_notes,created_at,updated_at&order=created_at.desc&limit=${safeLimit}`,
+    `/concierge_requests?select=id,user_id,service_type,full_name,email,phone,message,status,admin_notes,created_at,updated_at${serviceFilter}&order=created_at.desc&limit=${safeLimit}`,
     { prefer: '' }
   )
 }
 
-export async function getImportedConciergeRequests(limit = 100) {
+export async function getImportedConciergeRequests(limit = 100, serviceType = 'concierge') {
   const safeLimit = Math.max(1, Math.min(Number(limit || 100), 500))
+  const serviceFilter = serviceType ? `&service_type=eq.${encodeValue(serviceType)}` : ''
   return sbFetch(
-    `/hp_concierge_imported_requests?select=id,full_name,email,phone,message,status,admin_notes,source_label,created_at,updated_at&order=created_at.desc&limit=${safeLimit}`,
+    `/hp_concierge_imported_requests?select=id,service_type,full_name,email,phone,message,status,admin_notes,source_label,created_at,updated_at${serviceFilter}&order=created_at.desc&limit=${safeLimit}`,
     { prefer: '' }
   )
 }
 
 export async function getImportedConciergeRequestById(requestId) {
   const rows = await sbFetch(
-    `/hp_concierge_imported_requests?id=eq.${encodeValue(requestId)}&select=id,full_name,email,phone,message,status,admin_notes,source_label,created_at,updated_at&limit=1`,
+    `/hp_concierge_imported_requests?id=eq.${encodeValue(requestId)}&select=id,service_type,full_name,email,phone,message,status,admin_notes,source_label,created_at,updated_at&limit=1`,
     { prefer: '' }
   )
   return rows?.[0] || null
@@ -247,7 +249,7 @@ export async function getConciergeRequestById(requestId) {
 
   try {
     const rows = await platformFetch(
-      `/concierge_requests?id=eq.${encodeValue(requestId)}&select=id,user_id,full_name,email,phone,message,status,admin_notes,created_at,updated_at&limit=1`,
+      `/concierge_requests?id=eq.${encodeValue(requestId)}&select=id,user_id,service_type,full_name,email,phone,message,status,admin_notes,created_at,updated_at&limit=1`,
       { prefer: '' }
     )
     if (rows?.[0]) return rows[0]
@@ -358,6 +360,7 @@ export function cleanCrmInput(input) {
 
   return {
     request_id: requestId,
+    service_type: cleanString(input?.serviceType || input?.service_type, 80) || 'concierge',
     stage,
     contact_status: cleanString(input?.contactStatus || input?.contact_status, 120) || null,
     owner: cleanString(input?.owner, 180),
@@ -437,6 +440,9 @@ export async function createStripeConciergeSession({ request, services, amountEu
     .map(service => `${service.quantity} x ${service.title}`)
     .join(', ')
     .slice(0, 480)
+  const isNotary = (request?.service_type || request?.serviceType) === 'notariat'
+  const productName = isNotary ? 'Servicii HomePitch Notariat' : 'Servicii HomePitch Concierge'
+  const productDescription = serviceSummary || (isNotary ? 'Pachet servicii notariat' : 'Pachet servicii concierge')
 
   const params = new URLSearchParams()
   params.set('mode', 'payment')
@@ -447,9 +453,10 @@ export async function createStripeConciergeSession({ request, services, amountEu
   params.set('line_items[0][quantity]', '1')
   params.set('line_items[0][price_data][currency]', 'eur')
   params.set('line_items[0][price_data][unit_amount]', String(amountCents))
-  params.set('line_items[0][price_data][product_data][name]', 'Servicii HomePitch Concierge')
-  params.set('line_items[0][price_data][product_data][description]', serviceSummary || 'Pachet servicii concierge')
-  params.set('metadata[source]', 'hp_analytics_concierge_crm')
+  params.set('line_items[0][price_data][product_data][name]', productName)
+  params.set('line_items[0][price_data][product_data][description]', productDescription)
+  params.set('metadata[source]', isNotary ? 'hp_analytics_notariat_crm' : 'hp_analytics_concierge_crm')
+  params.set('metadata[service_type]', request?.service_type || request?.serviceType || 'concierge')
   params.set('metadata[concierge_request_id]', request.id)
   params.set('metadata[customer_email]', request.email)
   params.set('metadata[customer_phone]', request.phone || '')

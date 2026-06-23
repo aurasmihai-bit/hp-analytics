@@ -256,8 +256,9 @@ function sourceLabel(row) {
 function RowButton({ row, users = [] }) {
   const owner = ownerDisplay(row.owner, users)
   const hasOwner = Boolean(row.owner)
+  const serviceType = row.serviceType || 'concierge'
   return (
-    <a href={`/dashboard/concierge/${encodeURIComponent(row.id)}`} style={{
+    <a href={`/dashboard/servicii/${encodeURIComponent(serviceType)}/${encodeURIComponent(row.id)}`} style={{
       display:'grid',gridTemplateColumns:CONCIERGE_LIST_GRID,
       gap:12,alignItems:'center',width:'100%',boxSizing:'border-box',border:`0.5px solid ${C.border}`,
       borderRadius:10,background:C.card,padding:'12px 13px',textDecoration:'none',marginBottom:8,
@@ -1116,6 +1117,7 @@ export function DetailsPanel({ row, onSaved, onCheckPayments, users = [] }) {
     try {
       const payload = {
         requestId: draft.requestId,
+        serviceType: draft.serviceType || 'concierge',
         stage: draft.stage,
         contactStatus: draft.contactStatus,
         owner: draft.owner,
@@ -1552,7 +1554,11 @@ export function DetailsPanel({ row, onSaved, onCheckPayments, users = [] }) {
   )
 }
 
-export function TabConcierge() {
+export function TabConcierge({
+  serviceType = 'concierge',
+  title = 'CRM servicii',
+  subtitle = 'Gestionare cereri de servicii, proces contactare, servicii, plata si follow-up dupa plata.',
+} = {}) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1577,13 +1583,13 @@ export function TabConcierge() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/concierge?limit=200', { cache:'no-store' })
+      const res = await fetch(`/api/concierge?limit=200&serviceType=${encodeURIComponent(serviceType)}`, { cache:'no-store' })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
       setRows(json.rows || [])
       setSetupRequired(json.setupRequired || {})
     } catch (e) {
-      setError(e.message || 'Nu am putut incarca concierge CRM')
+      setError(e.message || 'Nu am putut incarca CRM servicii')
     } finally {
       setLoading(false)
     }
@@ -1742,14 +1748,14 @@ export function TabConcierge() {
     sortBy !== 'newest' ? sortBy : '',
   ].filter(Boolean).length
 
-  if (loading) return <div style={{textAlign:'center',padding:'70px 0',color:C.muted,fontSize:14}}>Se incarca cererile concierge...</div>
+  if (loading) return <div style={{textAlign:'center',padding:'70px 0',color:C.muted,fontSize:14}}>Se incarca cererile de servicii...</div>
 
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start',marginBottom:16,flexWrap:'wrap'}}>
         <div>
-          <h2 style={{fontSize:18,fontWeight:600,color:C.text,margin:'0 0 4px'}}>Concierge CRM</h2>
-          <p style={{fontSize:13,color:C.muted,margin:0}}>Cereri venite din /concierge, proces contactare, servicii, plata si follow-up dupa plata.</p>
+          <h2 style={{fontSize:18,fontWeight:600,color:C.text,margin:'0 0 4px'}}>{title}</h2>
+          <p style={{fontSize:13,color:C.muted,margin:0}}>{subtitle}</p>
         </div>
         <button onClick={checkPayments} disabled={checking} style={{padding:'8px 12px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,cursor:checking?'not-allowed':'pointer'}}>
           {checking?'Verific...':'Verifica platile Stripe'}
@@ -1857,7 +1863,7 @@ export function TabConcierge() {
   )
 }
 
-export function ConciergeDetail({ requestId }) {
+export function ConciergeDetail({ requestId, serviceType = 'concierge', serviceLabel = 'servicii' }) {
   const [rows, setRows] = useState([])
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1868,12 +1874,12 @@ export function ConciergeDetail({ requestId }) {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/concierge?limit=500', { cache:'no-store' })
+      const res = await fetch(`/api/concierge?limit=500&serviceType=${encodeURIComponent(serviceType)}`, { cache:'no-store' })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.error) throw new Error(json.error || `HTTP ${res.status}`)
       setRows(json.rows || [])
     } catch (e) {
-      setError(e.message || 'Nu am putut incarca cererea concierge')
+      setError(e.message || 'Nu am putut incarca cererea de servicii')
     } finally {
       setLoading(false)
     }
@@ -1905,18 +1911,18 @@ export function ConciergeDetail({ requestId }) {
   useEffect(() => {
     load()
     loadUsers()
-  }, [requestId])
+  }, [requestId, serviceType])
 
   const row = rows.find(item => String(item.id) === String(requestId))
 
-  if (loading) return <div style={{textAlign:'center',padding:'70px 0',color:C.muted,fontSize:14}}>Se incarca cererea concierge...</div>
+  if (loading) return <div style={{textAlign:'center',padding:'70px 0',color:C.muted,fontSize:14}}>Se incarca cererea de servicii...</div>
 
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
         <div>
-          <a href="/dashboard/concierge" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>← Inapoi la cereri</a>
-          <h2 style={{fontSize:18,fontWeight:600,color:C.text,margin:'8px 0 4px'}}>Detalii cerere concierge</h2>
+          <a href="/dashboard/servicii" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>← Inapoi la CRM servicii</a>
+          <h2 style={{fontSize:18,fontWeight:600,color:C.text,margin:'8px 0 4px'}}>Detalii cerere {serviceLabel}</h2>
           <p style={{fontSize:13,color:C.muted,margin:0}}>Editare servicii, comentarii, suma finala si link de plata.</p>
         </div>
         <button onClick={checkPayments} disabled={checking} style={{padding:'8px 12px',fontSize:12,border:`0.5px solid ${C.blue}`,borderRadius:8,background:C.softBlue,color:C.blue,cursor:checking?'not-allowed':'pointer'}}>
@@ -1927,8 +1933,8 @@ export function ConciergeDetail({ requestId }) {
       {error && <div style={{background:C.softRed,border:`0.5px solid ${C.red}`,borderRadius:10,padding:'12px 14px',marginBottom:14,color:C.red,fontSize:13}}>{error}</div>}
       {row ? <DetailsPanel row={row} users={users} onSaved={load} onCheckPayments={checkPayments}/> : (
         <Card>
-          <p style={{fontSize:13,color:C.muted,margin:'0 0 10px'}}>Nu am gasit aceasta cerere concierge.</p>
-          <a href="/dashboard/concierge" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>Vezi lista de cereri</a>
+          <p style={{fontSize:13,color:C.muted,margin:'0 0 10px'}}>Nu am gasit aceasta cerere de servicii.</p>
+          <a href="/dashboard/servicii" style={{fontSize:12,color:C.blue,textDecoration:'none'}}>Vezi lista de cereri</a>
         </Card>
       )}
     </div>

@@ -7,8 +7,8 @@ export default async function ConciergeRequestPage({ params }) {
   const { requestId } = await params
 
   return (
-    <ConciergeShell>
-      <ConciergeDetail requestId={decodeURIComponent(requestId)} />
+    <ConciergeShell maxWidth={1280}>
+      <ConciergeDetail requestId={decodeURIComponent(requestId)} serviceType="concierge" serviceLabel="Concierge" />
     </ConciergeShell>
   )
 }

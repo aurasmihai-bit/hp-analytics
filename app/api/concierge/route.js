@@ -47,10 +47,12 @@ function mapRequestToRow(request, crm, emailLog) {
   const parsed = parseConciergeMessage(request.message)
   const services = Array.isArray(crm?.services) && crm.services.length ? crm.services : parsed.services
   const finalTotal = Number(crm?.final_total_eur ?? 0) || parsed.estimatedTotal || services.reduce((sum, service) => sum + Number(service.subtotal_eur || 0), 0)
+  const serviceType = crm?.service_type || request.service_type || 'concierge'
 
   return {
     id: request.id,
     requestId: request.id,
+    serviceType,
     createdAt: request.created_at,
     updatedAt: crm?.updated_at || request.updated_at,
     customer: {
@@ -102,6 +104,7 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url)
   const limit = Number(searchParams.get('limit') || 100)
+  const serviceType = searchParams.get('serviceType') || 'concierge'
 
   try {
     let platformRequests = []
@@ -114,14 +117,14 @@ export async function GET(request) {
     }
 
     try {
-      platformRequests = await getConciergeRequests(limit)
+      platformRequests = await getConciergeRequests(limit, serviceType)
     } catch (error) {
       if (!isPlatformServiceUnavailable(error)) throw error
       setupRequired.platformServiceKey = true
     }
 
     try {
-      importedRequests = await getImportedConciergeRequests(limit)
+      importedRequests = await getImportedConciergeRequests(limit, serviceType)
     } catch (error) {
       if (!isMissingConciergeImportedRequestsTable(error)) throw error
       setupRequired.importedRequests = true
@@ -131,7 +134,7 @@ export async function GET(request) {
     const importedOnlyRequests = (importedRequests || []).filter(row => !platformKeys.has(sourceDedupeKey(row)))
 
     const requests = [
-      ...(platformRequests || []).map(row => ({ ...row, _source: 'platform' })),
+      ...(platformRequests || []).map(row => ({ ...row, service_type: row.service_type || serviceType, _source: 'platform' })),
       ...importedOnlyRequests.map(row => ({ ...row, user_id: null, _source: 'imported' })),
     ].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, limit)
 

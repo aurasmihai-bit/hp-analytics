@@ -37,7 +37,7 @@ export function ConciergeShell({ children, maxWidth = 1180 }) {
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <div style={{width:26,height:26,borderRadius:6,background:darkMode?'#1d4ed8':C.navy,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:600,fontSize:12}}>H</div>
           <span style={{fontSize:14,fontWeight:500,color:C.text}}>HomePitch Analytics</span>
-          <span style={{fontSize:11,color:C.hint}}>· Concierge CRM</span>
+          <span style={{fontSize:11,color:C.hint}}>· CRM servicii</span>
         </div>
         <div style={{flex:1}}/>
         <ThemeSwitch darkMode={darkMode} onToggle={toggleTheme}/>
@@ -46,6 +46,7 @@ export function ConciergeShell({ children, maxWidth = 1180 }) {
             <a href="/dashboard" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.muted,textDecoration:'none'}}>Trafic</a>
             <a href="/dashboard/cereri-piata" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>Cereri piata</a>
             <a href="/dashboard/cereri-oferte" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.amber}`,borderRadius:6,background:C.softAmber,color:C.amber,textDecoration:'none'}}>Cereri/Oferte</a>
+            <a href="/dashboard/servicii" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.green}`,borderRadius:6,background:C.softGreen,color:C.green,textDecoration:'none'}}>CRM servicii</a>
             <a href="/dashboard/procese-automate" style={{padding:'4px 10px',fontSize:11,border:`0.5px solid ${C.blue}`,borderRadius:6,background:C.softBlue,color:C.blue,textDecoration:'none'}}>Procese automate</a>
           </>
         )}
