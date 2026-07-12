@@ -1,6 +1,6 @@
 import { ConciergeDetail } from '../../../tabs7'
 import { ConciergeShell } from '../../../concierge/Shell'
-import { serviceLabel } from '../../ServicesCrmPage'
+import { serviceLabel } from '../../serviceConfig'
 
 export const dynamic = 'force-dynamic'
 
