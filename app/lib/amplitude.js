@@ -2,8 +2,14 @@ import { getOptionalEnv } from './env'
 
 const DEFAULT_AMPLITUDE_EVENTS = [
   '[Amplitude] Page Viewed',
+  '[Amplitude] Element Clicked',
   '[Amplitude] Form Started',
   '[Amplitude] Form Submitted',
+  '[Amplitude] Session Started',
+  '[Amplitude] Session Ended',
+  '[Amplitude] Session Replay Started',
+  'Session Replay Started',
+  'session_replay_started',
   'Form Step Completed',
   'Form Validation Error',
   'Form Abandoned',
@@ -15,6 +21,14 @@ const DEFAULT_AMPLITUDE_EVENTS = [
   'api_catalog_view',
   'mcp_server_card_view',
 ]
+
+const AMPLITUDE_BROWSER_SETTINGS = {
+  sdk: '@amplitude/unified',
+  analyticsAutocapture: true,
+  sessionReplayEnabled: true,
+  sessionReplaySampleRate: 1,
+  initializedClientSide: true,
+}
 
 function amplitudeConfig() {
   const apiKey = getOptionalEnv('AMPLITUDE_API_KEY')
@@ -58,6 +72,26 @@ function parseSegmentationResponse(payload, eventName) {
     events: total,
     timeline,
   }
+}
+
+function lastSeenDate(row) {
+  return (row.timeline || [])
+    .filter(item => Number(item.events || 0) > 0 && item.date)
+    .map(item => item.date)
+    .sort()
+    .pop() || ''
+}
+
+function eventListing(events, matcher = null) {
+  return events
+    .filter(row => !matcher || matcher.test(row.event_name || ''))
+    .map(row => ({
+      event_name: row.event_name,
+      events: Number(row.events || 0),
+      last_seen: lastSeenDate(row),
+      error: row.error || '',
+    }))
+    .sort((a, b) => Number(b.events || 0) - Number(a.events || 0) || String(a.event_name || '').localeCompare(String(b.event_name || '')))
 }
 
 async function fetchEvent(config, eventName, start, end) {
@@ -121,10 +155,13 @@ export async function fetchAmplitudeAnalytics({ start, end }) {
   if (!config) {
     return {
       schemaVersion: 1,
+      settings: AMPLITUDE_BROWSER_SETTINGS,
       setupIssue: 'Lipsesc AMPLITUDE_API_KEY si/sau AMPLITUDE_SECRET_KEY in env. Optional seteaza AMPLITUDE_EVENTS cu event names exacte, separate prin virgula.',
       events: configuredEvents.map(eventName => ({ event_name: eventName, events: 0, timeline: [] })),
       llmEvents: [],
       formEvents: [],
+      sessionReplayEvents: [],
+      liveEvents: [],
       timeline: [],
       recommendations: buildAmplitudeRecommendations([], 'Lipsesc AMPLITUDE_API_KEY si/sau AMPLITUDE_SECRET_KEY in env.'),
     }
@@ -144,11 +181,16 @@ export async function fetchAmplitudeAnalytics({ start, end }) {
   })
   const llmEvents = events.filter(row => /(llm|agent|api_catalog|mcp)/i.test(row.event_name))
   const formEvents = events.filter(row => /(form|request)/i.test(row.event_name))
+  const sessionReplayEvents = eventListing(events, /(session.?replay|replay)/i)
+  const liveEvents = eventListing(events).slice(0, 20)
   return {
     schemaVersion: 1,
+    settings: AMPLITUDE_BROWSER_SETTINGS,
     events,
     llmEvents,
     formEvents,
+    sessionReplayEvents,
+    liveEvents,
     timeline: Array.from(timelineMap.values()).sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))),
     recommendations: buildAmplitudeRecommendations(events),
   }

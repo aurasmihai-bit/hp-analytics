@@ -492,12 +492,16 @@ export function TabLlmVisibility({ data }) {
 
 export function TabAmplitude({ data }) {
   const analysis = data.amplitudeAnalytics || { events: [], llmEvents: [], formEvents: [], timeline: [], recommendations: [] }
+  const settings = analysis.settings || {}
   const events = analysis.events || []
   const llmEvents = analysis.llmEvents || []
   const formEvents = analysis.formEvents || []
+  const sessionReplayEvents = analysis.sessionReplayEvents || []
+  const liveEvents = analysis.liveEvents || []
   const totalEvents = events.reduce((sum, row) => sum + Number(row.events || 0), 0)
   const llmTotal = llmEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
   const formTotal = formEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
+  const replayTotal = sessionReplayEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
   const timeline = analysis.timeline || []
   const topTimelineMetrics = events
     .filter(row => Number(row.events || 0) > 0)
@@ -523,6 +527,22 @@ export function TabAmplitude({ data }) {
     </Sec>
   )
 
+  const EventListing = ({ title, rows, empty }) => (
+    <Sec title={title}>
+      <Card style={{padding:'10px 14px'}}>
+        {(rows || []).length ? rows.map((row, index) => (
+          <div key={`${title}-${row.event_name}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 90px 100px',gap:10,alignItems:'center',borderBottom:index < rows.length - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+            <span style={{fontSize:12,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.event_name}>{row.event_name}</span>
+            <span style={{fontSize:12,fontWeight:600,color:Number(row.events || 0) > 0 ? C.green : C.hint,textAlign:'right'}}>{fmtN(row.events || 0)}</span>
+            <span style={{fontSize:11,color:C.hint,textAlign:'right'}}>{row.last_seen || 'fara data'}</span>
+          </div>
+        )) : (
+          <p style={{fontSize:13,color:C.muted,lineHeight:1.45,margin:0}}>{empty}</p>
+        )}
+      </Card>
+    </Sec>
+  )
+
   return (
     <div>
       {analysis.setupIssue && (
@@ -530,11 +550,26 @@ export function TabAmplitude({ data }) {
           <Signal type="neutral" title="Amplitude nu este conectat complet" body={analysis.setupIssue}/>
         </Sec>
       )}
+      <Sec title="Setari Amplitude">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:12}}>
+          {[
+            { label:'SDK browser', value:settings.sdk || '@amplitude/unified', tone:C.blue },
+            { label:'Autocapture / live events', value:settings.analyticsAutocapture ? 'Activ' : 'De verificat', tone:settings.analyticsAutocapture ? C.green : C.amber },
+            { label:'Session Replay', value:settings.sessionReplayEnabled ? `Activ · sample ${Math.round(Number(settings.sessionReplaySampleRate || 0) * 100)}%` : 'De verificat', tone:settings.sessionReplayEnabled ? C.green : C.amber },
+            { label:'Initializare', value:settings.initializedClientSide ? 'Client-side, o singura data' : 'De verificat', tone:settings.initializedClientSide ? C.green : C.amber },
+          ].map(item => (
+            <Card key={item.label} style={{padding:14}}>
+              <p style={{fontSize:11,fontWeight:700,color:C.hint,textTransform:'uppercase',letterSpacing:.4,margin:'0 0 6px'}}>{item.label}</p>
+              <p style={{fontSize:15,fontWeight:700,color:item.tone,margin:0}}>{item.value}</p>
+            </Card>
+          ))}
+        </div>
+      </Sec>
       <Grid>
         <KPI label="Evenimente Amplitude" curr={totalEvents}/>
         <KPI label="LLM / agent discovery" curr={llmTotal}/>
         <KPI label="Funnel formular" curr={formTotal}/>
-        <KPI label="Event names monitorizate" curr={events.length}/>
+        <KPI label="Session Replay events" curr={replayTotal}/>
       </Grid>
       {timeline.length > 1 && topTimelineMetrics.length > 0 && (
         <Sec title="Evolutie evenimente Amplitude">
@@ -544,6 +579,8 @@ export function TabAmplitude({ data }) {
         </Sec>
       )}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:12}}>
+        <EventListing title="Live events monitorizate" rows={liveEvents.slice(0, 10)} empty="Nu exista inca evenimente live in API pentru intervalul selectat."/>
+        <EventListing title="Session Replay" rows={sessionReplayEvents} empty="Session Replay este activ in SDK. Daca Amplitude nu expune un event separat pentru replay in API, verifica replay-urile din dashboardul Amplitude pe evenimentele autocapture."/>
         <EventTable title="Evenimente LLM / agent discovery" rows={llmEvents}/>
         <EventTable title="Evenimente formular si cereri" rows={formEvents}/>
       </div>
