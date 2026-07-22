@@ -33,10 +33,12 @@ const AMPLITUDE_BROWSER_SETTINGS = {
 function amplitudeConfig() {
   const apiKey = getOptionalEnv('AMPLITUDE_API_KEY')
   const secretKey = getOptionalEnv('AMPLITUDE_SECRET_KEY')
+  const replaySearchEndpoint = getOptionalEnv('AMPLITUDE_REPLAY_SEARCH_ENDPOINT') || 'https://amplitude.com/api/2/session-replay/search'
   if (!apiKey || !secretKey) return null
   return {
     apiKey,
     secretKey,
+    replaySearchEndpoint,
     events: (getOptionalEnv('AMPLITUDE_EVENTS') || '')
       .split(',')
       .map(item => item.trim())
@@ -121,6 +123,59 @@ async function fetchEvent(config, eventName, start, end) {
   throw lastError || new Error('Amplitude request failed')
 }
 
+function parseReplaySearchResponse(payload) {
+  const rows = Array.isArray(payload?.data) ? payload.data : []
+  return {
+    replays: rows.map(row => ({
+      amplitude_id: row.amplitude_id || '',
+      session_replay_id: row.session_replay_id || '',
+      session_start_time: row.session_start_time || null,
+      session_end_time: row.session_end_time || null,
+      duration: Number(row.duration || 0),
+      url: row.url || '',
+      groupBys: row.groupBys || {},
+    })),
+    replayMetadata: payload?.metadata || {},
+    replaySearchIssue: '',
+  }
+}
+
+async function fetchReplaySearch(config, start, end) {
+  const body = {
+    start: amplitudeDate(start),
+    end: amplitudeDate(end),
+    replayFilters: [
+      { prop: 'duration', op: 'greater or equal', values: ['1'] },
+    ],
+    groupBys: {
+      eventPosition: 'last',
+      properties: [
+        { type: 'event', value: 'page_url' },
+        { type: 'event', value: 'page_location' },
+        { type: 'event', value: 'page_path' },
+        { type: 'user', value: 'email' },
+      ],
+    },
+    limit: 20,
+  }
+  const res = await fetch(config.replaySearchEndpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader(config),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  })
+  const text = await res.text()
+  let payload = null
+  try { payload = text ? JSON.parse(text) : null } catch {}
+  if (!res.ok) {
+    throw new Error(`Amplitude Replay Search ${res.status}: ${payload?.error || payload?.message || text || res.statusText}`)
+  }
+  return parseReplaySearchResponse(payload)
+}
+
 function buildAmplitudeRecommendations(events, issue = '') {
   if (issue) {
     return [{
@@ -162,12 +217,23 @@ export async function fetchAmplitudeAnalytics({ start, end }) {
       formEvents: [],
       sessionReplayEvents: [],
       liveEvents: [],
+      replays: [],
+      replayMetadata: {},
+      replaySearchIssue: 'Replay Search API nu poate rula fara AMPLITUDE_API_KEY si AMPLITUDE_SECRET_KEY.',
       timeline: [],
       recommendations: buildAmplitudeRecommendations([], 'Lipsesc AMPLITUDE_API_KEY si/sau AMPLITUDE_SECRET_KEY in env.'),
     }
   }
 
-  const settled = await Promise.allSettled(configuredEvents.map(eventName => fetchEvent(config, eventName, start, end)))
+  const [eventResults, replaySearchResult] = await Promise.all([
+    Promise.allSettled(configuredEvents.map(eventName => fetchEvent(config, eventName, start, end))),
+    fetchReplaySearch(config, start, end).catch(error => ({
+      replays: [],
+      replayMetadata: {},
+      replaySearchIssue: error.message || 'Replay Search API indisponibil.',
+    })),
+  ])
+  const settled = eventResults
   const events = settled.map((result, index) => (
     result.status === 'fulfilled'
       ? result.value
@@ -191,6 +257,9 @@ export async function fetchAmplitudeAnalytics({ start, end }) {
     formEvents,
     sessionReplayEvents,
     liveEvents,
+    replays: replaySearchResult.replays || [],
+    replayMetadata: replaySearchResult.replayMetadata || {},
+    replaySearchIssue: replaySearchResult.replaySearchIssue || '',
     timeline: Array.from(timelineMap.values()).sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))),
     recommendations: buildAmplitudeRecommendations(events),
   }

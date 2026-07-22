@@ -498,6 +498,8 @@ export function TabAmplitude({ data }) {
   const formEvents = analysis.formEvents || []
   const sessionReplayEvents = analysis.sessionReplayEvents || []
   const liveEvents = analysis.liveEvents || []
+  const replays = analysis.replays || []
+  const replayMetadata = analysis.replayMetadata || {}
   const totalEvents = events.reduce((sum, row) => sum + Number(row.events || 0), 0)
   const llmTotal = llmEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
   const formTotal = formEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
@@ -538,6 +540,47 @@ export function TabAmplitude({ data }) {
           </div>
         )) : (
           <p style={{fontSize:13,color:C.muted,lineHeight:1.45,margin:0}}>{empty}</p>
+        )}
+      </Card>
+    </Sec>
+  )
+
+  const ReplayLinks = () => (
+    <Sec title="Session Replay links">
+      <Card style={{padding:'10px 14px'}}>
+        {analysis.replaySearchIssue && (
+          <p style={{fontSize:13,color:C.amber,lineHeight:1.45,margin:'0 0 10px'}}>
+            {analysis.replaySearchIssue}
+          </p>
+        )}
+        {replays.length ? replays.map((row, index) => {
+          const start = row.session_start_time ? new Date(row.session_start_time).toLocaleString('ro-RO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'
+          const page = row.groupBys?.page_url || row.groupBys?.page_location || row.groupBys?.page_path || ''
+          const email = row.groupBys?.email || ''
+          return (
+            <div key={`${row.session_replay_id}-${index}`} style={{display:'grid',gridTemplateColumns:'150px 1fr 90px 110px',gap:10,alignItems:'center',borderBottom:index < replays.length - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+              <span style={{fontSize:12,color:C.muted,whiteSpace:'nowrap'}}>{start}</span>
+              <span style={{fontSize:12,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={page || email || row.amplitude_id}>
+                {email || page || row.amplitude_id || row.session_replay_id}
+              </span>
+              <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.duration || 0)}s</span>
+              {row.url ? (
+                <a href={row.url} target="_blank" rel="noreferrer" style={{fontSize:12,fontWeight:700,color:C.blue,textAlign:'right'}}>Vezi replay</a>
+              ) : (
+                <span style={{fontSize:12,color:C.hint,textAlign:'right'}}>fără link</span>
+              )}
+            </div>
+          )
+        }) : (
+          <p style={{fontSize:13,color:C.muted,lineHeight:1.45,margin:0}}>
+            Nu există replay-uri returnate pentru intervalul selectat. După ce Amplitude capturează replay-uri, aici apare link direct către video în Amplitude.
+          </p>
+        )}
+        {replayMetadata && Object.keys(replayMetadata).length > 0 && (
+          <p style={{fontSize:11,color:C.hint,margin:'10px 0 0'}}>
+            Matched: {fmtN(replayMetadata.post_filter_count ?? replayMetadata.pre_filter_count ?? 0)}
+            {replayMetadata.pre_filter_capped ? ' · rezultat capat la 1.000 sesiuni' : ''}
+          </p>
         )}
       </Card>
     </Sec>
@@ -584,6 +627,7 @@ export function TabAmplitude({ data }) {
         <EventTable title="Evenimente LLM / agent discovery" rows={llmEvents}/>
         <EventTable title="Evenimente formular si cereri" rows={formEvents}/>
       </div>
+      <ReplayLinks />
       <Sec title="Toate evenimentele monitorizate">
         <Card style={{padding:'10px 14px'}}>
           {events.map((row, index) => (
@@ -799,6 +843,14 @@ export function TabPayments({ data }) {
         </Sec>
       )}
 
+      <Sec title="Sursa datelor">
+        <Signal
+          type="info"
+          title="Plățile sunt citite din HomePitch / Stripe"
+          body="Tab-ul folosește exportul `stripe_payment_events` din HomePitch. GA4 poate apărea în alte tab-uri de trafic, dar plățile, userii și referrerii din acest tab vin din evenimentele Stripe exportate de HomePitch."
+        />
+      </Sec>
+
       <Grid>
         <KPI label="Checkout-uri pornite" curr={summary.checkout_started || 0}/>
         <KPI label="Plăți confirmate" curr={summary.payment_completed || 0}/>
@@ -836,7 +888,7 @@ export function TabPayments({ data }) {
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
             <thead>
               <tr style={{borderBottom:`0.5px solid ${C.border}`}}>
-                {['Data','Eveniment','Tip plată','User','Pagină','Referrer','Valoare'].map(h => (
+                {['Data','Eveniment','Tip plată','User','Sursă','Pagină','Referrer','Valoare'].map(h => (
                   <th key={h} style={{textAlign:'left',padding:'7px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>
                 ))}
               </tr>
@@ -847,7 +899,8 @@ export function TabPayments({ data }) {
                   <td style={{padding:'8px',color:C.muted,whiteSpace:'nowrap'}}>{row.created_at ? new Date(row.created_at).toLocaleString('ro-RO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'}</td>
                   <td style={{padding:'8px',fontWeight:600,color:row.event_type === 'payment_completed' ? C.green : C.text}}>{row.event_type}</td>
                   <td style={{padding:'8px',color:C.muted}}>{row.payment_type || '—'}</td>
-                  <td style={{padding:'8px',color:C.muted,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.user_email || row.user_id}>{row.user_email || row.user_id || '—'}</td>
+                  <td style={{padding:'8px',color:row.user_email ? C.muted : C.amber,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.user_email || row.user_id || 'email lipsă în export'}>{row.user_display || row.user_email || (row.user_id ? `ID: ${row.user_id}` : 'email lipsă în export')}</td>
+                  <td style={{padding:'8px',color:C.hint,whiteSpace:'nowrap'}}>{row.data_source || 'HomePitch / Stripe'}</td>
                   <td style={{padding:'8px',color:C.muted,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.page_path}>{row.page_path?.startsWith('/') ? <PageLink path={row.page_path}>{row.page_path}</PageLink> : row.page_path || '—'}</td>
                   <td style={{padding:'8px',color:C.muted,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.referrer}>{row.referrer || '—'}</td>
                   <td style={{padding:'8px',fontWeight:600,color:C.text,textAlign:'right'}}>{row.event_type === 'payment_completed' ? eur(row.amount_total) : '—'}</td>

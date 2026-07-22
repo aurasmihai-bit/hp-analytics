@@ -1295,12 +1295,34 @@ function normalizePaymentEvent(row = {}) {
   const amount = Number(row.amount_total || 0)
   const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
   const customerDetails = metadata.customer_details && typeof metadata.customer_details === 'object' ? metadata.customer_details : {}
-  const userEmail = row.user_email || row.customer_email || metadata.user_email || metadata.email || metadata.customer_email || customerDetails.email || ''
+  const session = metadata.session && typeof metadata.session === 'object' ? metadata.session : {}
+  const customer = metadata.customer && typeof metadata.customer === 'object' ? metadata.customer : {}
+  const userEmail = (
+    row.user_email ||
+    row.customer_email ||
+    row.email ||
+    metadata.user_email ||
+    metadata.email ||
+    metadata.customer_email ||
+    metadata.customerEmail ||
+    metadata.receipt_email ||
+    metadata.client_email ||
+    metadata.buyer_email ||
+    customerDetails.email ||
+    session.customer_email ||
+    session.customerEmail ||
+    session.receipt_email ||
+    customer.email ||
+    ''
+  )
+  const userId = row.user_id || metadata.user_id || metadata.userId || ''
   return {
     id: row.id || row.stripe_event_id || row.stripe_session_id,
     event_type: row.event_type || 'unknown',
-    user_id: row.user_id || '',
+    user_id: userId,
     user_email: userEmail,
+    user_display: userEmail || (userId ? `ID: ${userId}` : '(email lipsă în export)'),
+    data_source: 'HomePitch / Stripe',
     stripe_session_id: row.stripe_session_id || '',
     stripe_event_id: row.stripe_event_id || '',
     payment_type: row.payment_type || metadata.payment_type || 'unknown',
@@ -1364,8 +1386,8 @@ function buildPaymentAnalytics(currentRows = [], previousRows = [], setupIssue =
   )
   const users = aggregatePaymentRows(
     rows,
-    row => row.user_email || row.user_id || '(anonim)',
-    row => ({ user: row.user_email || row.user_id || '(anonim)', checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
+    row => row.user_email || (row.user_id ? `ID: ${row.user_id}` : '(email lipsă în export)'),
+    row => ({ user: row.user_email || (row.user_id ? `ID: ${row.user_id}` : '(email lipsă în export)'), checkout_started: 0, payment_completed: 0, payment_failed: 0, revenue: 0 })
   )
   const types = aggregatePaymentRows(
     rows,
