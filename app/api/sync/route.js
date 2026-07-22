@@ -7,7 +7,7 @@ const SYNC_PERIODS = [30, 7, 14, 60, 90]
 async function syncPeriod(request, days) {
   const base = request.nextUrl?.origin || `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('host')}`
   const authorization = request.headers.get('authorization')
-  const res = await fetch(`${base}/api/report?days=${days}&refresh=1`, {
+  const res = await fetch(`${base}/api/report?days=${days}&refresh=1&skipAmplitude=1`, {
     headers: {
       cookie: request.headers.get('cookie') || '',
       ...(authorization ? { authorization } : {}),

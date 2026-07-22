@@ -416,6 +416,9 @@ export function TabReferrals({ data }) {
 export function TabLlmVisibility({ data }) {
   const pages = data.pages?.current || []
   const gsc = data.gsc || {}
+  const amplitude = data.amplitudeAnalytics || {}
+  const llmEvents = amplitude.llmEvents || []
+  const llmEventTotal = llmEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
   const agentReadyPages = [
     { label:'API catalog', path:'/.well-known/api-catalog' },
     { label:'Agent skills index', path:'/.well-known/agent-skills/index.json' },
@@ -442,8 +445,25 @@ export function TabLlmVisibility({ data }) {
         <KPI label="Pagini agent-ready urmărite" curr={agentReadyPages.length}/>
         <KPI label="Cu trafic / impresii" curr={indexedAgentPages.filter(row => row.status === 'vizibil').length}/>
         <KPI label="GSC conectat" curr={hasGsc ? 1 : 0}/>
-        <KPI label="Referrers monitorizați" curr={data.referrals?.summary?.referrers || 0}/>
+        <KPI label="Evenimente LLM Amplitude" curr={llmEventTotal}/>
       </Grid>
+      {amplitude.setupIssue && (
+        <Sec title="Amplitude">
+          <Signal type="neutral" title="Conecteaza Amplitude pentru semnale LLM" body={amplitude.setupIssue}/>
+        </Sec>
+      )}
+      {!amplitude.setupIssue && (
+        <Sec title="Evenimente LLM / agent discovery din Amplitude">
+          <Card style={{padding:'10px 14px'}}>
+            {(llmEvents.length ? llmEvents : [{event_name:'llm_referral / agent_discovery',events:0}]).map((row, index) => (
+              <div key={`${row.event_name}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10,alignItems:'center',borderBottom:index < llmEvents.length - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+                <span style={{fontSize:12,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.event_name}>{row.event_name}</span>
+                <span style={{fontSize:12,fontWeight:600,color:Number(row.events || 0) > 0 ? C.green : C.hint,textAlign:'right'}}>{fmtN(row.events || 0)}</span>
+              </div>
+            ))}
+          </Card>
+        </Sec>
+      )}
       <Sec title="Vizibilitate in LLM-uri si agent discovery">
         <Card>
           <p style={{fontSize:13,color:C.muted,lineHeight:1.55,margin:'0 0 14px'}}>

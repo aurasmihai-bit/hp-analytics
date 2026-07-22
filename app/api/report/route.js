@@ -2530,6 +2530,7 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url)
   const forceRefresh = searchParams.get('refresh') === '1'
+  const skipAmplitude = searchParams.get('skipAmplitude') === '1'
   const now = new Date()
 
   let days, currFrom, currTo, prevFrom, prevTo
@@ -2552,7 +2553,7 @@ export async function GET(request) {
       await attachPlatformRequestData(data, currFrom, currTo)
       await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
       await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
-      await attachAmplitudeAnalytics(data, currFrom, currTo)
+      if (!skipAmplitude) await attachAmplitudeAnalytics(data, currFrom, currTo)
       data.recommendations = generateRecommendations({ ...data, days })
       return NextResponse.json({
         generatedAt: now.toISOString(),
@@ -2594,7 +2595,7 @@ export async function GET(request) {
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
-          await attachAmplitudeAnalytics(built, currFrom, currTo)
+          if (!skipAmplitude) await attachAmplitudeAnalytics(built, currFrom, currTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -2618,7 +2619,7 @@ export async function GET(request) {
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
-          await attachAmplitudeAnalytics(built, currFrom, currTo)
+          if (!skipAmplitude) await attachAmplitudeAnalytics(built, currFrom, currTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -2668,7 +2669,7 @@ export async function GET(request) {
     attachConciergeTrafficAnalysis(data)
     await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
     await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
-    await attachAmplitudeAnalytics(data, currFrom, currTo)
+    if (!skipAmplitude) await attachAmplitudeAnalytics(data, currFrom, currTo)
     data.recommendations = generateRecommendations({ ...data, days })
 
     // ── 3. Save to Supabase ────────────────────────────────────────
