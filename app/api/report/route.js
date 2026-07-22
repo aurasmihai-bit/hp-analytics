@@ -386,6 +386,41 @@ function mergeRanges(ranges) {
   return merged
 }
 
+function countRangeDays(range) {
+  return eachDate(range.start, range.end).length
+}
+
+function splitRanges(ranges, maxDays = 7) {
+  const chunks = []
+  ranges.forEach(range => {
+    let start = range.start
+    while (start <= range.end) {
+      let end = start
+      for (let i = 1; i < maxDays && addDaysIso(end, 1) <= range.end; i += 1) {
+        end = addDaysIso(end, 1)
+      }
+      chunks.push({ start, end })
+      start = addDaysIso(end, 1)
+    }
+  })
+  return chunks
+}
+
+function limitRangesByDays(ranges, maxDays) {
+  const limited = []
+  let used = 0
+  for (const range of ranges) {
+    if (used >= maxDays) break
+    const dates = eachDate(range.start, range.end)
+    const remaining = maxDays - used
+    const slice = dates.slice(0, remaining)
+    if (!slice.length) break
+    limited.push({ start: slice[0], end: slice[slice.length - 1] })
+    used += slice.length
+  }
+  return limited
+}
+
 function missingExitAnalysisRanges(rows, start, end) {
   const byDate = new Map((rows || []).map(row => [row.data_date, row]))
   const dates = eachDate(start, end).filter(date => {
@@ -1956,13 +1991,16 @@ async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, force
   }
   const initialRows = await getTabDailyRows(rangeStart, rangeEnd)
   const refreshDate = forceRefresh ? currTo : null
-  const ranges = mergeRanges([
+  const baseRanges = mergeRanges([
     ...missingRanges(initialRows, rangeStart, rangeEnd, refreshDate),
     ...missingExitAnalysisRanges(initialRows, rangeStart, rangeEnd),
     ...missingRequestFormEventRanges(initialRows, rangeStart, rangeEnd),
     ...missingConciergeTrafficRanges(initialRows, rangeStart, rangeEnd),
-    ...missingReferralRanges(initialRows, rangeStart, rangeEnd),
   ])
+  const referralRanges = splitRanges(missingReferralRanges(initialRows, rangeStart, rangeEnd), 7)
+  const referralBackfillBudget = forceRefresh ? 21 : 10
+  const boundedReferralRanges = limitRangesByDays(referralRanges, referralBackfillBudget)
+  const ranges = mergeRanges([...baseRanges, ...boundedReferralRanges])
 
   for (const range of ranges) {
     await fetchAndSaveTabDailyRange(range.start, range.end)
@@ -1982,6 +2020,11 @@ async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, force
   return {
     data: composeFromTabDailyRows(rows, currFrom, currTo, prevFrom, prevTo),
     fetchedRanges: ranges,
+    pendingReferralBackfillDays: Math.max(
+      0,
+      referralRanges.reduce((sum, range) => sum + countRangeDays(range), 0) -
+      boundedReferralRanges.reduce((sum, range) => sum + countRangeDays(range), 0)
+    ),
     cachedAt: newestSync ? new Date(newestSync).toISOString() : null,
   }
 }
@@ -2519,6 +2562,7 @@ export async function GET(request) {
         _source: cached.fetchedRanges.length ? 'tab_db_incremental' : 'tab_db',
         _cachedAt: cached.cachedAt,
         _fetchedRanges: cached.fetchedRanges,
+        _pendingReferralBackfillDays: cached.pendingReferralBackfillDays,
       })
     }
     console.warn('Tab daily cache has only zero report metrics; falling back')
