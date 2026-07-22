@@ -160,7 +160,7 @@ export function TabExitIntent({ data }) {
     signals.push({
       type:'neutral',
       title:'Nu exista inca tracking explicit pentru exit intent',
-      body:'Tab-ul foloseste momentan exit risk proxy din bounce rate si engagement. Pentru timeline/cohorts reale, trimite event GA4 exit_intent sau form_abandon.',
+      body:'GA4 API nu returneaza direct exits in raportul standard. Scorul de aici combina views, bounce rate, durata si conversia ca sa prioritizeze paginile unde userii pleaca fara urmator pas.',
     })
   }
 

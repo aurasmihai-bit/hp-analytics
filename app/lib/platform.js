@@ -58,6 +58,11 @@ async function platformRest(config, params, extraHeaders = {}) {
   throw lastAuthError || new Error('Platform Supabase auth failed')
 }
 
+function isMissingColumnError(error) {
+  const message = String(error?.message || error)
+  return message.includes('PGRST204') || message.toLowerCase().includes('could not find') || message.toLowerCase().includes('schema cache')
+}
+
 function addDaysIso(date, days) {
   const d = new Date(`${date}T00:00:00.000Z`)
   d.setUTCDate(d.getUTCDate() + days)
@@ -380,6 +385,154 @@ export async function fetchPlatformRequestStats({ start, end }) {
   return {
     count: result.total,
     source: config.requestsTable,
+    start,
+    end,
+  }
+}
+
+function pickRequestLandingPath(row = {}) {
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  return (
+    row.landing_path ||
+    row.page_path ||
+    row.source_path ||
+    row.created_from_path ||
+    row.created_from_url ||
+    metadata.landing_path ||
+    metadata.page_path ||
+    metadata.source_path ||
+    metadata.created_from_path ||
+    metadata.created_from_url ||
+    ''
+  )
+}
+
+function pickRequestReferrer(row = {}) {
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  return (
+    row.referrer ||
+    row.page_referrer ||
+    row.initial_referrer ||
+    metadata.referrer ||
+    metadata.page_referrer ||
+    metadata.initial_referrer ||
+    '(direct)'
+  )
+}
+
+function pickRequestSource(row = {}) {
+  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const source = row.utm_source || metadata.utm_source || metadata.source || ''
+  const medium = row.utm_medium || metadata.utm_medium || metadata.medium || ''
+  const campaign = row.utm_campaign || metadata.utm_campaign || metadata.campaign || ''
+  const sourceMedium = [source, medium].filter(Boolean).join(' / ')
+  return {
+    source_medium: sourceMedium || '(not set)',
+    utm_source: source || '',
+    utm_medium: medium || '',
+    utm_campaign: campaign || '',
+  }
+}
+
+function normalizePathLike(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    const url = raw.startsWith('http') ? new URL(raw) : null
+    return url ? (url.pathname || '/') : raw.split('?')[0].split('#')[0]
+  } catch {
+    return raw.split('?')[0].split('#')[0]
+  }
+}
+
+export async function fetchPlatformRequestSourceStats({ start, end }) {
+  const config = getPlatformConfig()
+  if (!config) return null
+
+  const exclusiveEnd = addDaysIso(end, 1)
+  const baseParams = () => {
+    const params = new URLSearchParams()
+    params.append('created_at', `gte.${localDateStart(start)}`)
+    params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
+    params.set('order', 'created_at.asc')
+    params.set('limit', '10000')
+    return params
+  }
+  const selects = [
+    'id,created_at,status,transaction_type,property_type,landing_path,page_path,source_path,created_from_path,created_from_url,referrer,page_referrer,initial_referrer,utm_source,utm_medium,utm_campaign,metadata',
+    'id,created_at,status,transaction_type,property_type,landing_path,page_path,source_path,referrer,page_referrer,metadata',
+    'id,created_at,metadata',
+    'id,created_at',
+  ]
+
+  let rows = []
+  let sourceDetailsAvailable = true
+  for (const select of selects) {
+    const params = baseParams()
+    params.set('select', select)
+    try {
+      const result = await platformRest(config, params, { Prefer: 'count=exact' })
+      rows = result.rows
+      sourceDetailsAvailable = select !== 'id,created_at'
+      break
+    } catch (error) {
+      if (!isMissingColumnError(error)) throw error
+    }
+  }
+
+  const groups = new Map()
+  const sourceGroups = new Map()
+  const requestRows = rows.map(row => {
+    const source = pickRequestSource(row)
+    return {
+      created_at: row.created_at || null,
+      date: row.created_at ? localDateFromTimestamp(row.created_at) : null,
+      landing_path: normalizePathLike(pickRequestLandingPath(row)) || '(unknown)',
+      referrer_full: pickRequestReferrer(row),
+      source_medium: source.source_medium,
+      utm_source: source.utm_source,
+      utm_medium: source.utm_medium,
+      utm_campaign: source.utm_campaign,
+      status: cleanText(row.status, ''),
+      transaction_type: cleanText(row.transaction_type, ''),
+      property_type: cleanText(row.property_type, ''),
+    }
+  }).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+
+  rows.forEach(row => {
+    const landingPath = normalizePathLike(pickRequestLandingPath(row)) || '(unknown)'
+    const referrer = pickRequestReferrer(row)
+    const source = pickRequestSource(row)
+    const key = `${landingPath}::${referrer}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        landing_path: landingPath,
+        referrer_full: referrer,
+        source_medium: source.source_medium,
+        requests_created: 0,
+      })
+    }
+    groups.get(key).requests_created += 1
+
+    const sourceKey = source.source_medium || '(not set)'
+    if (!sourceGroups.has(sourceKey)) {
+      sourceGroups.set(sourceKey, {
+        source_medium: sourceKey,
+        utm_source: source.utm_source,
+        utm_medium: source.utm_medium,
+        requests_created: 0,
+      })
+    }
+    sourceGroups.get(sourceKey).requests_created += 1
+  })
+
+  return {
+    count: rows.length,
+    source: config.requestsTable,
+    sourceDetailsAvailable,
+    rows: Array.from(groups.values()).sort((a, b) => b.requests_created - a.requests_created),
+    requestRows,
+    topSources: Array.from(sourceGroups.values()).sort((a, b) => b.requests_created - a.requests_created),
     start,
     end,
   }

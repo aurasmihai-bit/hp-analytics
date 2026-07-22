@@ -70,16 +70,30 @@ export async function logSync(params) {
 }
 
 export async function upsertWeeklyReport(weekStart, weekEnd, payload) {
-  return sbFetch('/hp_analytics_weekly_reports?on_conflict=week_start', {
-    method: 'POST',
-    prefer: 'resolution=merge-duplicates,return=representation',
-    body: JSON.stringify({
-      week_start:  weekStart,
-      week_end:    weekEnd,
-      created_at:  new Date().toISOString(),
-      ...payload,
-    }),
-  })
+  const body = {
+    week_start:  weekStart,
+    week_end:    weekEnd,
+    created_at:  new Date().toISOString(),
+    ...payload,
+  }
+  try {
+    return await sbFetch('/hp_analytics_weekly_reports?on_conflict=week_start', {
+      method: 'POST',
+      prefer: 'resolution=merge-duplicates,return=representation',
+      body: JSON.stringify(body),
+    })
+  } catch (error) {
+    const message = String(error?.message || error)
+    if (message.includes('legacy_form_views') && (message.includes('PGRST204') || message.toLowerCase().includes('schema cache'))) {
+      const { legacy_form_views, ...fallbackBody } = body
+      return sbFetch('/hp_analytics_weekly_reports?on_conflict=week_start', {
+        method: 'POST',
+        prefer: 'resolution=merge-duplicates,return=representation',
+        body: JSON.stringify(fallbackBody),
+      })
+    }
+    throw error
+  }
 }
 
 export async function getWeeklyReports(limit = 12) {

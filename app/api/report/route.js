@@ -3,7 +3,8 @@ import { getLatestSnapshot, upsertSnapshot, isFresh, logSync, getTabDailyRows, u
 import { getOptionalEnv, requireEnv } from '../../lib/env'
 import { fetchReportGa4Data, fetchReportGa4DailyData } from '../../lib/ga4'
 import { fetchGscData, fetchGscDailyData } from '../../lib/gsc'
-import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats } from '../../lib/platform'
+import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats } from '../../lib/platform'
+import { fetchAmplitudeAnalytics } from '../../lib/amplitude'
 
 export const maxDuration = 60
 
@@ -233,7 +234,7 @@ function isExactPath(rowPath, targetPath) {
 
 function isConciergePath(path) {
   const clean = normalizeAnalyticsPath(path)
-  return clean === '/concierge'
+  return clean === '/aliat'
 }
 
 function pageRowFor(pages, targetPath) {
@@ -325,6 +326,23 @@ async function attachPlatformRequestData(data, currFrom, currTo) {
   } catch (e) {
     console.warn('Platform request stats failed:', e.message)
   }
+  try {
+    data.platformRequestSources = await fetchPlatformRequestSourceStats({ start: currFrom, end: currTo })
+    const byPath = new Map((data.platformRequestSources?.rows || []).map(row => [normalizeAnalyticsPath(row.landing_path), row.requests_created]))
+    data.pages = {
+      ...(data.pages || {}),
+      current: (data.pages?.current || []).map(page => {
+        const key = normalizeAnalyticsPath(page.page_path)
+        return {
+          ...page,
+          requests_created: byPath.has(key) ? byPath.get(key) : null,
+          requests_created_source: data.platformRequestSources?.sourceDetailsAvailable ? 'buyer_requests' : 'unavailable',
+        }
+      }),
+    }
+  } catch (e) {
+    console.warn('Platform request source stats failed:', e.message)
+  }
   return data
 }
 
@@ -395,6 +413,15 @@ function missingConciergeTrafficRanges(rows, start, end) {
   return mergeRanges(dates.map(date => ({ start: date, end: date })))
 }
 
+function missingReferralRanges(rows, start, end) {
+  const byDate = new Map((rows || []).map(row => [row.data_date, row]))
+  const dates = eachDate(start, end).filter(date => {
+    const payload = byDate.get(date)?.payload
+    return !payload || payload.referrals?.schemaVersion !== 1
+  })
+  return mergeRanges(dates.map(date => ({ start: date, end: date })))
+}
+
 function emptyTabDay(date) {
   return {
     date,
@@ -418,6 +445,10 @@ function emptyTabDay(date) {
     },
     conciergeTraffic: {
       schemaVersion: CONCIERGE_TRAFFIC_SCHEMA_VERSION,
+      rows: [],
+    },
+    referrals: {
+      schemaVersion: 1,
       rows: [],
     },
     platformRequests: { count: 0, source: null, start: date, end: date },
@@ -965,11 +996,25 @@ function emptyHeaderVariant(key, label) {
 }
 
 function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
-  const byVariant = new Map(HEADER_MENU_VARIANTS.map(v => [v.key, { ...emptyHeaderVariant(v.key, v.label), __sessions: new Set() }]))
-  const previousByVariant = new Map(HEADER_MENU_VARIANTS.map(v => [v.key, { views: 0, requests_created: 0, properties_created: 0 }]))
+  const byVariant = new Map(HEADER_MENU_VARIANTS.map(v => [v.key, { ...emptyHeaderVariant(v.key, v.label), __sessions: new Set(), __requestIds: new Set(), __propertyIds: new Set() }]))
+  const previousByVariant = new Map(HEADER_MENU_VARIANTS.map(v => [v.key, { views: 0, requests_created: 0, properties_created: 0, __requestIds: new Set(), __propertyIds: new Set() }]))
   const timeline = new Map()
 
   const normalizeVariant = variant => HEADER_MENU_VARIANTS.some(v => v.key === variant) ? variant : 'control'
+  const eventMeta = row => row?.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const requestEventId = row => {
+    const meta = eventMeta(row)
+    return meta.request_id || meta.buyer_request_id || meta.requestId || meta.request?.id || row.request_id || row.buyer_request_id || `${row.session_id || row.user_id || 'anon'}:${eventDate(row.created_at) || ''}:request`
+  }
+  const propertyEventId = row => {
+    const meta = eventMeta(row)
+    return meta.property_id || meta.propertyId || meta.property?.id || row.property_id || `${row.session_id || row.user_id || 'anon'}:${eventDate(row.created_at) || ''}:property`
+  }
+  const countUnique = (set, id) => {
+    if (!id || set.has(id)) return false
+    set.add(id)
+    return true
+  }
 
   events.forEach(row => {
     const variant = normalizeVariant(row.variant)
@@ -982,8 +1027,12 @@ function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
     if (eventType === 'cta_contact') target.contact_clicks += 1
     if (eventType === 'cta_create_request') target.request_cta_clicks += 1
     if (eventType === 'cta_add_property') target.property_cta_clicks += 1
-    if (eventType === 'request_created' || eventType === 'guest_request_created') target.requests_created += 1
-    if (eventType === 'property_created') target.properties_created += 1
+    const isRequestCreated = eventType === 'request_created' || eventType === 'guest_request_created'
+    const isPropertyCreated = eventType === 'property_created'
+    const requestCounted = isRequestCreated && countUnique(target.__requestIds, requestEventId(row))
+    const propertyCounted = isPropertyCreated && countUnique(target.__propertyIds, propertyEventId(row))
+    if (requestCounted) target.requests_created += 1
+    if (propertyCounted) target.properties_created += 1
 
     const date = eventDate(row.created_at)
     if (date) {
@@ -997,13 +1046,15 @@ function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
           clicks: 0,
           requests_created: 0,
           properties_created: 0,
+          __requestIds: new Set(),
+          __propertyIds: new Set(),
         })
       }
       const day = timeline.get(key)
       if (eventType === 'header_menu_view') day.views += 1
       if (eventType === 'header_menu_click') day.clicks += 1
-      if (eventType === 'request_created' || eventType === 'guest_request_created') day.requests_created += 1
-      if (eventType === 'property_created') day.properties_created += 1
+      if (isRequestCreated && countUnique(day.__requestIds, requestEventId(row))) day.requests_created += 1
+      if (isPropertyCreated && countUnique(day.__propertyIds, propertyEventId(row))) day.properties_created += 1
     }
   })
 
@@ -1011,8 +1062,8 @@ function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
     const target = previousByVariant.get(normalizeVariant(row.variant))
     if (!target) return
     if (row.event_type === 'header_menu_view') target.views += 1
-    if (row.event_type === 'request_created' || row.event_type === 'guest_request_created') target.requests_created += 1
-    if (row.event_type === 'property_created') target.properties_created += 1
+    if ((row.event_type === 'request_created' || row.event_type === 'guest_request_created') && countUnique(target.__requestIds, requestEventId(row))) target.requests_created += 1
+    if (row.event_type === 'property_created' && countUnique(target.__propertyIds, propertyEventId(row))) target.properties_created += 1
   })
 
   const variants = HEADER_MENU_VARIANTS.map(v => {
@@ -1026,6 +1077,8 @@ function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
     row.previous_request_rate = parseFloat(rateFromViews(prev.requests_created || 0, prev.views || 0).toFixed(2))
     row.previous_property_rate = parseFloat(rateFromViews(prev.properties_created || 0, prev.views || 0).toFixed(2))
     delete row.__sessions
+    delete row.__requestIds
+    delete row.__propertyIds
     return row
   })
 
@@ -1036,6 +1089,7 @@ function summarizeHeaderMenuEvents(events = [], previousEvents = []) {
       request_rate: parseFloat(rateFromViews(row.requests_created, row.views).toFixed(2)),
       property_rate: parseFloat(rateFromViews(row.properties_created, row.views).toFixed(2)),
     }))
+    .map(({ __requestIds, __propertyIds, ...row }) => row)
     .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || String(a.variant || '').localeCompare(String(b.variant || '')))
 
   const totalViews = variants.reduce((sum, row) => sum + row.views, 0)
@@ -1205,11 +1259,13 @@ function paymentRangeEnd(date) {
 function normalizePaymentEvent(row = {}) {
   const amount = Number(row.amount_total || 0)
   const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
+  const customerDetails = metadata.customer_details && typeof metadata.customer_details === 'object' ? metadata.customer_details : {}
+  const userEmail = row.user_email || row.customer_email || metadata.user_email || metadata.email || metadata.customer_email || customerDetails.email || ''
   return {
     id: row.id || row.stripe_event_id || row.stripe_session_id,
     event_type: row.event_type || 'unknown',
     user_id: row.user_id || '',
-    user_email: metadata.user_email || metadata.email || '',
+    user_email: userEmail,
     stripe_session_id: row.stripe_session_id || '',
     stripe_event_id: row.stripe_event_id || '',
     payment_type: row.payment_type || metadata.payment_type || 'unknown',
@@ -1359,6 +1415,27 @@ async function attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo) 
   return data
 }
 
+async function attachAmplitudeAnalytics(data, currFrom, currTo) {
+  try {
+    data.amplitudeAnalytics = await fetchAmplitudeAnalytics({ start: currFrom, end: currTo })
+  } catch (e) {
+    data.amplitudeAnalytics = {
+      schemaVersion: 1,
+      setupIssue: e.message || 'Nu pot citi Amplitude.',
+      events: [],
+      llmEvents: [],
+      formEvents: [],
+      timeline: [],
+      recommendations: [{
+        type: 'negative',
+        title: 'Nu pot citi Amplitude',
+        body: e.message || 'Verifica AMPLITUDE_API_KEY, AMPLITUDE_SECRET_KEY si limitele API.',
+      }],
+    }
+  }
+  return data
+}
+
 function aggregateConciergeRows(rows = []) {
   const aggregate = (keyFn, seedFn) => {
     const groups = new Map()
@@ -1408,6 +1485,76 @@ function aggregateConciergeRows(rows = []) {
   ).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')))
 
   return { referrers, sources, devices, timeline }
+}
+
+function buildReferralAnalysisFromPayloads(currentPayloads = [], previousPayloads = []) {
+  const rows = currentPayloads.flatMap(payload => payload.referrals?.rows || [])
+  const previousRows = previousPayloads.flatMap(payload => payload.referrals?.rows || [])
+  const aggregate = (items = []) => {
+    const groups = new Map()
+    items.forEach(row => {
+      const referrer = row.referrer_full || row.page_referrer || '(direct)'
+      const landing = row.landing_path || row.page_path || '/'
+      const key = `${referrer}::${landing}`
+      if (!groups.has(key)) {
+        groups.set(key, {
+          referrer_full: referrer,
+          landing_path: landing,
+          screen_page_views: 0,
+          active_users: 0,
+          conversions: 0,
+          session_source_medium: row.session_source_medium || '(not set)',
+          session_default_channel_group: row.session_default_channel_group || '(not set)',
+          __rows: [],
+        })
+      }
+      const acc = groups.get(key)
+      acc.screen_page_views += Number(row.screen_page_views || 0)
+      acc.active_users += Number(row.active_users || 0)
+      acc.conversions += Number(row.conversions || 0)
+      acc.__rows.push(row)
+    })
+    return Array.from(groups.values()).map(group => {
+      group.engagement_rate = weightedMetric(group.__rows || [], 'engagement_rate')
+      group.bounce_rate = weightedMetric(group.__rows || [], 'bounce_rate')
+      group.conversion_rate = parseFloat(rateFromViews(group.conversions, group.screen_page_views).toFixed(2))
+      delete group.__rows
+      return group
+    }).sort((a, b) => Number(b.conversions || 0) - Number(a.conversions || 0) || Number(b.screen_page_views || 0) - Number(a.screen_page_views || 0))
+  }
+  const list = aggregate(rows)
+  const previousList = aggregate(previousRows)
+  const previousViews = previousList.reduce((sum, row) => sum + Number(row.screen_page_views || 0), 0)
+  const previousConversions = previousList.reduce((sum, row) => sum + Number(row.conversions || 0), 0)
+  const views = list.reduce((sum, row) => sum + Number(row.screen_page_views || 0), 0)
+  const conversions = list.reduce((sum, row) => sum + Number(row.conversions || 0), 0)
+  return {
+    schemaVersion: 1,
+    rows: list,
+    rawRows: rows,
+    summary: {
+      referrers: list.length,
+      views,
+      previous_views: previousViews,
+      conversions,
+      previous_conversions: previousConversions,
+      conversion_rate: parseFloat(rateFromViews(conversions, views).toFixed(2)),
+      previous_conversion_rate: parseFloat(rateFromViews(previousConversions, previousViews).toFixed(2)),
+    },
+    recommendations: list.length ? [
+      {
+        type: 'info',
+        title: 'Pastreaza linkul complet de referrer',
+        body: 'Pentru fiecare conversie urmarim referrer full URL, landing path si conversii. Cand referrerul apare direct, foloseste UTM-uri pe CTA-urile interne si campanii.',
+      },
+    ] : [
+      {
+        type: 'neutral',
+        title: 'Nu exista referrers detaliati in interval',
+        body: 'Ruleaza sync dupa deploy. Daca in continuare lipsesc, verifica daca GA4 primeste pageReferrer si conversii pe evenimentele relevante.',
+      },
+    ],
+  }
 }
 
 function aggregateConciergeClicks(rows = []) {
@@ -1516,8 +1663,8 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
   const previousRows = previousPayloads.flatMap(payload => payload.conciergeTraffic?.rows || [])
   const currPages = currentPages || aggregatePages(currentPayloads)
   const prevPages = previousPages || aggregatePages(previousPayloads)
-  const page = pageRowFor(currPages, '/concierge') || {}
-  const prevPage = pageRowFor(prevPages, '/concierge') || {}
+  const page = pageRowFor(currPages, '/aliat') || {}
+  const prevPage = pageRowFor(prevPages, '/aliat') || {}
   const views = Number(page.screen_page_views || rows.reduce((sum, row) => sum + Number(row.screen_page_views || 0), 0))
   const prevViews = Number(prevPage.screen_page_views || previousRows.reduce((sum, row) => sum + Number(row.screen_page_views || 0), 0))
   const conversions = Number(page.conversions || rows.reduce((sum, row) => sum + Number(row.conversions || 0), 0))
@@ -1538,21 +1685,21 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
   if (views === 0) {
     recommendations.push({
       type: 'neutral',
-      title: 'Nu exista trafic pe /concierge in interval',
-      body: 'Leaga CTA-urile din /bravo, paginile de cereri si articolele de ghid catre /concierge cu UTM-uri separate.',
+      title: 'Nu exista trafic pe /aliat in interval',
+      body: 'Leaga CTA-urile din /bravo, paginile de cereri si articolele de ghid catre /aliat cu UTM-uri separate.',
     })
   } else {
     if (conversionRate < 2) {
       recommendations.push({
         type: 'negative',
-        title: 'Conversia /concierge este sub prag',
+        title: 'Conversia /aliat este sub prag',
         body: `Conversie ${conversionRate.toFixed(1)}%. Pune zona de selectare servicii si total estimat mai sus, cu CTA portocaliu/verde clar.`,
       })
     }
     if (bounceRate >= 0.4) {
       recommendations.push({
         type: 'negative',
-        title: 'Bounce ridicat pe /concierge',
+        title: 'Bounce ridicat pe /aliat',
         body: `Bounce ${Math.round(bounceRate * 100)}%. Simplifica primul ecran: 6 servicii, pret, CTA, apoi detalii in accordion.`,
       })
     }
@@ -1567,7 +1714,7 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
       recommendations.push({
         type: 'info',
         title: 'Referrer direct dominant',
-        body: 'Adauga UTM-uri pe CTA-urile interne catre /concierge ca sa vezi exact ce pagina produce intent comercial.',
+        body: 'Adauga UTM-uri pe CTA-urile interne catre /aliat ca sa vezi exact ce pagina produce intent comercial.',
       })
     }
     if (topSource) {
@@ -1580,7 +1727,7 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
     if (topClicks.length === 0) {
       recommendations.push({
         type: 'neutral',
-        title: 'Click-urile pe /concierge nu sunt inca suficient etichetate',
+        title: 'Click-urile pe /aliat nu sunt inca suficient etichetate',
         body: 'Adauga event-uri dedicate pentru selectare serviciu, plus/minus, submit formular si click plata ca sa vezi exact unde exista intent.',
       })
     }
@@ -1608,7 +1755,7 @@ function buildConciergeTrafficAnalysisFromPayloads(currentPayloads = [], previou
     heatmap,
     recommendations,
     notes: {
-      conversion: 'Conversia foloseste metricul GA4 conversions pentru pagina /concierge. Pentru lead-uri reale, verifica si CRM Concierge.',
+      conversion: 'Conversia foloseste metricul GA4 conversions pentru pagina /aliat. Pentru lead-uri reale, verifica si CRM Servicii/Aliat.',
       referrer: 'Referrerul vine din GA4 pageReferrer; cand lipseste sau e direct, folosim "(direct)".',
     },
   }
@@ -1795,6 +1942,7 @@ function composeFromTabDailyRows(rows, currFrom, currTo, prevFrom, prevTo) {
     exitAnalysis: buildExitAnalysisFromPayloads(currentPayloads, currentPages),
     homepageVariants: buildHomepageVariantAnalysisFromPayloads(currentPayloads, previousPayloads, currentPages, previousPages),
     conciergeTraffic: buildConciergeTrafficAnalysisFromPayloads(currentPayloads, previousPayloads, currentPages, previousPages),
+    referrals: buildReferralAnalysisFromPayloads(currentPayloads, previousPayloads),
     platformRequests: aggregatePlatformRequests(currentPayloads, currFrom, currTo),
   }
 }
@@ -1813,6 +1961,7 @@ async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, force
     ...missingExitAnalysisRanges(initialRows, rangeStart, rangeEnd),
     ...missingRequestFormEventRanges(initialRows, rangeStart, rangeEnd),
     ...missingConciergeTrafficRanges(initialRows, rangeStart, rangeEnd),
+    ...missingReferralRanges(initialRows, rangeStart, rangeEnd),
   ])
 
   for (const range of ranges) {
@@ -2326,6 +2475,7 @@ function buildResponse(snap, label, days, now) {
     requestFormEvents: snap.request_form_events || { schemaVersion: REQUEST_FORM_EVENTS_SCHEMA_VERSION, rows: [] },
     homepageVariants: snap.homepage_variants,
     conciergeTraffic: snap.concierge_traffic || { schemaVersion: CONCIERGE_TRAFFIC_SCHEMA_VERSION, rows: [] },
+    referrals: snap.referrals || { schemaVersion: 1, rows: [], summary: { referrers: 0, views: 0, conversions: 0 } },
     recommendations: snap.recommendations,
   }
 }
@@ -2356,8 +2506,10 @@ export async function GET(request) {
       attachExitAnalysis(data)
       attachHomepageVariantAnalysis(data)
       attachConciergeTrafficAnalysis(data)
+      await attachPlatformRequestData(data, currFrom, currTo)
       await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
       await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
+      await attachAmplitudeAnalytics(data, currFrom, currTo)
       data.recommendations = generateRecommendations({ ...data, days })
       return NextResponse.json({
         generatedAt: now.toISOString(),
@@ -2398,6 +2550,7 @@ export async function GET(request) {
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
+          await attachAmplitudeAnalytics(built, currFrom, currTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -2421,6 +2574,7 @@ export async function GET(request) {
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
+          await attachAmplitudeAnalytics(built, currFrom, currTo)
           built.recommendations = generateRecommendations(built)
         }
         if (hasUsefulReportMetrics(built)) {
@@ -2470,6 +2624,7 @@ export async function GET(request) {
     attachConciergeTrafficAnalysis(data)
     await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
     await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
+    await attachAmplitudeAnalytics(data, currFrom, currTo)
     data.recommendations = generateRecommendations({ ...data, days })
 
     // ── 3. Save to Supabase ────────────────────────────────────────

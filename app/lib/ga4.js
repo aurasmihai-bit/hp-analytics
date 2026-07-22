@@ -141,13 +141,13 @@ function isRequestFormEventName(value) {
 
 function isConciergePath(value) {
   const path = String(value || '')
-  return path === '/concierge' || path.startsWith('/concierge?')
+  return path === '/aliat' || path.startsWith('/aliat?')
 }
 
 function isConciergeInteractionEventName(value) {
   const name = String(value || '').toLowerCase()
   if (!name || ['page_view', 'session_start', 'first_visit', 'user_engagement', 'scroll'].includes(name)) return false
-  return /(click|select|service|concierge|checkout|submit|form|contact|payment|add_to_cart|begin_checkout)/.test(name)
+  return /(click|select|service|aliat|concierge|checkout|submit|form|contact|payment|add_to_cart|begin_checkout)/.test(name)
 }
 
 function mapTrafficRows(rows) {
@@ -276,6 +276,8 @@ function mapConciergeTrafficRows(rows, hasDate = false) {
         ...(hasDate ? { date: gaDate(dim(row, 0)) } : {}),
         page_path: dim(row, offset) || '/',
         page_referrer: dim(row, offset + 1) || '(direct)',
+        landing_path: dim(row, offset) || '/',
+        referrer_full: dim(row, offset + 1) || '(direct)',
         session_default_channel_group: dim(row, offset + 2) || '(not set)',
         session_source_medium: dim(row, offset + 3) || '(not set)',
         device_category: dim(row, offset + 4) || '(not set)',
@@ -289,6 +291,30 @@ function mapConciergeTrafficRows(rows, hasDate = false) {
       }
     })
     .filter(row => isConciergePath(row.page_path))
+}
+
+function mapReferralRows(rows, hasDate = false) {
+  return rows
+    .map(row => {
+      const offset = hasDate ? 1 : 0
+      const pagePath = dim(row, offset + 1) || '/'
+      return {
+        ...(hasDate ? { date: gaDate(dim(row, 0)) } : {}),
+        page_referrer: dim(row, offset) || '(direct)',
+        referrer_full: dim(row, offset) || '(direct)',
+        landing_path: pagePath,
+        page_path: pagePath,
+        session_default_channel_group: dim(row, offset + 2) || '(not set)',
+        session_source_medium: dim(row, offset + 3) || '(not set)',
+        device_category: dim(row, offset + 4) || '(not set)',
+        screen_page_views: metric(row, 0),
+        active_users: metric(row, 1),
+        conversions: metric(row, 2),
+        engagement_rate: metric(row, 3),
+        bounce_rate: metric(row, 4),
+      }
+    })
+    .filter(row => !row.page_path.includes('/admin'))
 }
 
 function mapConciergeClickRows(rows, hasDate = false, hasLinkUrl = true) {
@@ -411,6 +437,35 @@ async function fetchConciergeClickRows(accessToken, propertyId, startDate, endDa
   }
 }
 
+async function fetchReferralRows(accessToken, propertyId, startDate, endDate, includeDate = false) {
+  try {
+    const rows = await runReport(accessToken, propertyId, {
+      startDate,
+      endDate,
+      dimensions: [
+        ...(includeDate ? ['date'] : []),
+        'pageReferrer',
+        'pagePath',
+        'sessionDefaultChannelGroup',
+        'sessionSourceMedium',
+        'deviceCategory',
+      ],
+      metrics: [
+        'screenPageViews',
+        'activeUsers',
+        'conversions',
+        'engagementRate',
+        'bounceRate',
+      ],
+      limit: 10000,
+    })
+    return mapReferralRows(rows, includeDate)
+  } catch (error) {
+    console.warn('GA4 referrals report failed:', error.message)
+    return []
+  }
+}
+
 export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFrom, prevTo }) {
   const accessToken = await getGoogleAccessToken(GA4_SCOPE)
   const trafficMetrics = ['sessions', 'newUsers', 'engagedSessions', 'engagementRate', 'averageSessionDuration', 'conversions']
@@ -462,11 +517,12 @@ export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFro
     { startDate: currFrom, endDate: currTo, dimensions: ['sessionDefaultChannelGroup', 'pagePath'], metrics: ['screenPageViews', 'activeUsers', 'conversions'] },
     { startDate: currFrom, endDate: currTo, dimensions: ['date'], metrics: trackingMetrics },
   ])
-  const [exitIntentRows, requestFormEventRows, conciergeTrafficRows, conciergeClickRows] = await Promise.all([
+  const [exitIntentRows, requestFormEventRows, conciergeTrafficRows, conciergeClickRows, referralRows] = await Promise.all([
     fetchExitIntentRows(accessToken, propertyId, currFrom, currTo),
     fetchRequestFormEventRows(accessToken, propertyId, currFrom, currTo),
     fetchConciergeTrafficRows(accessToken, propertyId, currFrom, currTo),
     fetchConciergeClickRows(accessToken, propertyId, currFrom, currTo),
+    fetchReferralRows(accessToken, propertyId, currFrom, currTo),
   ])
 
   return {
@@ -517,6 +573,10 @@ export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFro
       rows: conciergeTrafficRows,
       clickRows: conciergeClickRows,
     },
+    referrals: {
+      schemaVersion: 1,
+      rows: referralRows,
+    },
   }
 }
 
@@ -544,6 +604,10 @@ function emptyDailyPayload(date) {
       schemaVersion: CONCIERGE_TRAFFIC_SCHEMA_VERSION,
       rows: [],
       clickRows: [],
+    },
+    referrals: {
+      schemaVersion: 1,
+      rows: [],
     },
   }
 }
@@ -601,11 +665,12 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
     { startDate: start, endDate: end, dimensions: ['date', 'sessionDefaultChannelGroup', 'pagePath'], metrics: ['screenPageViews', 'activeUsers', 'conversions'] },
     { startDate: start, endDate: end, dimensions: ['date'], metrics: trackingMetrics },
   ])
-  const [exitIntentRows, requestFormEventRows, conciergeTrafficRows, conciergeClickRows] = await Promise.all([
+  const [exitIntentRows, requestFormEventRows, conciergeTrafficRows, conciergeClickRows, referralRows] = await Promise.all([
     fetchExitIntentRows(accessToken, propertyId, start, end),
     fetchRequestFormEventRows(accessToken, propertyId, start, end),
     fetchConciergeTrafficRows(accessToken, propertyId, start, end, true),
     fetchConciergeClickRows(accessToken, propertyId, start, end, true),
+    fetchReferralRows(accessToken, propertyId, start, end, true),
   ])
 
   const days = {}
@@ -746,6 +811,11 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
   conciergeClickRows.forEach(row => {
     const day = ensureDailyPayload(days, row.date)
     day.conciergeTraffic.clickRows.push(row)
+  })
+
+  referralRows.forEach(row => {
+    const day = ensureDailyPayload(days, row.date)
+    day.referrals.rows.push(row)
   })
 
   return days

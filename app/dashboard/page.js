@@ -8,7 +8,7 @@ import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
 import { TabExitIntent } from './tabs6'
-import { TabHomepageConversions, TabConciergeTraffic, TabHeaderMenuAB, TabPayments } from './tabs8'
+import { TabHomepageConversions, TabConciergeTraffic, TabHeaderMenuAB, TabPayments, TabReferrals, TabLlmVisibility, TabAmplitude } from './tabs8'
 import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from './theme'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
@@ -298,7 +298,10 @@ const TABS=[
   {id:'exit',      label:'Exit intent'},
   {id:'homepages', label:'Homepages A/B'},
   {id:'header_ab', label:'Header A/B'},
-  {id:'concierge_traffic', label:'Trafic concierge'},
+  {id:'concierge_traffic', label:'Trafic /aliat'},
+  {id:'referrals', label:'Referrals'},
+  {id:'llm_visibility', label:'Vizibilitate LLM'},
+  {id:'amplitude', label:'Amplitude'},
   {id:'payments', label:'Plăți'},
   {id:'funnel',    label:'Funnel'},
   {id:'cerere',    label:'Analiza formular cereri'},
@@ -433,9 +436,10 @@ export default function Dashboard() {
       <div style={{background:C.card,borderBottom:`0.5px solid ${C.border}`,padding:'0 16px',display:'flex',gap:0,overflowX:'auto'}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{
-            padding:'11px 13px',fontSize:12,fontWeight:t.id===tab?500:400,border:'none',
+            padding:'8px 9px',fontSize:11,fontWeight:t.id===tab?500:400,border:'none',
             borderBottom:`2px solid ${t.id===tab?C.blue:'transparent'}`,
-            background:'transparent',color:t.id===tab?C.blue:C.muted,cursor:'pointer',whiteSpace:'nowrap',
+            background:'transparent',color:t.id===tab?C.blue:C.muted,cursor:'pointer',whiteSpace:'normal',
+            lineHeight:1.15,maxWidth:86,minWidth:64,minHeight:40,textAlign:'center',
             ...(t.id==='recomandari'?{color:t.id===tab?C.green:C.muted,borderBottomColor:t.id===tab?C.green:'transparent'}:{})
           }}>{t.id==='recomandari'?'★ '+t.label:t.label}</button>
         ))}
@@ -453,6 +457,9 @@ export default function Dashboard() {
           {tab==='homepages'   &&<TabHomepageConversions data={data}/>}
           {tab==='header_ab'   &&<TabHeaderMenuAB data={data}/>}
           {tab==='concierge_traffic' &&<TabConciergeTraffic data={data}/>}
+          {tab==='referrals'    &&<TabReferrals data={data}/>}
+          {tab==='llm_visibility' &&<TabLlmVisibility data={data}/>}
+          {tab==='amplitude'    &&<TabAmplitude data={data}/>}
           {tab==='payments'    &&<TabPayments data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}
           {tab==='cerere'      &&<TabCerereNoua      data={data}/>}

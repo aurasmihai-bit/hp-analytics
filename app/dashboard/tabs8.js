@@ -149,8 +149,8 @@ export function TabHomepageConversions({ data }) {
 }
 
 function fallbackConciergeAnalysis(data) {
-  const page = (data.pages?.current || []).find(row => row.page_path === '/concierge') || {}
-  const prev = (data.pages?.previous || []).find(row => row.page_path === '/concierge') || {}
+  const page = (data.pages?.current || []).find(row => row.page_path === '/aliat') || {}
+  const prev = (data.pages?.previous || []).find(row => row.page_path === '/aliat') || {}
   const views = Number(page.screen_page_views || 0)
   const conversions = Number(page.conversions || 0)
   return {
@@ -217,7 +217,7 @@ function InteractionTable({ rows }) {
             <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.active_users)}</span>
           </div>
         ))}
-        {(!rows || rows.length === 0) && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista click-uri etichetate pentru /concierge pe acest interval.</p>}
+        {(!rows || rows.length === 0) && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista click-uri etichetate pentru /aliat pe acest interval.</p>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 72px 74px',gap:10,marginTop:8,paddingTop:8,borderTop:`0.5px solid ${C.border}`}}>
           <span style={{fontSize:10,color:C.hint,textTransform:'uppercase'}}>Target / event</span>
           <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Click-uri</span>
@@ -261,7 +261,7 @@ function ConciergeHeatmap({ heatmap }) {
   const devices = heatmap?.devices || []
   const getCell = (date, device) => cells.find(cell => cell.date === date && cell.device_category === device)
   return (
-    <Sec title="Heatmap trafic /concierge">
+    <Sec title="Heatmap trafic /aliat">
       <Card style={{padding:'12px 14px',overflowX:'auto'}}>
         {dates.length > 0 && devices.length > 0 ? (
           <div style={{minWidth:Math.max(520, dates.length * 48)}}>
@@ -316,13 +316,13 @@ export function TabConciergeTraffic({ data }) {
   return (
     <div>
       <Grid>
-        <KPI label="/concierge views" curr={summary.views || 0} prev={summary.previous_views}/>
+        <KPI label="/aliat views" curr={summary.views || 0} prev={summary.previous_views}/>
         <KPI label="Conversii" curr={summary.conversions || 0} prev={summary.previous_conversions}/>
         <KPI label="Rata conversie" curr={summary.conversion_rate || 0} prev={summary.previous_conversion_rate} type="pctN"/>
         <KPI label="Bounce rate" curr={summary.bounce_rate || 0} type="pct" sub={`${sec(summary.average_session_duration)} time on page`}/>
       </Grid>
 
-      <Sec title="Evolutie /concierge">
+      <Sec title="Evolutie /aliat">
         <Card>
           <LineChart
             data={timeline}
@@ -359,11 +359,185 @@ export function TabConciergeTraffic({ data }) {
       <Sec title="Note masurare">
         <Card>
           <p style={{fontSize:12,color:C.muted,lineHeight:1.55,margin:0}}>
-            Conversia vine din GA4 `conversions` pe pagina `/concierge`. Pentru confirmare operationala, compara periodic cu cererile salvate in CRM Concierge.
+            Conversia vine din GA4 `conversions` pe pagina `/aliat`. Pentru confirmare operationala, compara periodic cu cererile salvate in CRM Servicii/Aliat.
             Referrerul vine din `pageReferrer`; pentru CTA-uri interne recomand UTM-uri dedicate, altfel multe vizite apar ca direct sau fara sursa clara.
           </p>
         </Card>
       </Sec>
+    </div>
+  )
+}
+
+export function TabReferrals({ data }) {
+  const analysis = data.referrals || { summary: {}, rows: [], recommendations: [] }
+  const summary = analysis.summary || {}
+  const rows = analysis.rows || []
+  return (
+    <div>
+      <Grid>
+        <KPI label="Referrers + landing" curr={summary.referrers || rows.length || 0}/>
+        <KPI label="Views din referrers" curr={summary.views || 0} prev={summary.previous_views}/>
+        <KPI label="Conversii" curr={summary.conversions || 0} prev={summary.previous_conversions}/>
+        <KPI label="Rata conversie" curr={summary.conversion_rate || 0} prev={summary.previous_conversion_rate} type="pctN"/>
+      </Grid>
+      <Sec title="Referrers cu URL complet + landing path + conversii">
+        <Card style={{padding:'10px 14px',overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:760}}>
+            <thead>
+              <tr style={{borderBottom:`0.5px solid ${C.border}`}}>
+                {['Full referrer URL','Landing path','Sursa / medium','Views','Conversii','Conv rate'].map(h => (
+                  <th key={h} style={{textAlign:h === 'Views' || h === 'Conversii' || h === 'Conv rate' ? 'right' : 'left',padding:'7px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 80).map((row, index) => (
+                <tr key={`${row.referrer_full}-${row.landing_path}-${index}`} style={{borderBottom:`0.5px solid ${C.border}`}}>
+                  <td style={{padding:'8px',maxWidth:320,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:C.text}} title={row.referrer_full}>{row.referrer_full || '(direct)'}</td>
+                  <td style={{padding:'8px',maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontWeight:600}} title={row.landing_path}>
+                    <PageLink path={row.landing_path || '/'}>{row.landing_path || '/'}</PageLink>
+                  </td>
+                  <td style={{padding:'8px',color:C.muted}}>{row.session_source_medium || '(not set)'}</td>
+                  <td style={{padding:'8px',textAlign:'right',color:C.muted}}>{fmtN(row.screen_page_views)}</td>
+                  <td style={{padding:'8px',textAlign:'right',color:Number(row.conversions || 0) > 0 ? C.green : C.muted,fontWeight:600}}>{fmtN(row.conversions)}</td>
+                  <td style={{padding:'8px',textAlign:'right',color:Number(row.conversion_rate || 0) > 0 ? C.green : C.hint,fontWeight:600}}>{pct(row.conversion_rate)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rows.length === 0 && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista date detaliate de referrer pe intervalul selectat. Apasa sync dupa deploy pentru populare.</p>}
+        </Card>
+      </Sec>
+      <RecommendationList items={analysis.recommendations}/>
+    </div>
+  )
+}
+
+export function TabLlmVisibility({ data }) {
+  const pages = data.pages?.current || []
+  const gsc = data.gsc || {}
+  const agentReadyPages = [
+    { label:'API catalog', path:'/.well-known/api-catalog' },
+    { label:'Agent skills index', path:'/.well-known/agent-skills/index.json' },
+    { label:'MCP server card', path:'/.well-known/mcp/server-card.json' },
+    { label:'API docs', path:'/api-docs' },
+    { label:'Aliat buyer services', path:'/aliat' },
+    { label:'Cereri servicii', path:'/cereri-servicii' },
+  ]
+  const hasGsc = (gsc.queries || []).length > 0 || (gsc.pages || []).length > 0 || (gsc.current || []).length > 0
+  const indexedAgentPages = agentReadyPages.map(item => {
+    const ga4 = pages.find(page => page.page_path === item.path) || {}
+    const gscPage = (gsc.pages || gsc.current || []).find(page => page.page_path === item.path || page.page === item.path) || {}
+    return {
+      ...item,
+      views: Number(ga4.screen_page_views || 0),
+      clicks: Number(gscPage.organic_google_search_clicks || gscPage.clicks || 0),
+      impressions: Number(gscPage.organic_google_search_impressions || gscPage.impressions || 0),
+      status: Number(ga4.screen_page_views || 0) > 0 || Number(gscPage.organic_google_search_impressions || 0) > 0 ? 'vizibil' : 'de verificat',
+    }
+  })
+  return (
+    <div>
+      <Grid>
+        <KPI label="Pagini agent-ready urmărite" curr={agentReadyPages.length}/>
+        <KPI label="Cu trafic / impresii" curr={indexedAgentPages.filter(row => row.status === 'vizibil').length}/>
+        <KPI label="GSC conectat" curr={hasGsc ? 1 : 0}/>
+        <KPI label="Referrers monitorizați" curr={data.referrals?.summary?.referrers || 0}/>
+      </Grid>
+      <Sec title="Vizibilitate in LLM-uri si agent discovery">
+        <Card>
+          <p style={{fontSize:13,color:C.muted,lineHeight:1.55,margin:'0 0 14px'}}>
+            Acest tab monitorizeaza readiness pentru AI agents si LLM discovery: pagini agent-ready, link headers, API catalog, documentatie si pagini cu intent comercial. Nu inventeaza citari LLM; pentru citari reale trebuie conectat un monitor extern de brand mentions.
+          </p>
+          {indexedAgentPages.map((row, index) => (
+            <div key={row.path} style={{display:'grid',gridTemplateColumns:'1fr 90px 90px 90px',gap:10,alignItems:'center',borderTop:index ? `0.5px solid ${C.border}` : 'none',padding:'9px 0'}}>
+              <div style={{minWidth:0}}>
+                <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 2px'}}>{row.label}</p>
+                <PageLink path={row.path}>{row.path}</PageLink>
+              </div>
+              <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.views)} views</span>
+              <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.impressions)} impr.</span>
+              <span style={{fontSize:11,fontWeight:600,textAlign:'right',color:row.status === 'vizibil' ? C.green : C.amber}}>{row.status}</span>
+            </div>
+          ))}
+        </Card>
+      </Sec>
+      <RecommendationList items={[
+        { type:'info', title:'Urmatorul pas pentru LLM visibility', body:'Adauga monitorizare externa pentru interogari tip ChatGPT/Perplexity/Gemini: nume brand, pagini citate, sentiment si competitori mentionati.' },
+        { type:'neutral', title:'Pastreaza agent discovery verificabil', body:'Verifica periodic /.well-known/api-catalog, agent-skills index, mcp server card si Link headers pe homepage.' },
+      ]}/>
+    </div>
+  )
+}
+
+export function TabAmplitude({ data }) {
+  const analysis = data.amplitudeAnalytics || { events: [], llmEvents: [], formEvents: [], timeline: [], recommendations: [] }
+  const events = analysis.events || []
+  const llmEvents = analysis.llmEvents || []
+  const formEvents = analysis.formEvents || []
+  const totalEvents = events.reduce((sum, row) => sum + Number(row.events || 0), 0)
+  const llmTotal = llmEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
+  const formTotal = formEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
+  const timeline = analysis.timeline || []
+  const topTimelineMetrics = events
+    .filter(row => Number(row.events || 0) > 0)
+    .slice()
+    .sort((a, b) => Number(b.events || 0) - Number(a.events || 0))
+    .slice(0, 4)
+    .map((row, index) => ({ field: row.event_name, label: row.event_name, color: [C.blue, C.green, C.amber, C.purple][index] || C.gray }))
+
+  const EventTable = ({ title, rows }) => (
+    <Sec title={title}>
+      <Card style={{padding:'10px 14px'}}>
+        {(rows || []).map((row, index) => (
+          <div key={`${row.event_name}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10,alignItems:'center',borderBottom:index < rows.length - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+            <div style={{minWidth:0}}>
+              <p style={{fontSize:12,fontWeight:600,color:C.text,margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.event_name}>{row.event_name}</p>
+              {row.error && <p style={{fontSize:10,color:C.red,margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.error}>{row.error}</p>}
+            </div>
+            <span style={{fontSize:13,color:Number(row.events || 0) > 0 ? C.green : C.hint,textAlign:'right',fontWeight:600}}>{fmtN(row.events || 0)}</span>
+          </div>
+        ))}
+        {(!rows || rows.length === 0) && <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista evenimente in aceasta categorie.</p>}
+      </Card>
+    </Sec>
+  )
+
+  return (
+    <div>
+      {analysis.setupIssue && (
+        <Sec title="Setup">
+          <Signal type="neutral" title="Amplitude nu este conectat complet" body={analysis.setupIssue}/>
+        </Sec>
+      )}
+      <Grid>
+        <KPI label="Evenimente Amplitude" curr={totalEvents}/>
+        <KPI label="LLM / agent discovery" curr={llmTotal}/>
+        <KPI label="Funnel formular" curr={formTotal}/>
+        <KPI label="Event names monitorizate" curr={events.length}/>
+      </Grid>
+      {timeline.length > 1 && topTimelineMetrics.length > 0 && (
+        <Sec title="Evolutie evenimente Amplitude">
+          <Card>
+            <LineChart data={timeline} metrics={topTimelineMetrics} height={220}/>
+          </Card>
+        </Sec>
+      )}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:12}}>
+        <EventTable title="Evenimente LLM / agent discovery" rows={llmEvents}/>
+        <EventTable title="Evenimente formular si cereri" rows={formEvents}/>
+      </div>
+      <Sec title="Toate evenimentele monitorizate">
+        <Card style={{padding:'10px 14px'}}>
+          {events.map((row, index) => (
+            <div key={`${row.event_name}-all-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10,alignItems:'center',borderBottom:index < events.length - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
+              <span style={{fontSize:12,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.event_name}>{row.event_name}</span>
+              <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.events || 0)}</span>
+            </div>
+          ))}
+        </Card>
+      </Sec>
+      <RecommendationList items={analysis.recommendations}/>
     </div>
   )
 }

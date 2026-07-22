@@ -1147,6 +1147,10 @@ export function TabCerereTracking({ data }) {
   const daysSinceFirst = firstDay
     ? Math.round((new Date() - new Date(firstDay.date)) / 864e5)
     : null
+  const requestSources = data.platformRequestSources || {}
+  const requestSourceRows = requestSources.rows || []
+  const requestTopSources = requestSources.topSources || []
+  const requestListing = requestSources.requestRows || []
 
   return (
     <div>
@@ -1166,7 +1170,7 @@ export function TabCerereTracking({ data }) {
           <Signal
             type="neutral"
             title="Evenimentele intermediare nu apar inca in raport"
-            body="Dashboard-ul asteapta Form Step Completed, Form Validation Error, Form Abandoned si Request Created. Daca evenimentele sunt doar in Amplitude, trebuie export/mirror catre sursa citita de analytics."
+            body="Dashboard-ul citeste GA4/HomePitch Analytics si asteapta Form Step Completed, Form Validation Error, Form Abandoned si Request Created. Daca evenimentele sunt doar in Amplitude, trebuie export/mirror catre sursa citita de analytics."
           />
         ) : (
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:8}}>
@@ -1209,6 +1213,67 @@ export function TabCerereTracking({ data }) {
           body={`${totalCereri} cereri (${cereriSource === 'platform' ? 'platforma' : 'GA4'}) din ${totalCump} inregistrari cumparatori GA4. ${parseInt(convRate) < 50 ? 'Potential de crestere: dupa inregistrare, redirecteaza userul direct catre formularul de cerere.' : 'Rata buna — mai mult de jumatate din cumparatori adauga cerere.'}`}
         />
       )}
+
+      <Sec title="Surse / referrers cereri reale">
+        {!requestSources.sourceDetailsAvailable && (
+          <Signal
+            type="neutral"
+            title="Sursa cererilor nu este complet disponibila in export"
+            body="Analytics poate numara cererile reale din buyer_requests, dar pentru referrer complet sunt necesare campuri de tip landing_path/referrer/utm in HomePitch."
+          />
+        )}
+        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:12}}>
+          <Card style={{padding:'12px 14px'}}>
+            <h4 style={{fontSize:13,margin:'0 0 10px',color:C.text}}>Top surse</h4>
+            {(requestTopSources.length ? requestTopSources : [{source_medium:'(not set)',requests_created:0}]).slice(0, 10).map((row, index) => (
+              <div key={`${row.source_medium}-${index}`} style={{display:'flex',alignItems:'center',gap:10,borderTop:index?`0.5px solid ${C.border}`:'none',padding:index?'8px 0':'0 0 8px'}}>
+                <span style={{fontSize:12,color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.source_medium}>
+                  {row.source_medium || '(not set)'}
+                </span>
+                <span style={{fontSize:12,fontWeight:600,color:C.blue}}>{fmtN(row.requests_created)}</span>
+              </div>
+            ))}
+          </Card>
+          <Card style={{padding:'12px 14px'}}>
+            <h4 style={{fontSize:13,margin:'0 0 10px',color:C.text}}>Top referrers + landing</h4>
+            {(requestSourceRows.length ? requestSourceRows : [{referrer_full:'—',landing_path:'—',requests_created:0}]).slice(0, 10).map((row, index) => (
+              <div key={`${row.referrer_full}-${row.landing_path}-${index}`} style={{borderTop:index?`0.5px solid ${C.border}`:'none',padding:index?'8px 0':'0 0 8px'}}>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <span style={{fontSize:12,color:C.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.referrer_full}>
+                    {row.referrer_full || '(direct)'}
+                  </span>
+                  <span style={{fontSize:12,fontWeight:600,color:C.blue}}>{fmtN(row.requests_created)}</span>
+                </div>
+                <div style={{fontSize:11,color:C.hint,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.landing_path}>
+                  landing: {row.landing_path && row.landing_path.startsWith('/') ? <PageLink path={row.landing_path}>{row.landing_path}</PageLink> : (row.landing_path || '—')}
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
+      </Sec>
+
+      <Sec title="Listing cereri create cu sursa">
+        <Card style={{padding:0,overflow:'hidden'}}>
+          <div style={{display:'grid',gridTemplateColumns:'90px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',gap:0,background:C.softPanel,borderBottom:`0.5px solid ${C.border}`,fontSize:11,fontWeight:600,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em'}}>
+            {['Data','Landing','Referrer full','Sursa','Tip'].map(label => <div key={label} style={{padding:'9px 10px'}}>{label}</div>)}
+          </div>
+          {(requestListing.length ? requestListing.slice(0, 30) : []).map((row, index) => (
+            <div key={`${row.created_at}-${index}`} style={{display:'grid',gridTemplateColumns:'90px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',borderTop:index?`0.5px solid ${C.border}`:'none',fontSize:12,color:C.text}}>
+              <div style={{padding:'9px 10px',fontFamily:'monospace',color:C.muted}}>{row.date || '—'}</div>
+              <div style={{padding:'9px 10px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.landing_path}>
+                {row.landing_path && row.landing_path.startsWith('/') ? <PageLink path={row.landing_path}>{row.landing_path}</PageLink> : (row.landing_path || '—')}
+              </div>
+              <div style={{padding:'9px 10px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.referrer_full}>{row.referrer_full || '(direct)'}</div>
+              <div style={{padding:'9px 10px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.source_medium}>{row.source_medium || '(not set)'}</div>
+              <div style={{padding:'9px 10px',color:C.muted}}>{row.transaction_type || '—'}</div>
+            </div>
+          ))}
+          {!requestListing.length && (
+            <div style={{padding:'18px',fontSize:13,color:C.hint,textAlign:'center'}}>Nu exista cereri reale cu sursa in perioada selectata.</div>
+          )}
+        </Card>
+      </Sec>
 
       {/* Grafic zilnic principal */}
       <Sec title="Cereri noi adaugate — evolutie zilnica GA4">

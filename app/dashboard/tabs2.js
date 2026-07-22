@@ -65,6 +65,7 @@ function TabPagini({ data }) {
     const conv=p.screen_page_views>0?p.conversions/p.screen_page_views*100:0
     const isHL=HL.includes(p.page_path)
     const pp=prevMap[p.page_path]
+    const realRequests = p.requests_created
     return (
       <tr style={{borderBottom:`0.5px solid ${C.border}`,background:isHL?C.softBlue:'transparent'}}>
         <td style={{padding:'7px 8px',fontFamily:'monospace',fontSize:11,color:isHL?C.blue:C.text,maxWidth:220}}>
@@ -73,6 +74,9 @@ function TabPagini({ data }) {
         <td style={{padding:'7px 8px',color:C.muted}}>{fmtN(p.screen_page_views)}</td>
         <td style={{padding:'7px 8px'}}>{pp?<Delta c={p.screen_page_views} p={pp.screen_page_views} size={11}/>:'—'}</td>
         <td style={{padding:'7px 8px',color:(p.engagement_rate||0)<0.8?C.red:C.muted}}>{Math.round((p.engagement_rate||0)*100)}%</td>
+        <td style={{padding:'7px 8px',color:realRequests === null || realRequests === undefined ? C.hint : C.green,fontWeight:realRequests > 0 ? 600 : 400}} title={p.requests_created_source === 'buyer_requests' ? 'Numarat din buyer_requests HomePitch' : 'Sursa landing path nu este disponibila in exportul HomePitch'}>
+          {realRequests === null || realRequests === undefined ? '—' : fmtN(realRequests)}
+        </td>
         <td style={{padding:'7px 8px',color:conv>5?C.green:conv>2?C.blue:C.muted,fontWeight:conv>5?500:400}}>{conv.toFixed(1)}%</td>
         {extra}
       </tr>
@@ -115,7 +119,7 @@ function TabPagini({ data }) {
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
               <thead><tr style={{borderBottom:`0.5px solid ${C.border}`}}>
-                {['Pagina','Views','Delta','Eng%','Conv%','Bounce','Durata (avg)'].map(h=><th key={h} style={{textAlign:'left',padding:'6px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>)}
+                {['Pagina','Views','Delta','Eng%','Cereri create','Conv%','Bounce','Durata (avg)'].map(h=><th key={h} style={{textAlign:'left',padding:'6px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {sorted.map(p=><PageRow key={p.page_path} p={p} extra={<>
