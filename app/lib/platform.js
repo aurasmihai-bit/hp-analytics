@@ -221,6 +221,8 @@ function sanitizeRequestRow(row) {
     status: cleanText(row.status),
     transaction_type: cleanText(row.transaction_type),
     property_type: cleanText(row.property_type),
+    request_form_variant: cleanText(row.request_form_variant, ''),
+    request_form_path: cleanText(row.request_form_path, ''),
     location_city: cleanText(row.location_city),
     cartier: cleanText(row.cartier, ''),
     location_zones: safeZones(row.location_zones, row.cartier),
@@ -355,6 +357,7 @@ function analyticsSummary(rows) {
     daily,
     byTransaction: objectToRows(countBy(rows, 'transaction_type')),
     byProperty: objectToRows(countBy(rows, 'property_type')),
+    byRequestForm: objectToRows(countBy(rows, 'request_form_variant')),
     byCity: objectToRows(countBy(rows, 'location_city')),
     byFinancing: objectToRows(countBy(rows, 'financing')),
     byPreApproval: objectToRows(countBy(rows, 'pre_approval')),
@@ -459,7 +462,7 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
     return params
   }
   const selects = [
-    'id,created_at,status,transaction_type,property_type,landing_path,page_path,source_path,created_from_path,created_from_url,referrer,page_referrer,initial_referrer,utm_source,utm_medium,utm_campaign,metadata',
+    'id,created_at,status,transaction_type,property_type,request_form_variant,request_form_path,landing_path,page_path,source_path,created_from_path,created_from_url,referrer,page_referrer,initial_referrer,utm_source,utm_medium,utm_campaign,metadata',
     'id,created_at,status,transaction_type,property_type,landing_path,page_path,source_path,referrer,page_referrer,metadata',
     'id,created_at,metadata',
     'id,created_at',
@@ -496,6 +499,8 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
       status: cleanText(row.status, ''),
       transaction_type: cleanText(row.transaction_type, ''),
       property_type: cleanText(row.property_type, ''),
+      request_form_variant: cleanText(row.request_form_variant, ''),
+      request_form_path: normalizePathLike(row.request_form_path) || '',
     }
   }).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
 
@@ -609,6 +614,8 @@ export async function fetchPlatformRequestAnalytics({ start, end, limit = 1000 }
     'status',
     'transaction_type',
     'property_type',
+    'request_form_variant',
+    'request_form_path',
     'location_city',
     'location_zones',
     'cartier',

@@ -337,7 +337,7 @@ function TabFunnel({ data }) {
   const curr=data.traffic.current, pages=data.pages.current
   const totalSess=sum(curr,'sessions'), totalConv=sum(curr,'conversions')
   const get=path=>pages.find(p=>p.page_path===path)
-  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),vreau=get('/vreau'),cereri=get('/cereri')
+  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),vreau=get('/vreau'),vreauHome=get('/vreau-home'),cereri=get('/cereri')
   const convs=data.conversions
   const signup=sum(convs,'conversions_signup'), offers=sum(convs,'conversions_offer_accepted'), cer=sum(convs,'conversions_bravo_cerere_noua')
   const ag=sum(convs,'conversions_bun_venit_agent'), cum=sum(convs,'conversions_bun_venit_cumparator'), prop=sum(convs,'conversions_bun_venit_proprietar')
@@ -347,8 +347,10 @@ function TabFunnel({ data }) {
   const landingViews=(h3?.screen_page_views||0)+(invers?.screen_page_views||0)+(simp?.screen_page_views||0)+(platforma?.screen_page_views||0)+(hp?.screen_page_views||0)
   const cereriViews=cereri?.screen_page_views||0
   const vreauViews=vreau?.screen_page_views||0
+  const vreauHomeViews=vreauHome?.screen_page_views||0
+  const activeFormViews=vreauViews+vreauHomeViews
   const loginViews=login?.screen_page_views||0
-  const funnelDrop=cereriViews>0?(vreauViews/cereriViews*100):null
+  const funnelDrop=cereriViews>0?(activeFormViews/cereriViews*100):null
   const requestEvents=data.requestFormEvents||{}
   const eventCounts=(requestEvents.events||[]).reduce((acc,row)=>{acc[row.event_name]=row.event_count||0;return acc},{})
   const requestEventSteps=[
@@ -363,7 +365,8 @@ function TabFunnel({ data }) {
     {label:'Sesiuni totale',path:null,v:totalSess,pct:100,col:'#3B82C4'},
     {label:'Landing vizitat (/, /home3, /invers, /simplu, /platforma)',path:'/',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
     {label:'/cereri — lista cereri',path:'/cereri',v:cereriViews,pct:totalSess>0?cereriViews/totalSess*100:0,col:'#7C3AED'},
-    {label:'/vreau — formular activ',path:'/vreau',v:vreauViews,pct:totalSess>0?vreauViews/totalSess*100:0,col:'#D97706'},
+    {label:'/vreau — varianta V',path:'/vreau',v:vreauViews,pct:totalSess>0?vreauViews/totalSess*100:0,col:'#D97706'},
+    {label:'/vreau-home — varianta VH',path:'/vreau-home',v:vreauHomeViews,pct:totalSess>0?vreauHomeViews/totalSess*100:0,col:'#16A34A'},
     {label:'/login',path:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
     {label:'Conversii GA4 totale',path:null,v:totalConv,pct:totalSess>0?totalConv/totalSess*100:0,col:'#16A34A'},
   ]
@@ -384,7 +387,7 @@ function TabFunnel({ data }) {
         ))}
         {funnelDrop!==null&&(
           <div style={{marginTop:12,padding:'10px 14px',background:funnelDrop<15?C.softRed:C.softAmber,border:`0.5px solid ${funnelDrop<15?C.red:C.amber}`,borderRadius:8,fontSize:13}}>
-            <strong style={{color:funnelDrop<15?C.red:C.amber}}>Drop /cereri → /vreau: {funnelDrop.toFixed(0)}%</strong>
+            <strong style={{color:funnelDrop<15?C.red:C.amber}}>Drop /cereri → formulare V/VH: {funnelDrop.toFixed(0)}%</strong>
             <span style={{color:C.muted,marginLeft:8}}>{funnelDrop<15?'Foarte mic — adauga CTA mai vizibil pe pagina /cereri':'Progresie normala, dar optimizabila'}</span>
           </div>
         )}

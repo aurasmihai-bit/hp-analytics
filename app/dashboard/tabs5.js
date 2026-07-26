@@ -128,7 +128,7 @@ function TabCereriPiata({ days, customFrom, customTo }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState({
-    transaction:'', property:[], city:[], financing:[], preApproval:[], buyerScore:[], status:'', offers:'', zone:'',
+    transaction:'', property:[], city:[], financing:[], preApproval:[], buyerScore:[], requestForm:[], status:'', offers:'', zone:'',
     minBudget:'', maxBudget:'', minRentBudget:'', maxRentBudget:'', sort:'created_desc',
   })
 
@@ -167,6 +167,7 @@ function TabCereriPiata({ days, customFrom, customTo }) {
     financing: uniq(rows, 'financing'),
     preApprovals: uniq(rows, 'pre_approval'),
     buyerScores: scoreBucketOptions(rows),
+    requestForms: uniq(rows, 'request_form_variant'),
     statuses: uniq(rows, 'status'),
   }), [rows])
 
@@ -183,6 +184,7 @@ function TabCereriPiata({ days, customFrom, customTo }) {
       if (filters.financing.length && !filters.financing.includes(row.financing)) return false
       if (filters.preApproval.length && !filters.preApproval.includes(row.pre_approval)) return false
       if (filters.buyerScore.length && !filters.buyerScore.includes(row.buyer_score_bucket)) return false
+      if (filters.requestForm.length && !filters.requestForm.includes(row.request_form_variant)) return false
       if (filters.status && row.status !== filters.status) return false
       if (filters.offers === 'with' && !row.has_offers) return false
       if (filters.offers === 'without' && row.has_offers) return false
@@ -226,6 +228,7 @@ function TabCereriPiata({ days, customFrom, customTo }) {
       daily,
       byTransaction: countBy(filtered, 'label', row => row.transaction_type),
       byProperty: countBy(filtered, 'label', row => row.property_type),
+      byRequestForm: countBy(filtered, 'label', row => row.request_form_variant || 'Istoric fara atribuire'),
       byCity: countBy(filtered, 'label', row => row.location_city),
       byFinancing: countBy(filtered, 'label', row => row.financing),
       byPreApproval: countBy(filtered, 'label', row => row.pre_approval || '—'),
@@ -263,7 +266,7 @@ function TabCereriPiata({ days, customFrom, customTo }) {
   }
 
   function resetFilters() {
-    setFilters({ transaction:'', property:[], city:[], financing:[], preApproval:[], buyerScore:[], status:'', offers:'', zone:'', minBudget:'', maxBudget:'', minRentBudget:'', maxRentBudget:'', sort:'created_desc' })
+    setFilters({ transaction:'', property:[], city:[], financing:[], preApproval:[], buyerScore:[], requestForm:[], status:'', offers:'', zone:'', minBudget:'', maxBudget:'', minRentBudget:'', maxRentBudget:'', sort:'created_desc' })
   }
 
   if (loading) return <div style={{textAlign:'center',padding:'60px 0',color:C.muted,fontSize:14}}>Se incarca cererile...</div>
@@ -279,6 +282,7 @@ function TabCereriPiata({ days, customFrom, customTo }) {
           <MultiSelectFilter label="Finantare" values={filters.financing} options={options.financing} onChange={v=>setFilter('financing',v)}/>
           <MultiSelectFilter label="Pre-aprobare" values={filters.preApproval} options={options.preApprovals} onChange={v=>setFilter('preApproval',v)}/>
           <MultiSelectFilter label="Scor cumparator" values={filters.buyerScore} options={options.buyerScores} onChange={v=>setFilter('buyerScore',v)}/>
+          <MultiSelectFilter label="Formular" values={filters.requestForm} options={options.requestForms} onChange={v=>setFilter('requestForm',v)}/>
           <SelectFilter label="Status" value={filters.status} options={options.statuses} onChange={v=>setFilter('status',v)}/>
           <label style={{display:'block'}}>
             <span style={{display:'block',fontSize:10,color:C.hint,marginBottom:4,textTransform:'uppercase',letterSpacing:'.04em'}}>Oferte</span>
@@ -345,6 +349,10 @@ function TabCereriPiata({ days, customFrom, customTo }) {
           <BarChart data={charts.byProperty} labelField="label" valueField="count" color={C.green}/>
         </Card>
         <Card>
+          <p style={{fontSize:13,fontWeight:500,color:C.text,margin:'0 0 12px'}}>Formular creare cerere</p>
+          <BarChart data={charts.byRequestForm} labelField="label" valueField="count" color={C.blue}/>
+        </Card>
+        <Card>
           <p style={{fontSize:13,fontWeight:500,color:C.text,margin:'0 0 12px'}}>Finantare</p>
           <BarChart data={charts.byFinancing} labelField="label" valueField="count" color={C.amber}/>
         </Card>
@@ -389,10 +397,10 @@ function TabCereriPiata({ days, customFrom, customTo }) {
       <Sec title={`Tabel cereri (${filtered.length})`}>
         <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
           <div style={{overflowX:'auto'}}>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:1320}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:1420}}>
               <thead>
                 <tr style={{borderBottom:`0.5px solid ${C.border}`,background:'#fafaf8'}}>
-                  {['Data','Tranzactie','Tip','Oras','Zone','Buget cumparare','Buget chirie','Finantare','Pre-aprobare','Scor','Avans','Avans %','Camere','Oferte','Status'].map(header => (
+                  {['Data','Formular','Tranzactie','Tip','Oras','Zone','Buget cumparare','Buget chirie','Finantare','Pre-aprobare','Scor','Avans','Avans %','Camere','Oferte','Status'].map(header => (
                     <th key={header} style={{textAlign:'left',padding:'8px 10px',fontSize:10,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:600}}>{header}</th>
                   ))}
                 </tr>
@@ -406,6 +414,9 @@ function TabCereriPiata({ days, customFrom, customTo }) {
                   return (
                     <tr key={`${row.created_at}-${index}`} style={{borderBottom:`0.5px solid ${C.border}`}}>
                       <td style={{padding:'8px 10px',color:C.muted,whiteSpace:'nowrap'}}>{row.date || '—'}</td>
+                      <td style={{padding:'8px 10px',whiteSpace:'nowrap',fontWeight:600,color:row.request_form_variant==='VH'?C.green:C.blue}} title={row.request_form_path || ''}>
+                        {row.request_form_variant || '—'}
+                      </td>
                       <td style={{padding:'8px 10px',color:C.text}}>{row.transaction_type}</td>
                       <td style={{padding:'8px 10px',color:C.text}}>{row.property_type}</td>
                       <td style={{padding:'8px 10px',color:C.text}}>{row.location_city}</td>

@@ -1151,6 +1151,11 @@ export function TabCerereTracking({ data }) {
   const requestSourceRows = requestSources.rows || []
   const requestTopSources = requestSources.topSources || []
   const requestListing = requestSources.requestRows || []
+  const requestFormVariants = requestListing.reduce((acc, row) => {
+    const key = row.request_form_variant === 'VH' ? 'VH' : row.request_form_variant === 'V' ? 'V' : 'Istoric'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, { V:0, VH:0, Istoric:0 })
 
   return (
     <div>
@@ -1214,6 +1219,22 @@ export function TabCerereTracking({ data }) {
         />
       )}
 
+      <Sec title="Cereri create pe varianta formularului">
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+          {[
+            ['V', '/vreau', requestFormVariants.V, C.blue],
+            ['VH', '/vreau-home', requestFormVariants.VH, C.green],
+            ['Istoric', 'fara atribuire', requestFormVariants.Istoric, C.hint],
+          ].map(([label, path, value, color]) => (
+            <Card key={label} style={{padding:'12px 14px'}}>
+              <p style={{fontSize:11,color:C.hint,margin:'0 0 4px'}}>{label} · {path}</p>
+              <p style={{fontSize:24,fontWeight:600,color,margin:0}}>{fmtN(value)}</p>
+              <p style={{fontSize:11,color:C.muted,margin:'4px 0 0'}}>cereri create din buyer_requests</p>
+            </Card>
+          ))}
+        </div>
+      </Sec>
+
       <Sec title="Surse / referrers cereri reale">
         {!requestSources.sourceDetailsAvailable && (
           <Signal
@@ -1255,12 +1276,15 @@ export function TabCerereTracking({ data }) {
 
       <Sec title="Listing cereri create cu sursa">
         <Card style={{padding:0,overflow:'hidden'}}>
-          <div style={{display:'grid',gridTemplateColumns:'90px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',gap:0,background:C.softPanel,borderBottom:`0.5px solid ${C.border}`,fontSize:11,fontWeight:600,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em'}}>
-            {['Data','Landing','Referrer full','Sursa','Tip'].map(label => <div key={label} style={{padding:'9px 10px'}}>{label}</div>)}
+          <div style={{display:'grid',gridTemplateColumns:'90px 70px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',gap:0,background:C.softPanel,borderBottom:`0.5px solid ${C.border}`,fontSize:11,fontWeight:600,color:C.hint,textTransform:'uppercase',letterSpacing:'.04em'}}>
+            {['Data','Form','Landing','Referrer full','Sursa','Tip'].map(label => <div key={label} style={{padding:'9px 10px'}}>{label}</div>)}
           </div>
           {(requestListing.length ? requestListing.slice(0, 30) : []).map((row, index) => (
-            <div key={`${row.created_at}-${index}`} style={{display:'grid',gridTemplateColumns:'90px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',borderTop:index?`0.5px solid ${C.border}`:'none',fontSize:12,color:C.text}}>
+            <div key={`${row.created_at}-${index}`} style={{display:'grid',gridTemplateColumns:'90px 70px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',borderTop:index?`0.5px solid ${C.border}`:'none',fontSize:12,color:C.text}}>
               <div style={{padding:'9px 10px',fontFamily:'monospace',color:C.muted}}>{row.date || '—'}</div>
+              <div style={{padding:'9px 10px',fontWeight:600,color:row.request_form_variant==='VH'?C.green:C.blue}} title={row.request_form_path || ''}>
+                {row.request_form_variant || '—'}
+              </div>
               <div style={{padding:'9px 10px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.landing_path}>
                 {row.landing_path && row.landing_path.startsWith('/') ? <PageLink path={row.landing_path}>{row.landing_path}</PageLink> : (row.landing_path || '—')}
               </div>
