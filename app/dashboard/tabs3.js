@@ -1223,7 +1223,7 @@ export function TabCerereTracking({ data }) {
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
           {[
             ['V', '/vreau', requestFormVariants.V, C.blue],
-            ['VH', '/vreau-home', requestFormVariants.VH, C.green],
+            ['VH', '/new', requestFormVariants.VH, C.green],
             ['Istoric', 'fara atribuire', requestFormVariants.Istoric, C.hint],
           ].map(([label, path, value, color]) => (
             <Card key={label} style={{padding:'12px 14px'}}>

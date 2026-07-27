@@ -337,7 +337,7 @@ function TabFunnel({ data }) {
   const curr=data.traffic.current, pages=data.pages.current
   const totalSess=sum(curr,'sessions'), totalConv=sum(curr,'conversions')
   const get=path=>pages.find(p=>p.page_path===path)
-  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),vreau=get('/vreau'),vreauHome=get('/vreau-home'),cereri=get('/cereri')
+  const h3=get('/home3'),invers=get('/invers'),simp=get('/simplu'),platforma=get('/platforma'),hp=get('/'),login=get('/login'),vreau=get('/vreau'),vreauHome=get('/new'),cereri=get('/cereri')
   const convs=data.conversions
   const signup=sum(convs,'conversions_signup'), offers=sum(convs,'conversions_offer_accepted'), cer=sum(convs,'conversions_bravo_cerere_noua')
   const ag=sum(convs,'conversions_bun_venit_agent'), cum=sum(convs,'conversions_bun_venit_cumparator'), prop=sum(convs,'conversions_bun_venit_proprietar')
@@ -366,7 +366,7 @@ function TabFunnel({ data }) {
     {label:'Landing vizitat (/, /home3, /invers, /simplu, /platforma)',path:'/',v:landingViews,pct:totalSess>0?landingViews/totalSess*100:0,col:'#3B82C4'},
     {label:'/cereri — lista cereri',path:'/cereri',v:cereriViews,pct:totalSess>0?cereriViews/totalSess*100:0,col:'#7C3AED'},
     {label:'/vreau — varianta V',path:'/vreau',v:vreauViews,pct:totalSess>0?vreauViews/totalSess*100:0,col:'#D97706'},
-    {label:'/vreau-home — varianta VH',path:'/vreau-home',v:vreauHomeViews,pct:totalSess>0?vreauHomeViews/totalSess*100:0,col:'#16A34A'},
+    {label:'/new — varianta VH',path:'/new',v:vreauHomeViews,pct:totalSess>0?vreauHomeViews/totalSess*100:0,col:'#16A34A'},
     {label:'/login',path:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
     {label:'Conversii GA4 totale',path:null,v:totalConv,pct:totalSess>0?totalConv/totalSess*100:0,col:'#16A34A'},
   ]
