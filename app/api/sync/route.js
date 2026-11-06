@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { pushGscToHomePitch } from '../../lib/gsc-push'
 
 export const maxDuration = 60
 
@@ -46,6 +47,15 @@ async function syncPeriods(request) {
   return results
 }
 
+// Push zilnic GSC -> HomePitch; erorile apar in raspuns, dar nu pica sincronizarea.
+async function runGscPush() {
+  try {
+    return await pushGscToHomePitch()
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Push-ul GSC a eșuat.' }
+  }
+}
+
 function isAuthorized(request) {
   const cronSecret = process.env.CRON_SECRET
   const sessionSecret = process.env.SESSION_SECRET
@@ -63,8 +73,9 @@ export async function GET(request) {
   try {
     const results = await syncPeriods(request)
     const { periods, failed } = syncSummary(results)
+    const gscPush = await runGscPush()
     return NextResponse.json(
-      { ok: failed.length === 0, periods, syncedAt: new Date().toISOString() },
+      { ok: failed.length === 0, periods, gscPush, syncedAt: new Date().toISOString() },
       { status: failed.length ? 500 : 200 }
     )
   } catch (e) {

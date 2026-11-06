@@ -1,10 +1,10 @@
 import { getOptionalEnv } from './env'
 import { getGoogleAccessToken } from './google-auth'
 
-const GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly'
+export const GSC_SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly'
 const DEFAULT_SITE_URL = 'sc-domain:homepitch.ro'
 
-function getConfiguredSiteUrl() {
+export function getConfiguredSiteUrl() {
   return getOptionalEnv('GSC_SITE_URL') || DEFAULT_SITE_URL
 }
 
@@ -22,7 +22,7 @@ function pathFromUrl(value) {
   }
 }
 
-async function querySearchAnalytics(accessToken, siteUrl, body) {
+export async function querySearchAnalytics(accessToken, siteUrl, body) {
   const encodedSite = encodeURIComponent(siteUrl)
   const res = await fetch(`https://searchconsole.googleapis.com/webmasters/v3/sites/${encodedSite}/searchAnalytics/query`, {
     method: 'POST',
