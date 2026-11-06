@@ -2288,7 +2288,7 @@ function generateRecommendations(data) {
     actions.push({ urgency:'urgent', title:`Target cereri noi: ${dailyRequestRate.toFixed(2)}/zi vs ${requestDailyTarget}/zi`, body:`In perioada curenta sunt ${totalCereriNoi} cereri noi. Pentru targetul de ${requestDailyTarget}/zi lipsesc aproximativ ${(requestDailyGap * Math.max(data.days || 30, 1)).toFixed(0)} cereri pe interval.`, fix:"Lanseaza un sprint de 14 zile: toate CTA-urile principale pentru cumparatori duc catre /vreau, adauga CTA sticky pe mobile si afiseaza un reminder dupa login: 'Adauga cererea si primesti oferte de la agenti'. Masoara cereri/zi si buyer_requests." })
 
   if (totalCump > 0 && cereriConvRateValue !== null && cereriConvRateValue < buyerRequestTargetRate)
-    actions.push({ urgency:'important', title:`Recupereaza cumparatorii fara cerere: ${cereriConvRate}% adauga cerere`, body:`Ai ${totalCump} inregistrari de cumparatori si ${totalCereriNoi} cereri noi. Target recomandat: ${buyerRequestTargetRate}% dintre cumparatori sa adauge o cerere in aceeasi sesiune sau in primele 24h.`, fix:"Dupa inregistrarea ca buyer, redirectioneaza direct catre /vreau cu profilul precompletat. Pentru cei care nu trimit cererea in 15 minute, trimite email/push: 'Spune-ne ce cauti si primesti oferte potrivite'. Masoara rata cumparatori→cerere 14 zile." })
+    actions.push({ urgency:'important', title:`Recupereaza cumparatorii fara cerere: ${cereriConvRate}% adauga cerere`, body:`${buyerConversion.buyersWithRequest} din ${buyerConversion.buyersRegistered} cumparatori inregistrati in perioada (HomePitch) au creat cel putin o cerere. Target recomandat: ${buyerRequestTargetRate}% dintre cumparatori sa adauge o cerere in aceeasi sesiune sau in primele 24h.`, fix:"Dupa inregistrarea ca buyer, redirectioneaza direct catre /vreau cu profilul precompletat. Pentru cei care nu trimit cererea in 15 minute, trimite email/push: 'Spune-ne ce cauti si primesti oferte potrivite'. Masoara rata cumparatori→cerere 14 zile." })
 
   if (totalSess > 0 && requestSessionRate < requestSessionTargetRate)
     actions.push({ urgency:'important', title:`Cereri / sesiuni: ${requestSessionRate.toFixed(2)}% — conversie sub ${requestSessionTargetRate}%`, body:`Traficul existent nu este impins suficient spre actiunea de baza: cerere noua. Chiar si +0.5pp ar aduce cereri suplimentare fara buget media nou.`, fix:"Adauga un CTA contextual catre /vreau pe paginile cu intent: homepage, /cumparatori, /proprietati si pagini de listari. Text: 'Nu ai gasit proprietatea potrivita? Creeaza o cerere si primesti oferte'. Track-uieste click_to_request_start separat de submit." })
@@ -2432,6 +2432,9 @@ function generateRecommendations(data) {
       trackingCereriNoi,
       cereriSource,
       cereriConvRate,
+      cereriPerSignup: cereriPerSignup !== null ? parseFloat(cereriPerSignup.toFixed(2)) : null,
+      buyersRegisteredPlatform: buyerConversion?.buyersRegistered ?? null,
+      buyersWithRequestPlatform: buyerConversion?.buyersWithRequest ?? null,
       dailyRequestRate: parseFloat(dailyRequestRate.toFixed(2)),
       requestDailyTarget,
       requestDailyGap: parseFloat(requestDailyGap.toFixed(2)),
