@@ -1269,13 +1269,13 @@ export function TabCerereTracking({ data }) {
           <Signal
             type="neutral"
             title="Atribuirea cererilor incepe cu urmatoarea publicare HomePitch"
-            body="buyer_requests nu are inca coloanele first-touch (landing_path, referrer, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, fbclid). HomePitch le adauga si le completeaza pentru cererile noi dupa urmatoarea publicare; cererile mai vechi raman „fara atribuire”."
+            body="Analytics nu poate citi inca tabelul privat buyer_request_attribution (landing_path, referrer, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, fbclid). HomePitch il completeaza pentru cererile noi incepand cu urmatoarea publicare; cererile mai vechi raman „fara atribuire”. Citirea cere cheia service_role in analytics."
           />
         ) : unattributedRequests > 0 && (
           <Signal
             type="neutral"
             title={`${unattributedRequests} cereri fara atribuire`}
-            body="Cererile create inainte ca HomePitch sa salveze landing_path / referrer / utm raman fara atribuire. Cererile noi au sursa completata."
+            body="Cererile fara rand in buyer_request_attribution (create inainte ca HomePitch sa salveze landing_path / referrer / utm) raman fara atribuire. Cererile noi au sursa completata."
           />
         )}
         <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:12}}>

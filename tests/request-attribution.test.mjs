@@ -149,3 +149,101 @@ test('evenimentele formularului: Title Case si snake_case', () => {
   assert.equal(totals.form_abandoned, 4)
   assert.equal(totals.form_validation_error, 0)
 })
+
+// ── buyer_request_attribution (tabel privat, embed PostgREST 1:1) ──────────
+import {
+  ATTRIBUTION_EMBED_TABLE,
+  attributionEmbedSelect,
+  withAttributionEmbed,
+  flattenRequestAttribution,
+  fetchWithAttributionEmbed,
+} from '../app/lib/request-attribution.js'
+
+test('embed-ul cere cele 9 coloane din buyer_request_attribution', () => {
+  assert.equal(ATTRIBUTION_EMBED_TABLE, 'buyer_request_attribution')
+  assert.equal(attributionEmbedSelect(), 'buyer_request_attribution(landing_path,referrer,utm_source,utm_medium,utm_campaign,utm_content,utm_term,gclid,fbclid)')
+  assert.equal(withAttributionEmbed('id,created_at'), `id,created_at,${attributionEmbedSelect()}`)
+})
+
+test('flatten: obiectul embed ajunge pe rand, null ramane fara atribuire', () => {
+  const flat = flattenRequestAttribution({
+    id: 'r1', request_form_variant: 'VH',
+    buyer_request_attribution: { landing_path: '/new?utm_source=x', referrer: 'https://www.google.com/', utm_source: 'google', utm_medium: 'cpc', utm_campaign: null, utm_content: null, utm_term: null, gclid: 'g1', fbclid: null },
+  })
+  assert.equal(flat.buyer_request_attribution, undefined)
+  assert.equal(flat.landing_path, '/new?utm_source=x')
+  assert.equal(flat.utm_source, 'google')
+  assert.equal(flat.request_form_variant, 'VH')
+  const attributed = requestAttribution(flat, true)
+  assert.equal(attributed.attributed, true)
+  assert.equal(attributed.landing_path, '/new')
+  assert.equal(attributed.source_medium, 'google / cpc')
+
+  const none = flattenRequestAttribution({ id: 'r2', buyer_request_attribution: null })
+  assert.equal(none.buyer_request_attribution, undefined)
+  assert.equal(none.landing_path, undefined)
+  assert.equal(requestAttribution(none, true).source_medium, 'fara atribuire')
+
+  // forma lista (daca PostgREST nu detecteaza 1:1) si randuri fara embed
+  assert.equal(flattenRequestAttribution({ buyer_request_attribution: [{ referrer: 'https://a.ro/' }] }).referrer, 'https://a.ro/')
+  assert.equal(flattenRequestAttribution({ buyer_request_attribution: [] }).referrer, undefined)
+  const plain = { id: 'r3', landing_path: '/vreau' }
+  assert.deepEqual(flattenRequestAttribution(plain), plain)
+  // coloanele inline existente nu sunt suprascrise
+  assert.equal(flattenRequestAttribution({ landing_path: '/inline', buyer_request_attribution: { landing_path: '/embed' } }).landing_path, '/inline')
+})
+
+test('fallback: embed indisponibil -> acelasi select fara embed, fara eroare', async () => {
+  const calls = []
+  const run = async select => {
+    calls.push(select)
+    if (select.includes(ATTRIBUTION_EMBED_TABLE)) throw new Error("Platform Supabase 400: PGRST200 Could not find a relationship between 'buyer_requests' and 'buyer_request_attribution'")
+    return [{ id: 'r1', request_form_variant: 'V' }]
+  }
+  const result = await fetchWithAttributionEmbed(['id,created_at,request_form_variant'], run, { isRetryable: () => true })
+  assert.equal(result.embedUsed, false)
+  assert.equal(result.embedAvailable, false)
+  assert.equal(result.select, 'id,created_at,request_form_variant')
+  assert.equal(result.rows.length, 1)
+  assert.deepEqual(calls, [withAttributionEmbed('id,created_at,request_form_variant'), 'id,created_at,request_form_variant'])
+
+  // cache negativ: embed-ul nu mai este incercat
+  calls.length = 0
+  await fetchWithAttributionEmbed(['id,created_at'], run, { embedAvailable: false })
+  assert.deepEqual(calls, ['id,created_at'])
+
+  // cheie anon fara drepturi (42501) -> tot fallback
+  const denied = await fetchWithAttributionEmbed(['id'], async select => {
+    if (select.includes(ATTRIBUTION_EMBED_TABLE)) throw new Error('Platform Supabase 401: 42501 permission denied for table buyer_request_attribution')
+    return []
+  })
+  assert.equal(denied.embedUsed, false)
+  assert.equal(denied.embedAvailable, false)
+})
+
+test('embed disponibil: randurile sunt aplatizate; coloana lipsa -> urmatorul select', async () => {
+  const calls = []
+  const run = async select => {
+    calls.push(select)
+    if (select.startsWith('id,created_at,landing_path')) throw new Error('Platform Supabase 400: 42703 column buyer_requests.landing_path does not exist')
+    return [
+      { id: 'a', buyer_request_attribution: { landing_path: '/new', referrer: '', utm_source: 'newsletter', utm_medium: 'email' } },
+      { id: 'b', buyer_request_attribution: null },
+    ]
+  }
+  const result = await fetchWithAttributionEmbed(['id,created_at,landing_path', 'id,created_at'], run, { isRetryable: e => /42703/.test(e.message) })
+  assert.equal(result.embedUsed, true)
+  assert.equal(result.embedAvailable, true)
+  assert.equal(result.select, 'id,created_at')
+  assert.equal(result.rows[0].utm_source, 'newsletter')
+  assert.equal(result.rows[0].buyer_request_attribution, undefined)
+  const counts = result.rows.map(row => requestAttribution(row, result.embedUsed).attributed)
+  assert.deepEqual(counts, [true, false])
+})
+
+test('fallback: erorile care nu tin de coloane sunt aruncate', async () => {
+  await assert.rejects(
+    fetchWithAttributionEmbed(['id'], async () => { throw new Error('Platform Supabase 500: boom') }),
+    /500/
+  )
+})

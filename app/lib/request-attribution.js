@@ -58,6 +58,68 @@ export function buildRequestSelect(available, extra = []) {
   }
 }
 
+// Atribuirea first-touch sta in tabelul privat buyer_request_attribution
+// (request_id = buyer_requests.id, 1:1, RLS: admin + service_role). O citim cu un
+// embed PostgREST, care intoarce un obiect sau null pe fiecare cerere.
+export const ATTRIBUTION_EMBED_TABLE = 'buyer_request_attribution'
+
+export function attributionEmbedSelect() {
+  return `${ATTRIBUTION_EMBED_TABLE}(${REQUEST_ATTRIBUTION_COLUMNS.join(',')})`
+}
+
+export function withAttributionEmbed(select) {
+  return `${select},${attributionEmbedSelect()}`
+}
+
+// Muta campurile din embed in rand, ca helper-ele pick* sa le citeasca direct.
+// Valorile existente pe rand (coloane inline) nu sunt suprascrise. Fara rand de
+// atribuire (null) cererea ramane fara atribuire. Cheia embed-ului este scoasa.
+export function flattenRequestAttribution(row = {}) {
+  if (!row || typeof row !== 'object') return row
+  if (!(ATTRIBUTION_EMBED_TABLE in row)) return row
+  const { [ATTRIBUTION_EMBED_TABLE]: embedded, ...rest } = row
+  const source = Array.isArray(embedded) ? embedded[0] : embedded
+  if (!source || typeof source !== 'object') return rest
+  for (const column of REQUEST_ATTRIBUTION_COLUMNS) {
+    const current = rest[column]
+    if ((current === null || current === undefined || current === '') && source[column] !== undefined) {
+      rest[column] = source[column]
+    }
+  }
+  return rest
+}
+
+// Ruleaza select-urile (in ordine) cu embed-ul de atribuire, daca nu stim deja ca
+// lipseste; daca embed-ul da eroare (relatie inexistenta pana la migratie, cheie anon
+// fara drepturi), reia acelasi select fara embed si marcheaza embed-ul indisponibil.
+// `run(select)` -> Promise<rows>; `isRetryable(error)` = eroare de coloana lipsa.
+// Intoarce { rows, select, embedUsed, embedAvailable }.
+export async function fetchWithAttributionEmbed(selects, run, { embedAvailable = null, isRetryable = () => false } = {}) {
+  let embedState = embedAvailable
+  let lastError = null
+  for (const select of selects) {
+    if (embedState !== false) {
+      try {
+        const rows = await run(withAttributionEmbed(select))
+        return { rows: rows.map(flattenRequestAttribution), select, embedUsed: true, embedAvailable: true }
+      } catch (error) {
+        lastError = error
+      }
+    }
+    try {
+      const rows = await run(select)
+      // select-ul de baza merge, deci embed-ul era problema
+      if (embedState !== false) embedState = false
+      return { rows, select, embedUsed: false, embedAvailable: embedState }
+    } catch (error) {
+      lastError = error
+      if (!isRetryable(error)) throw error
+    }
+  }
+  if (lastError && !isRetryable(lastError)) throw lastError
+  return { rows: [], select: null, embedUsed: false, embedAvailable: embedState }
+}
+
 function text(value) {
   return value === null || value === undefined ? '' : String(value).trim()
 }

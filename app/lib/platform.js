@@ -3,6 +3,7 @@ import {
   REQUEST_SELECT_FALLBACKS,
   REQUEST_ATTRIBUTION_COLUMNS,
   buildRequestSelect,
+  fetchWithAttributionEmbed,
   normalizePathLike,
   requestAttribution,
   requestFormVariantKey,
@@ -93,6 +94,20 @@ async function getRequestTableColumns(config) {
   const columns = rows[0] ? Object.keys(rows[0]) : null
   if (columns) columnCache.set(cacheKey, { at: Date.now(), columns })
   return columns
+}
+
+// Daca embed-ul buyer_request_attribution merge (relatie existenta + drepturi),
+// tinut in cache 10 minute, ca proba de coloane; dupa migratie embed-ul este
+// reincercat cel tarziu dupa TTL.
+const attributionEmbedCache = new Map()
+
+function getCachedEmbedAvailability(config) {
+  const cached = attributionEmbedCache.get(`${config.url}/${config.requestsTable}`)
+  return cached && Date.now() - cached.at < COLUMN_CACHE_TTL_MS ? cached.available : null
+}
+
+function setCachedEmbedAvailability(config, available) {
+  attributionEmbedCache.set(`${config.url}/${config.requestsTable}`, { at: Date.now(), available })
 }
 
 function addDaysIso(date, days) {
@@ -452,25 +467,27 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
     ? [buildRequestSelect(available).select, ...REQUEST_SELECT_FALLBACKS]
     : REQUEST_SELECT_FALLBACKS
 
-  let rows = []
-  let usedSelect = null
-  for (const select of selects) {
+  const fetched = await fetchWithAttributionEmbed(selects, async select => {
     const params = baseParams()
     params.set('select', select)
-    try {
-      const result = await platformRest(config, params, { Prefer: 'count=exact' })
-      rows = result.rows
-      usedSelect = select
-      break
-    } catch (error) {
-      if (!isMissingColumnError(error)) throw error
-      columnCache.clear()
-    }
-  }
+    const result = await platformRest(config, params, { Prefer: 'count=exact' })
+    return result.rows
+  }, {
+    embedAvailable: getCachedEmbedAvailability(config),
+    isRetryable: error => {
+      const retry = isMissingColumnError(error)
+      if (retry) columnCache.clear()
+      return retry
+    },
+  })
+  if (fetched.embedAvailable !== null) setCachedEmbedAvailability(config, fetched.embedAvailable)
+  const rows = fetched.rows
+  const usedSelect = fetched.select
 
   const selectedColumns = new Set(String(usedSelect || '').split(',').filter(Boolean))
-  const attributionColumns = REQUEST_ATTRIBUTION_COLUMNS.filter(column => selectedColumns.has(column))
-  const attributionAvailable = attributionColumns.length > 0
+  const inlineAttributionColumns = REQUEST_ATTRIBUTION_COLUMNS.filter(column => selectedColumns.has(column))
+  const attributionColumns = fetched.embedUsed ? [...REQUEST_ATTRIBUTION_COLUMNS] : inlineAttributionColumns
+  const attributionAvailable = fetched.embedUsed || inlineAttributionColumns.length > 0
 
   const groups = new Map()
   const sourceGroups = new Map()
@@ -530,6 +547,7 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
     sourceDetailsAvailable: attributionAvailable,
     attributionAvailable,
     attributionColumns,
+    attributionSource: fetched.embedUsed ? 'buyer_request_attribution' : inlineAttributionColumns.length ? 'buyer_requests' : null,
     attributedRequests,
     unattributedRequests: rows.length - attributedRequests,
     formVariantAvailable: selectedColumns.has('request_form_variant') || selectedColumns.has('request_form_path'),
