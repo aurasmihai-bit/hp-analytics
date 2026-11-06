@@ -1,5 +1,7 @@
 import { getOptionalEnv } from './env'
 
+export const LLM_REFERRAL_EVENT = 'LLM Referral'
+
 const DEFAULT_AMPLITUDE_EVENTS = [
   '[Amplitude] Page Viewed',
   '[Amplitude] Element Clicked',
@@ -14,12 +16,9 @@ const DEFAULT_AMPLITUDE_EVENTS = [
   'Form Validation Error',
   'Form Abandoned',
   'Request Created',
-  'llm_referral',
-  'LLM Referral',
-  'AI Agent Discovery',
-  'agent_discovery',
-  'api_catalog_view',
-  'mcp_server_card_view',
+  // Emis de homepitch.ro la page view venit din asistenti AI: {source, landing_path, utm_source}.
+  // Vechile llm_referral / agent_discovery / api_catalog_view / mcp_server_card_view nu sunt emise de site.
+  LLM_REFERRAL_EVENT,
 ]
 
 const AMPLITUDE_BROWSER_SETTINGS = {
@@ -123,6 +122,35 @@ async function fetchEvent(config, eventName, start, end) {
   throw lastError || new Error('Amplitude request failed')
 }
 
+function seriesLabel(label, index) {
+  if (Array.isArray(label)) return String(label[label.length - 1] ?? index)
+  if (label && typeof label === 'object') return String(label.label ?? label.value ?? index)
+  return String(label ?? index)
+}
+
+// Evenimentul LLM Referral grupat dupa proprietatea `source` (ChatGPT, Perplexity, Gemini ...).
+async function fetchLlmReferralSources(config, start, end) {
+  const params = new URLSearchParams()
+  params.set('e', JSON.stringify({ event_type: LLM_REFERRAL_EVENT, group_by: [{ type: 'event', value: 'source' }] }))
+  params.set('start', amplitudeDate(start))
+  params.set('end', amplitudeDate(end))
+  params.set('i', '1')
+  params.set('m', 'totals')
+  const res = await fetch(`https://amplitude.com/api/2/events/segmentation?${params.toString()}`, {
+    headers: { Authorization: authHeader(config) },
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`Amplitude ${res.status}`)
+  const payload = await res.json().catch(() => null)
+  const data = payload?.data || {}
+  const series = Array.isArray(data.series) ? data.series : []
+  const labels = Array.isArray(data.seriesLabels) ? data.seriesLabels : []
+  return series.map((row, index) => ({
+    source: seriesLabel(labels[index], index),
+    events: flattenSeries(row).reduce((sum, value) => sum + Number(value || 0), 0),
+  })).filter(row => row.events > 0).sort((a, b) => b.events - a.events)
+}
+
 function parseReplaySearchResponse(payload) {
   const rows = Array.isArray(payload?.data) ? payload.data : []
   return {
@@ -191,7 +219,7 @@ function buildAmplitudeRecommendations(events, issue = '') {
     recommendations.push({
       type: 'neutral',
       title: 'Nu exista inca evenimente LLM/agent discovery in Amplitude',
-      body: 'Adauga sau mapeaza evenimente pentru llm_referral, agent_discovery, api_catalog_view si mcp_server_card_view ca sa vezi impactul LLM-urilor.',
+      body: `Evenimentul „${LLM_REFERRAL_EVENT}” (proprietati source, landing_path, utm_source) nu are inca date. Traficul din asistenti AI apare oricum in tabul GEO / AI din raportul SEO HomePitch.`,
     })
   }
   if (!formEvents.some(row => Number(row.events || 0) > 0)) {
@@ -225,8 +253,9 @@ export async function fetchAmplitudeAnalytics({ start, end }) {
     }
   }
 
-  const [eventResults, replaySearchResult] = await Promise.all([
+  const [eventResults, replaySearchResult, llmReferralSources] = await Promise.all([
     Promise.allSettled(configuredEvents.map(eventName => fetchEvent(config, eventName, start, end))),
+    fetchLlmReferralSources(config, start, end).catch(() => []),
     fetchReplaySearch(config, start, end).catch(error => ({
       replays: [],
       replayMetadata: {},
@@ -254,6 +283,7 @@ export async function fetchAmplitudeAnalytics({ start, end }) {
     settings: AMPLITUDE_BROWSER_SETTINGS,
     events,
     llmEvents,
+    llmReferralSources,
     formEvents,
     sessionReplayEvents,
     liveEvents,

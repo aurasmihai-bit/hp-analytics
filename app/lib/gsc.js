@@ -171,3 +171,31 @@ export async function fetchGscDailyData({ start, end }) {
 
   return days
 }
+
+export function isGscConfigured() {
+  return !!getOptionalEnv('GOOGLE_SERVICE_ACCOUNT_JSON')
+}
+
+// Top interogari si pagini reale din Search Console pentru un interval (implicit ultimele 28 de zile).
+export async function fetchGscTopQueries({ start, end, rowLimit = 500 }) {
+  const accessToken = await getGoogleAccessToken(GSC_SCOPE)
+  const siteUrl = getConfiguredSiteUrl()
+  const base = { searchType: 'web', startDate: start, endDate: end, rowLimit }
+  const [queryRows, pageRows] = await Promise.all([
+    querySearchAnalytics(accessToken, siteUrl, { ...base, dimensions: ['query'] }),
+    querySearchAnalytics(accessToken, siteUrl, { ...base, dimensions: ['page'], rowLimit: Math.min(rowLimit, 100) }),
+  ])
+  const simplify = row => ({
+    clicks: numberValue(row.clicks),
+    impressions: numberValue(row.impressions),
+    ctr: numberValue(row.ctr),
+    position: numberValue(row.position),
+  })
+  return {
+    siteUrl,
+    start,
+    end,
+    queries: queryRows.map(row => ({ query: row.keys?.[0] || '(not provided)', ...simplify(row) })),
+    pages: pageRows.map(row => ({ path: pathFromUrl(row.keys?.[0]), url: row.keys?.[0] || '', ...simplify(row) })),
+  }
+}
