@@ -2287,7 +2287,7 @@ function generateRecommendations(data) {
   if (totalCereriNoi > 0 && dailyRequestRate < requestDailyTarget)
     actions.push({ urgency:'urgent', title:`Target cereri noi: ${dailyRequestRate.toFixed(2)}/zi vs ${requestDailyTarget}/zi`, body:`In perioada curenta sunt ${totalCereriNoi} cereri noi. Pentru targetul de ${requestDailyTarget}/zi lipsesc aproximativ ${(requestDailyGap * Math.max(data.days || 30, 1)).toFixed(0)} cereri pe interval.`, fix:"Lanseaza un sprint de 14 zile: toate CTA-urile principale pentru cumparatori duc catre /vreau, adauga CTA sticky pe mobile si afiseaza un reminder dupa login: 'Adauga cererea si primesti oferte de la agenti'. Masoara cereri/zi si buyer_requests." })
 
-  if (totalCump > 0 && cereriConvRateValue !== null && cereriConvRateValue < buyerRequestTargetRate)
+  if (cereriConvRateValue !== null && cereriConvRateValue < buyerRequestTargetRate)
     actions.push({ urgency:'important', title:`Recupereaza cumparatorii fara cerere: ${cereriConvRate}% adauga cerere`, body:`${buyerConversion.buyersWithRequest} din ${buyerConversion.buyersRegistered} cumparatori inregistrati in perioada (HomePitch) au creat cel putin o cerere. Target recomandat: ${buyerRequestTargetRate}% dintre cumparatori sa adauge o cerere in aceeasi sesiune sau in primele 24h.`, fix:"Dupa inregistrarea ca buyer, redirectioneaza direct catre /vreau cu profilul precompletat. Pentru cei care nu trimit cererea in 15 minute, trimite email/push: 'Spune-ne ce cauti si primesti oferte potrivite'. Masoara rata cumparatori→cerere 14 zile." })
 
   if (totalSess > 0 && requestSessionRate < requestSessionTargetRate)
