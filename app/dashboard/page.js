@@ -294,9 +294,8 @@ const TABS=[
   {id:'semnale',   label:'Semnale'},
   {id:'grafice',   label:'Grafice'},
   {id:'trafic',    label:'Trafic'},
-  {id:'seo_report', label:'SEO'},
-  {id:'geo_ai',    label:'GEO / AI'},
-  {id:'seo',       label:'Search Console'},
+  {id:'seo',       label:'SEO'},
+  {id:'geo_ai',    label:'GEO'},
   {id:'pagini',    label:'Pagini'},
   {id:'exit',      label:'Exit intent'},
   {id:'homepages', label:'Homepages A/B'},
@@ -453,8 +452,7 @@ export default function Dashboard() {
           {tab==='semnale'     &&<TabSemnale     data={data}/>}
           {tab==='grafice'     &&<TabGrafice     data={data}/>}
           {tab==='trafic'      &&<TabTrafic      data={data}/>}
-          {tab==='seo'         &&<TabSEO         data={data}/>}
-          {tab==='seo_report'  &&<TabSeoReport/>}
+          {tab==='seo'         &&<><TabSeoReport/><TabSEO data={data}/></>}
           {tab==='geo_ai'      &&<TabGeoAi       data={data}/>}
           {tab==='pagini'      &&<TabPagini      data={data}/>}
           {tab==='exit'        &&<TabExitIntent  data={data}/>}
