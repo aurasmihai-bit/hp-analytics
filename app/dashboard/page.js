@@ -8,7 +8,8 @@ import { TabPagini, TabFunnel } from './tabs2'
 import { TabRecomandari, TabCerereNoua, TabConversii, TabCerereTracking } from './tabs3'
 import { TabRaportSaptamanal } from './tabs4'
 import { TabExitIntent } from './tabs6'
-import { TabHomepageConversions, TabConciergeTraffic, TabHeaderMenuAB, TabPayments, TabReferrals, TabLlmVisibility, TabAmplitude } from './tabs8'
+import { TabHomepageConversions, TabConciergeTraffic, TabHeaderMenuAB, TabPayments, TabReferrals, TabAmplitude } from './tabs8'
+import { TabSeoReport, TabGeoAi } from './tabs9'
 import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from './theme'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
@@ -293,14 +294,15 @@ const TABS=[
   {id:'semnale',   label:'Semnale'},
   {id:'grafice',   label:'Grafice'},
   {id:'trafic',    label:'Trafic'},
-  {id:'seo',       label:'SEO'},
+  {id:'seo_report', label:'SEO'},
+  {id:'geo_ai',    label:'GEO / AI'},
+  {id:'seo',       label:'Search Console'},
   {id:'pagini',    label:'Pagini'},
   {id:'exit',      label:'Exit intent'},
   {id:'homepages', label:'Homepages A/B'},
   {id:'header_ab', label:'Header A/B'},
   {id:'concierge_traffic', label:'Trafic /aliat'},
   {id:'referrals', label:'Referrals'},
-  {id:'llm_visibility', label:'Vizibilitate LLM'},
   {id:'amplitude', label:'Amplitude'},
   {id:'payments', label:'Plăți'},
   {id:'funnel',    label:'Funnel'},
@@ -452,13 +454,14 @@ export default function Dashboard() {
           {tab==='grafice'     &&<TabGrafice     data={data}/>}
           {tab==='trafic'      &&<TabTrafic      data={data}/>}
           {tab==='seo'         &&<TabSEO         data={data}/>}
+          {tab==='seo_report'  &&<TabSeoReport/>}
+          {tab==='geo_ai'      &&<TabGeoAi       data={data}/>}
           {tab==='pagini'      &&<TabPagini      data={data}/>}
           {tab==='exit'        &&<TabExitIntent  data={data}/>}
           {tab==='homepages'   &&<TabHomepageConversions data={data}/>}
           {tab==='header_ab'   &&<TabHeaderMenuAB data={data}/>}
           {tab==='concierge_traffic' &&<TabConciergeTraffic data={data}/>}
           {tab==='referrals'    &&<TabReferrals data={data}/>}
-          {tab==='llm_visibility' &&<TabLlmVisibility data={data}/>}
           {tab==='amplitude'    &&<TabAmplitude data={data}/>}
           {tab==='payments'    &&<TabPayments data={data}/>}
           {tab==='funnel'      &&<TabFunnel      data={data}/>}

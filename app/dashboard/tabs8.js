@@ -413,88 +413,12 @@ export function TabReferrals({ data }) {
   )
 }
 
-export function TabLlmVisibility({ data }) {
-  const pages = data.pages?.current || []
-  const gsc = data.gsc || {}
-  const amplitude = data.amplitudeAnalytics || {}
-  const llmEvents = amplitude.llmEvents || []
-  const llmEventTotal = llmEvents.reduce((sum, row) => sum + Number(row.events || 0), 0)
-  const agentReadyPages = [
-    { label:'API catalog', path:'/.well-known/api-catalog' },
-    { label:'Agent skills index', path:'/.well-known/agent-skills/index.json' },
-    { label:'MCP server card', path:'/.well-known/mcp/server-card.json' },
-    { label:'API docs', path:'/api-docs' },
-    { label:'Aliat buyer services', path:'/aliat' },
-    { label:'Cereri servicii', path:'/cereri-servicii' },
-  ]
-  const hasGsc = (gsc.queries || []).length > 0 || (gsc.pages || []).length > 0 || (gsc.current || []).length > 0
-  const indexedAgentPages = agentReadyPages.map(item => {
-    const ga4 = pages.find(page => page.page_path === item.path) || {}
-    const gscPage = (gsc.pages || gsc.current || []).find(page => page.page_path === item.path || page.page === item.path) || {}
-    return {
-      ...item,
-      views: Number(ga4.screen_page_views || 0),
-      clicks: Number(gscPage.organic_google_search_clicks || gscPage.clicks || 0),
-      impressions: Number(gscPage.organic_google_search_impressions || gscPage.impressions || 0),
-      status: Number(ga4.screen_page_views || 0) > 0 || Number(gscPage.organic_google_search_impressions || 0) > 0 ? 'vizibil' : 'de verificat',
-    }
-  })
-  return (
-    <div>
-      <Grid>
-        <KPI label="Pagini agent-ready urmărite" curr={agentReadyPages.length}/>
-        <KPI label="Cu trafic / impresii" curr={indexedAgentPages.filter(row => row.status === 'vizibil').length}/>
-        <KPI label="GSC conectat" curr={hasGsc ? 1 : 0}/>
-        <KPI label="Evenimente LLM Amplitude" curr={llmEventTotal}/>
-      </Grid>
-      {amplitude.setupIssue && (
-        <Sec title="Amplitude">
-          <Signal type="neutral" title="Conecteaza Amplitude pentru semnale LLM" body={amplitude.setupIssue}/>
-        </Sec>
-      )}
-      {!amplitude.setupIssue && (
-        <Sec title="Evenimente LLM / agent discovery din Amplitude">
-          <Card style={{padding:'10px 14px'}}>
-            {(llmEvents.length ? llmEvents : [{event_name:'llm_referral / agent_discovery',events:0}]).map((row, index) => (
-              <div key={`${row.event_name}-${index}`} style={{display:'grid',gridTemplateColumns:'1fr 90px',gap:10,alignItems:'center',borderBottom:index < llmEvents.length - 1 ? `0.5px solid ${C.border}` : 'none',padding:'8px 0'}}>
-                <span style={{fontSize:12,color:C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.event_name}>{row.event_name}</span>
-                <span style={{fontSize:12,fontWeight:600,color:Number(row.events || 0) > 0 ? C.green : C.hint,textAlign:'right'}}>{fmtN(row.events || 0)}</span>
-              </div>
-            ))}
-          </Card>
-        </Sec>
-      )}
-      <Sec title="Vizibilitate in LLM-uri si agent discovery">
-        <Card>
-          <p style={{fontSize:13,color:C.muted,lineHeight:1.55,margin:'0 0 14px'}}>
-            Acest tab monitorizeaza readiness pentru AI agents si LLM discovery: pagini agent-ready, link headers, API catalog, documentatie si pagini cu intent comercial. Nu inventeaza citari LLM; pentru citari reale trebuie conectat un monitor extern de brand mentions.
-          </p>
-          {indexedAgentPages.map((row, index) => (
-            <div key={row.path} style={{display:'grid',gridTemplateColumns:'1fr 90px 90px 90px',gap:10,alignItems:'center',borderTop:index ? `0.5px solid ${C.border}` : 'none',padding:'9px 0'}}>
-              <div style={{minWidth:0}}>
-                <p style={{fontSize:13,fontWeight:600,color:C.text,margin:'0 0 2px'}}>{row.label}</p>
-                <PageLink path={row.path}>{row.path}</PageLink>
-              </div>
-              <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.views)} views</span>
-              <span style={{fontSize:12,color:C.muted,textAlign:'right'}}>{fmtN(row.impressions)} impr.</span>
-              <span style={{fontSize:11,fontWeight:600,textAlign:'right',color:row.status === 'vizibil' ? C.green : C.amber}}>{row.status}</span>
-            </div>
-          ))}
-        </Card>
-      </Sec>
-      <RecommendationList items={[
-        { type:'info', title:'Urmatorul pas pentru LLM visibility', body:'Adauga monitorizare externa pentru interogari tip ChatGPT/Perplexity/Gemini: nume brand, pagini citate, sentiment si competitori mentionati.' },
-        { type:'neutral', title:'Pastreaza agent discovery verificabil', body:'Verifica periodic /.well-known/api-catalog, agent-skills index, mcp server card si Link headers pe homepage.' },
-      ]}/>
-    </div>
-  )
-}
-
 export function TabAmplitude({ data }) {
   const analysis = data.amplitudeAnalytics || { events: [], llmEvents: [], formEvents: [], timeline: [], recommendations: [] }
   const settings = analysis.settings || {}
   const events = analysis.events || []
-  const llmEvents = analysis.llmEvents || []
+  // Doar evenimentul emis de site (LLM Referral) sau alte evenimente LLM cu date reale.
+  const llmEvents = (analysis.llmEvents || []).filter(row => row.event_name === 'LLM Referral' || Number(row.events || 0) > 0)
   const formEvents = analysis.formEvents || []
   const sessionReplayEvents = analysis.sessionReplayEvents || []
   const liveEvents = analysis.liveEvents || []
@@ -610,7 +534,7 @@ export function TabAmplitude({ data }) {
       </Sec>
       <Grid>
         <KPI label="Evenimente Amplitude" curr={totalEvents}/>
-        <KPI label="LLM / agent discovery" curr={llmTotal}/>
+        <KPI label="LLM Referral" curr={llmTotal}/>
         <KPI label="Funnel formular" curr={formTotal}/>
         <KPI label="Session Replay events" curr={replayTotal}/>
       </Grid>
@@ -624,7 +548,7 @@ export function TabAmplitude({ data }) {
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:12}}>
         <EventListing title="Live events monitorizate" rows={liveEvents.slice(0, 10)} empty="Nu exista inca evenimente live in API pentru intervalul selectat."/>
         <EventListing title="Session Replay" rows={sessionReplayEvents} empty="Session Replay este activ in SDK. Daca Amplitude nu expune un event separat pentru replay in API, verifica replay-urile din dashboardul Amplitude pe evenimentele autocapture."/>
-        <EventTable title="Evenimente LLM / agent discovery" rows={llmEvents}/>
+        <EventTable title="Evenimente LLM Referral (detalii în tabul GEO / AI)" rows={llmEvents}/>
         <EventTable title="Evenimente formular si cereri" rows={formEvents}/>
       </div>
       <ReplayLinks />
