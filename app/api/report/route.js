@@ -3,7 +3,8 @@ import { getLatestSnapshot, upsertSnapshot, isFresh, logSync, getTabDailyRows, u
 import { getOptionalEnv, requireEnv } from '../../lib/env'
 import { fetchReportGa4Data, fetchReportGa4DailyData } from '../../lib/ga4'
 import { fetchGscData, fetchGscDailyData } from '../../lib/gsc'
-import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats } from '../../lib/platform'
+import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats, fetchPlatformBuyerRequestConversion } from '../../lib/platform'
+import { requestFormEventTotals, requestsPerGa4Signup } from '../../lib/request-attribution'
 import { fetchAmplitudeAnalytics } from '../../lib/amplitude'
 
 export const maxDuration = 60
@@ -342,6 +343,11 @@ async function attachPlatformRequestData(data, currFrom, currTo) {
     }
   } catch (e) {
     console.warn('Platform request source stats failed:', e.message)
+  }
+  try {
+    data.platformBuyerConversion = await fetchPlatformBuyerRequestConversion({ start: currFrom, end: currTo })
+  } catch (e) {
+    console.warn('Platform buyer request conversion failed:', e.message)
   }
   return data
 }
@@ -2103,8 +2109,14 @@ function generateRecommendations(data) {
   const totalCereriNoi = platformCereriNoi > 0 ? platformCereriNoi : trackingCereriNoi
   const cereriSource = platformCereriNoi > 0 ? 'platform' : trackingCereriNoi > 0 ? 'ga4' : 'none'
   const totalCump = tracking.reduce((s,d)=>s+(d.conversions_bun_venit_cumparator||0),0)
-  const cereriConvRateValue = totalCump > 0 ? totalCereriNoi / totalCump * 100 : null
+  // Rata reala doar din platforma (useri distincti); altfel cereri / inregistrare GA4, nu procent.
+  const buyerConversion = data.platformBuyerConversion
+  const cereriConvRateValue = buyerConversion && buyerConversion.buyersRegistered > 0 ? buyerConversion.rate : null
   const cereriConvRate = cereriConvRateValue !== null ? cereriConvRateValue.toFixed(0) : null
+  const cereriPerSignup = cereriConvRateValue === null ? requestsPerGa4Signup(totalCereriNoi, totalCump) : null
+  const cereriConvText = cereriConvRate !== null
+    ? `${cereriConvRate}% din cumparatorii inregistrati in perioada (${buyerConversion.buyersWithRequest}/${buyerConversion.buyersRegistered}) au creat cel putin o cerere. `
+    : cereriPerSignup !== null ? `${cereriPerSignup.toFixed(1)} cereri / inregistrare cumparator GA4 (surse diferite, nu este o rata). ` : ''
   const dailyRequestRate = totalCereriNoi / Math.max(data.days || tracking.length || 1, 1)
   const requestDailyTarget = 2
   const requestDailyGap = Math.max(0, requestDailyTarget - dailyRequestRate)
@@ -2126,15 +2138,13 @@ function generateRecommendations(data) {
   const exitAnalysis = data.exitAnalysis || {}
   const requestFormEvents = data.requestFormEvents || {}
   const requestFormEventRows = requestFormEvents.rows || []
-  const requestFormEventCounts = (requestFormEvents.events || []).reduce((acc, row) => {
-    acc[row.event_name] = Number(row.event_count || 0)
-    return acc
-  }, {})
-  const formStartedEvents = Number(requestFormEventCounts['[Amplitude] Form Started'] || 0)
-  const formStepCompletedEvents = Number(requestFormEventCounts['Form Step Completed'] || 0)
-  const formValidationErrorEvents = Number(requestFormEventCounts['Form Validation Error'] || 0)
-  const formAbandonedEvents = Number(requestFormEventCounts['Form Abandoned'] || 0)
-  const requestCreatedEvents = Number(requestFormEventCounts['Request Created'] || 0)
+  // Accepta atat numele Title Case, cat si snake_case trimise de HomePitch in GA4.
+  const requestFormEventCounts = requestFormEventTotals(requestFormEvents.events || [])
+  const formStartedEvents = requestFormEventCounts.form_started
+  const formStepCompletedEvents = requestFormEventCounts.form_step_completed
+  const formValidationErrorEvents = requestFormEventCounts.form_validation_error
+  const formAbandonedEvents = requestFormEventCounts.form_abandoned
+  const requestCreatedEvents = requestFormEventCounts.request_created
   const requestFormEventTotal = Number(requestFormEvents.totalEvents || 0)
   const exitPages = exitAnalysis.exitPages || []
   const exitIntent = exitAnalysis.exitIntent || {}
@@ -2204,8 +2214,8 @@ function generateRecommendations(data) {
   // Cereri tracking
   if (totalCereriNoi > 0) {
     const sourceText = cereriSource === 'platform'
-      ? `${cereriConvRate ? cereriConvRate+'% din cumparatorii inregistrati adauga cerere. ' : ''}Numarate direct din buyer_requests, deci nu depind de tracking-ul GA4.`
-      : `${cereriConvRate ? cereriConvRate+'% din cumparatorii inregistrati adauga cerere. ' : ''}Tracking GA4.`
+      ? `${cereriConvText}Numarate direct din buyer_requests, deci nu depind de tracking-ul GA4.`
+      : `${cereriConvText}Tracking GA4.`
     insights.push({ type:'positive', title:`${totalCereriNoi} cereri noi adaugate`, body:`${sourceText} Ritm: ${dailyRequestRate.toFixed(2)}/zi.` })
     if (dailyRequestRate < requestDailyTarget) {
       insights.push({ type:'neutral', tag:'TARGET', title:`Ritm sub target: ${dailyRequestRate.toFixed(2)} cereri/zi vs ${requestDailyTarget}/zi`, body:`Mai lipsesc aproximativ ${(requestDailyGap * Math.max(data.days || 30, 1)).toFixed(0)} cereri pe interval pentru targetul curent. Prioritatea este cresterea conversiei din cumparatori activi, nu doar trafic nou.` })
@@ -2295,8 +2305,8 @@ function generateRecommendations(data) {
     actions.push({
       urgency:'urgent',
       title:'Tracking formular cerere: evenimentele intermediare nu apar in raport',
-      body:'Dashboard-ul nu vede inca Form Step Completed, Form Validation Error, Form Abandoned sau Request Created in sursa de analytics. Funnel-ul ramane orb pe pasii formularului.',
-      fix:'Verifica in Amplitude/GA4 DebugView ca evenimentele custom sunt trimise din /vreau. Daca raman doar in Amplitude, adauga export sau mirror catre GA4 pentru dashboard.',
+      body:'GA4 nu are inca form_step_completed, form_validation_error, form_abandoned sau request_created (nici variantele Title Case) in perioada selectata. HomePitch le trimite in GA4 incepand cu urmatoarea publicare; GA4 le proceseaza in pana la 24-48 h.',
+      fix:'Dupa publicarea HomePitch, verifica in GA4 DebugView / Realtime ca evenimentele apar din /vreau si /new (parametri form_variant, step, step_name, field, form_path). Daca nu apar dupa 48 h, verifica trimiterea din HomePitch.',
     })
   } else if (formValidationErrorEvents > 0 || formAbandonedEvents > 0) {
     actions.push({
