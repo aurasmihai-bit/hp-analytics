@@ -744,12 +744,12 @@ async function readOptionalTable(config, table, selects, buildParams, { maxRows 
   return { available: false, rows: [], error: lastError?.message || String(lastError || 'indisponibil') }
 }
 
-function periodParams(start, end) {
+function periodParams(start, end, column = 'created_at') {
   return () => {
     const params = new URLSearchParams()
-    if (start) params.append('created_at', `gte.${localDateStart(start)}`)
-    if (end) params.append('created_at', `lt.${localDateStart(addDaysIso(end, 1))}`)
-    params.set('order', 'created_at.asc')
+    if (start) params.append(column, `gte.${localDateStart(start)}`)
+    if (end) params.append(column, `lt.${localDateStart(addDaysIso(end, 1))}`)
+    params.set('order', `${column}.asc`)
     return params
   }
 }
@@ -761,12 +761,12 @@ export async function fetchPlatformKpis({ start, end, now = new Date() }) {
   const [drafts, requests, vip, notifications] = await Promise.all([
     readOptionalTable(config, 'buyer_request_form_drafts', ['id,created_at', 'created_at'], periodParams(start, end)),
     readOptionalTable(config, config.requestsTable, ['id,created_at'], periodParams(start, end)),
-    readOptionalTable(config, 'vip_subscriptions', ['status,created_at', 'created_at'], () => {
+    readOptionalTable(config, 'vip_subscriptions', ['is_active,expires_at,created_at', 'created_at'], () => {
       const params = new URLSearchParams()
       params.set('order', 'created_at.asc')
       return params
     }),
-    readOptionalTable(config, 'notification_email_attempts', ['status,created_at', 'created_at'], periodParams(addDaysIso(end, -6), end)),
+    readOptionalTable(config, 'notification_email_attempts', ['outcome,error_code,attempted_at'], periodParams(addDaysIso(end, -6), end, 'attempted_at')),
   ])
 
   // Oferte pe cererile din perioada: offers.request_id + created_at (coloane neverificate pe live).
@@ -807,7 +807,7 @@ export async function fetchPlatformKpis({ start, end, now = new Date() }) {
       ? { available: true, ...firstOfferStats(requests.rows, offers.rows, { now }) }
       : { available: false, error: offers.error || requests.error },
     vip: vip.available
-      ? { available: true, ...vipSubscriptionSummary(vip.rows, { start, end }) }
+      ? { available: true, ...vipSubscriptionSummary(vip.rows, { start, end, now }) }
       : { available: false, error: vip.error },
     notifications: notifications.available
       ? { available: true, days: 7, ...notificationAttemptSummary(notifications.rows) }
@@ -827,7 +827,7 @@ export async function fetchPlatformNotificationStatus({ days = 7, now = new Date
   if (!config) return { available: false, error: 'Platform Supabase is not configured' }
   const end = localDateFromTimestamp(now)
   const start = addDaysIso(end, -(days - 1))
-  const result = await readOptionalTable(config, 'notification_email_attempts', ['status,created_at', 'created_at'], periodParams(start, end))
+  const result = await readOptionalTable(config, 'notification_email_attempts', ['outcome,error_code,attempted_at'], periodParams(start, end, 'attempted_at'))
   if (!result.available) return { available: false, error: result.error }
   return { available: true, days, start, end, ...notificationAttemptSummary(result.rows) }
 }

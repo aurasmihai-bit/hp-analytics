@@ -74,43 +74,58 @@ export function firstOfferStats(requests = [], offers = [], { now = Date.now(), 
 
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'activ'])
 
-// rows = randuri vip_subscriptions. Fara coloana status nu putem spune care sunt active.
-// MRR nu se calculeaza: nu stim sigur daca sumele sunt in centi sau in EUR.
-export function vipSubscriptionSummary(rows = [], { start = '', end = '' } = {}) {
+// rows = randuri vip_subscriptions (is_active, expires_at, created_at; coloane verificate pe live 07.11.2026).
+// Activ = is_active si fara expirare trecuta. Pentru compatibilitate se accepta si o coloana status.
+// MRR nu se calculeaza: tabelul nu are suma abonamentului.
+export function vipSubscriptionSummary(rows = [], { start = '', end = '', now = new Date() } = {}) {
   const list = Array.isArray(rows) ? rows : []
-  const hasStatus = list.some(row => row && Object.prototype.hasOwnProperty.call(row, 'status'))
-  const active = hasStatus
-    ? list.filter(row => ACTIVE_SUBSCRIPTION_STATUSES.has(String(row?.status || '').toLowerCase())).length
-    : null
+  const has = key => list.some(row => row && Object.prototype.hasOwnProperty.call(row, key))
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now)
+  const notExpired = row => {
+    const t = time(row?.expires_at)
+    return t === null || t > nowMs
+  }
+  let mode = null
+  let isActive = () => false
+  if (has('is_active')) {
+    mode = 'is_active'
+    isActive = row => row?.is_active === true && notExpired(row)
+  } else if (has('status')) {
+    mode = 'status'
+    isActive = row => ACTIVE_SUBSCRIPTION_STATUSES.has(String(row?.status || '').toLowerCase())
+  }
   const inPeriod = value => {
     const day = String(value || '').slice(0, 10)
     return day && (!start || day >= start) && (!end || day <= end)
   }
-  const statuses = {}
-  for (const row of list) {
-    const key = hasStatus ? String(row?.status || '—') : '—'
-    statuses[key] = (statuses[key] || 0) + 1
-  }
+  const activeCount = mode ? list.filter(isActive).length : null
+  const statuses = mode ? { activ: activeCount, inactiv: list.length - activeCount } : { '—': list.length }
   return {
     total: list.length,
-    active,
-    statusAvailable: hasStatus,
+    active: activeCount,
+    statusAvailable: Boolean(mode),
     newInPeriod: list.filter(row => inPeriod(row?.created_at)).length,
-    byStatus: Object.entries(statuses).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
+    byStatus: Object.entries(statuses).filter(([, count]) => count > 0).map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count),
     mrr: null,
-    mrrNote: 'MRR nu se calculeaza: nu e clar din cod daca sumele din vip_subscriptions sunt in centi sau in EUR.',
+    mrrNote: 'MRR nu se calculeaza: vip_subscriptions nu are suma abonamentului (doar plan_type / tier).',
   }
 }
 
 const FAILED_STATUSES = /fail|error|bounce|reject|invalid/i
 
-// rows = [{ status, created_at }] din notification_email_attempts.
+// rows = [{ outcome, error_code, attempted_at }] din notification_email_attempts (coloane verificate pe live).
+// Se accepta si forma veche { status, created_at }.
 export function notificationAttemptSummary(rows = []) {
   const list = Array.isArray(rows) ? rows : []
-  const hasStatus = list.some(row => row && Object.prototype.hasOwnProperty.call(row, 'status'))
-  const failed = hasStatus ? list.filter(row => FAILED_STATUSES.test(String(row?.status || ''))).length : null
+  const has = key => list.some(row => row && Object.prototype.hasOwnProperty.call(row, key))
+  const hasOutcome = has('outcome') || has('error_code')
+  const hasStatus = hasOutcome || has('status')
+  const isFailed = row => hasOutcome
+    ? Boolean(row?.error_code) || FAILED_STATUSES.test(String(row?.outcome || ''))
+    : FAILED_STATUSES.test(String(row?.status || ''))
+  const failed = hasStatus ? list.filter(isFailed).length : null
   const last = list.reduce((max, row) => {
-    const t = time(row?.created_at)
+    const t = time(row?.attempted_at ?? row?.created_at)
     return t !== null && (max === null || t > max) ? t : max
   }, null)
   return {

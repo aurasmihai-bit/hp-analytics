@@ -70,3 +70,27 @@ test('incercari de notificare esuate', () => {
   assert.equal(summary.lastAttemptAt, '2026-11-06T11:00:00.000Z')
   assert.equal(notificationAttemptSummary([{ created_at: '2026-11-06T10:00:00Z' }]).failed, null)
 })
+
+test('vip: activ din is_active + expires_at (coloanele reale)', () => {
+  const now = new Date('2026-11-07T08:00:00Z')
+  const s = vipSubscriptionSummary([
+    { is_active: true, expires_at: '2026-12-01T00:00:00Z', created_at: '2026-11-01T10:00:00Z' },
+    { is_active: true, expires_at: '2026-11-01T00:00:00Z', created_at: '2026-10-01T10:00:00Z' },
+    { is_active: false, expires_at: null, created_at: '2026-09-01T10:00:00Z' },
+    { is_active: true, expires_at: null, created_at: '2026-08-01T10:00:00Z' },
+  ], { start: '2026-10-08', end: '2026-11-06', now })
+  assert.equal(s.active, 2)
+  assert.equal(s.newInPeriod, 1)
+  assert.equal(s.statusAvailable, true)
+})
+
+test('notificari: outcome / error_code / attempted_at', () => {
+  const s = notificationAttemptSummary([
+    { outcome: 'sent', error_code: null, attempted_at: '2026-11-06T10:00:00Z' },
+    { outcome: 'failed', error_code: null, attempted_at: '2026-11-06T11:00:00Z' },
+    { outcome: 'sent', error_code: 'rate_limited', attempted_at: '2026-11-06T12:00:00Z' },
+  ])
+  assert.equal(s.attempts, 3)
+  assert.equal(s.failed, 2)
+  assert.equal(s.lastAttemptAt, '2026-11-06T12:00:00.000Z')
+})
