@@ -353,8 +353,7 @@ export default function Dashboard() {
       const res = await fetch('/api/sync', { method:'POST', headers:{'Content-Type':'application/json'} })
       const json = await res.json().catch(() => ({}))
       if (!res.ok || json.ok === false) {
-        const failed = (json.periods || []).filter(p => p.status === 'error')
-        const details = failed.length ? failed.map(p => `${p.days}z: ${p.error || 'error'}`).join('; ') : json.error
+        const details = json.backfill?.status === 'error' ? `${json.backfill.days}z: ${json.backfill.error || 'eroare'}` : json.error
         throw new Error(details || `HTTP ${res.status}`)
       }
       // Dupa sync, reincarca perioada curenta din cache nou
