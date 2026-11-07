@@ -258,3 +258,59 @@ export async function fetchAllPages(fetchPage, { pageSize = 1000, maxRows = 1000
   }
   return { rows, truncated }
 }
+
+// ── Cereri piata: monede ─────────────────────────────────────────────
+
+export function normalizeCurrency(value) {
+  const clean = String(value || '').trim().toUpperCase()
+  if (!clean || clean === '—') return ''
+  if (clean === 'LEI') return 'RON'
+  return clean
+}
+
+function medianOf(values) {
+  const clean = values.filter(value => Number.isFinite(value)).sort((a, b) => a - b)
+  if (!clean.length) return null
+  const mid = Math.floor(clean.length / 2)
+  return clean.length % 2 ? clean[mid] : (clean[mid - 1] + clean[mid]) / 2
+}
+
+// Mediana separat pe moneda (EUR, RON ...), ca sa nu amestecam valorile.
+// Intoarce [{ currency, median, count }] cu moneda cea mai frecventa prima.
+// Randurile fara moneda apar cu currency = '' (moneda necunoscuta).
+export function medianByCurrency(rows = [], valueField, currencyField) {
+  const groups = new Map()
+  for (const row of rows || []) {
+    const value = Number(row?.[valueField])
+    if (row?.[valueField] === null || row?.[valueField] === undefined || row?.[valueField] === '' || !Number.isFinite(value)) continue
+    const currency = normalizeCurrency(row?.[currencyField])
+    if (!groups.has(currency)) groups.set(currency, [])
+    groups.get(currency).push(value)
+  }
+  return Array.from(groups.entries())
+    .map(([currency, values]) => ({ currency, median: medianOf(values), count: values.length }))
+    .sort((a, b) => b.count - a.count || (a.currency === '' ? 1 : 0) - (b.currency === '' ? 1 : 0) || a.currency.localeCompare(b.currency))
+}
+
+// Text scurt pentru KPI: "EUR · RON: 250.000 (3)". `format` formateaza numarul.
+export function currencyMedianSummary(groups = [], format = value => String(Math.round(value))) {
+  if (!groups.length) return { value: null, currency: '', sub: 'fara date' }
+  const [first, ...rest] = groups
+  const label = currency => currency || 'moneda necunoscuta'
+  const sub = [
+    `${label(first.currency)} (${first.count})`,
+    ...rest.map(group => `${label(group.currency)}: ${format(group.median)} (${group.count})`),
+  ].join(' · ')
+  return { value: first.median, currency: first.currency, sub }
+}
+
+// Avans / buget, doar cand cele doua sunt in aceeasi moneda (sau avansul nu are moneda).
+export function downPaymentRatio(budgetMax, budgetCurrency, downPayment, downPaymentCurrency) {
+  const budget = Number(budgetMax)
+  const down = Number(downPayment)
+  if (!(budget > 0) || !(down > 0)) return null
+  const a = normalizeCurrency(budgetCurrency)
+  const b = normalizeCurrency(downPaymentCurrency)
+  if (a && b && a !== b) return null
+  return down / budget * 100
+}

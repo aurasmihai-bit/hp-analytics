@@ -11,6 +11,7 @@ import {
   countRequestVariants,
   computeBuyerRequestConversion,
 } from './request-attribution'
+import { fetchAllPages, medianByCurrency, downPaymentRatio } from './report-metrics'
 
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_REQUESTS_TABLE = 'buyer_requests'
@@ -68,6 +69,21 @@ async function platformRest(config, params, extraHeaders = {}, table = config.re
     }
   }
   throw lastAuthError || new Error('Platform Supabase auth failed')
+}
+
+// PostgREST taie raspunsul la max-rows (implicit 1000), chiar daca cerem limit=10000.
+// Citim pe pagini de 1000 cu limit/offset si oprim la `maxRows`.
+async function platformRestAll(config, params, extraHeaders = {}, table = config.requestsTable, { maxRows = 50000 } = {}) {
+  let total = 0
+  const result = await fetchAllPages(async ({ offset, limit }) => {
+    const pageParams = new URLSearchParams(params)
+    pageParams.set('limit', String(limit))
+    pageParams.set('offset', String(offset))
+    const page = await platformRest(config, pageParams, extraHeaders, table)
+    if (offset === 0) total = page.total
+    return page.rows
+  }, { pageSize: 1000, maxRows })
+  return { rows: result.rows, total: total || result.rows.length, truncated: result.truncated }
 }
 
 function isMissingColumnError(error) {
@@ -283,7 +299,8 @@ function sanitizeRequestRow(row) {
     pre_approval: cleanText(row.pre_approval, ''),
     down_payment: downPayment,
     down_payment_currency: cleanText(row.down_payment_currency, ''),
-    down_payment_ratio: budgetMax && downPayment ? downPayment / budgetMax * 100 : null,
+    // doar in aceeasi moneda (avans RON / buget EUR nu se imparte direct)
+    down_payment_ratio: downPaymentRatio(budgetMax, row.currency, downPayment, row.down_payment_currency),
     buyer_score: buyerScore,
     buyer_score_bucket: buyerScoreBucket(buyerScore),
     buyer_score_level: cleanText(buyerScoreRelation?.level, ''),
@@ -387,6 +404,8 @@ function analyticsSummary(rows) {
   return {
     total: rows.length,
     medianBudgetMax: median(budgetMaxValues),
+    medianBudgetMaxByCurrency: medianByCurrency(rows, 'budget_max', 'currency'),
+    medianRentBudgetMaxByCurrency: medianByCurrency(rows, 'rent_budget_max', 'rent_currency'),
     avgBudgetMax: budgetMaxValues.length ? budgetMaxValues.reduce((s, v) => s + v, 0) / budgetMaxValues.length : null,
     medianRentBudgetMax: median(rentBudgetMaxValues),
     avgRentBudgetMax: rentBudgetMaxValues.length ? rentBudgetMaxValues.reduce((s, v) => s + v, 0) / rentBudgetMaxValues.length : null,
@@ -449,8 +468,7 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
     const params = new URLSearchParams()
     params.append('created_at', `gte.${localDateStart(start)}`)
     params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
-    params.set('order', 'created_at.asc')
-    params.set('limit', '10000')
+    params.set('order', 'created_at.asc,id.asc')
     return params
   }
 
@@ -470,7 +488,7 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
   const fetched = await fetchWithAttributionEmbed(selects, async select => {
     const params = baseParams()
     params.set('select', select)
-    const result = await platformRest(config, params, { Prefer: 'count=exact' })
+    const result = await platformRestAll(config, params, { Prefer: 'count=exact' })
     return result.rows
   }, {
     embedAvailable: getCachedEmbedAvailability(config),
@@ -575,14 +593,14 @@ export async function fetchPlatformBuyerRequestConversion({ start, end }) {
     params.set('select', select)
     params.append('created_at', `gte.${localDateStart(start)}`)
     params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
-    params.set('limit', '10000')
+    params.set('order', 'created_at.asc,user_id.asc')
     return params
   }
 
   const buyerParams = rangeParams('user_id,created_at')
   buyerParams.set('user_type', 'eq.buyer')
-  const { rows: buyers } = await platformRest(config, buyerParams, {}, 'profiles_public')
-  const { rows: requests } = await platformRest(config, rangeParams('user_id'))
+  const { rows: buyers } = await platformRestAll(config, buyerParams, {}, 'profiles_public')
+  const { rows: requests } = await platformRestAll(config, rangeParams('user_id,created_at'))
 
   const result = computeBuyerRequestConversion(buyers, requests)
   return {
@@ -602,10 +620,9 @@ export async function fetchPlatformRequestDailyStats({ start, end }) {
   params.set('select', 'created_at')
   params.append('created_at', `gte.${localDateStart(start)}`)
   params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
-  params.set('order', 'created_at.asc')
-  params.set('limit', '10000')
+  params.set('order', 'created_at.asc,id.asc')
 
-  const { rows } = await platformRest(config, params)
+  const { rows } = await platformRestAll(config, params)
 
   const days = {}
   rows.forEach(row => {

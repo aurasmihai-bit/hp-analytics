@@ -161,3 +161,35 @@ test('paginarea marcheaza trunchierea la maxRows', async () => {
   assert.equal(result.rows.length, 2000)
   assert.equal(result.truncated, true)
 })
+
+import { medianByCurrency, currencyMedianSummary, downPaymentRatio, normalizeCurrency } from '../app/lib/report-metrics.js'
+
+test('mediana bugetului se calculeaza separat pe moneda', () => {
+  const rows = [
+    { budget_max: 100000, currency: 'EUR' },
+    { budget_max: 200000, currency: 'eur' },
+    { budget_max: 150000, currency: 'EUR' },
+    { budget_max: 500000, currency: 'RON' },
+    { budget_max: 700000, currency: 'lei' },
+    { budget_max: null, currency: 'EUR' },
+    { budget_max: 90000, currency: '' },
+  ]
+  assert.deepEqual(medianByCurrency(rows, 'budget_max', 'currency'), [
+    { currency: 'EUR', median: 150000, count: 3 },
+    { currency: 'RON', median: 600000, count: 2 },
+    { currency: '', median: 90000, count: 1 },
+  ])
+  const summary = currencyMedianSummary(medianByCurrency(rows, 'budget_max', 'currency'), v => String(v))
+  assert.equal(summary.value, 150000)
+  assert.equal(summary.currency, 'EUR')
+  assert.equal(summary.sub, 'EUR (3) · RON: 600000 (2) · moneda necunoscuta: 90000 (1)')
+  assert.deepEqual(currencyMedianSummary([]), { value: null, currency: '', sub: 'fara date' })
+  assert.equal(normalizeCurrency(' ron '), 'RON')
+})
+
+test('avansul / bugetul doar in aceeasi moneda', () => {
+  assert.equal(downPaymentRatio(100000, 'EUR', 20000, 'EUR'), 20)
+  assert.equal(downPaymentRatio(100000, 'EUR', 20000, ''), 20)
+  assert.equal(downPaymentRatio(100000, 'EUR', 100000, 'RON'), null)
+  assert.equal(downPaymentRatio(0, 'EUR', 1, 'EUR'), null)
+})
