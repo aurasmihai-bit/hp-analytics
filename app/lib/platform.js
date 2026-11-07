@@ -12,6 +12,7 @@ import {
   computeBuyerRequestConversion,
 } from './request-attribution'
 import { fetchAllPages, medianByCurrency, downPaymentRatio } from './report-metrics'
+import { draftFunnel, firstOfferStats, vipSubscriptionSummary, notificationAttemptSummary } from './platform-kpis'
 
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_REQUESTS_TABLE = 'buyer_requests'
@@ -721,4 +722,112 @@ export async function fetchPlatformRequestAnalytics({ start, end, limit = 1000 }
       excludedFields: ['id', 'user_id', 'notes', 'meta_description'],
     },
   }
+}
+
+// ── KPI-uri platforma (punctul 6 din audit) ─────────────────────────
+// Fiecare citire e optionala: daca tabelul nu e accesibil cu cheia existenta sau coloanele
+// difera, intoarcem { available: false, error } si dashboard-ul afiseaza „indisponibil”.
+
+async function readOptionalTable(config, table, selects, buildParams, { maxRows = 20000 } = {}) {
+  let lastError = null
+  for (const select of selects) {
+    try {
+      const params = buildParams()
+      params.set('select', select)
+      const result = await platformRestAll(config, params, { Prefer: 'count=exact' }, table, { maxRows })
+      return { available: true, rows: result.rows, total: result.total, truncated: result.truncated, select }
+    } catch (error) {
+      lastError = error
+      if (!isMissingColumnError(error)) break
+    }
+  }
+  return { available: false, rows: [], error: lastError?.message || String(lastError || 'indisponibil') }
+}
+
+function periodParams(start, end) {
+  return () => {
+    const params = new URLSearchParams()
+    if (start) params.append('created_at', `gte.${localDateStart(start)}`)
+    if (end) params.append('created_at', `lt.${localDateStart(addDaysIso(end, 1))}`)
+    params.set('order', 'created_at.asc')
+    return params
+  }
+}
+
+export async function fetchPlatformKpis({ start, end, now = new Date() }) {
+  const config = getPlatformConfig()
+  if (!config) return null
+
+  const [drafts, requests, vip, notifications] = await Promise.all([
+    readOptionalTable(config, 'buyer_request_form_drafts', ['id,created_at', 'created_at'], periodParams(start, end)),
+    readOptionalTable(config, config.requestsTable, ['id,created_at'], periodParams(start, end)),
+    readOptionalTable(config, 'vip_subscriptions', ['status,created_at', 'created_at'], () => {
+      const params = new URLSearchParams()
+      params.set('order', 'created_at.asc')
+      return params
+    }),
+    readOptionalTable(config, 'notification_email_attempts', ['status,created_at', 'created_at'], periodParams(addDaysIso(end, -6), end)),
+  ])
+
+  // Oferte pe cererile din perioada: offers.request_id + created_at (coloane neverificate pe live).
+  let offers = { available: false, rows: [], error: requests.available ? '' : 'cererile nu sunt accesibile' }
+  if (requests.available) {
+    const ids = requests.rows.map(row => row.id).filter(Boolean)
+    if (!ids.length) {
+      offers = { available: true, rows: [] }
+    } else {
+      const rows = []
+      try {
+        for (let i = 0; i < ids.length; i += 100) {
+          const chunk = ids.slice(i, i + 100)
+          const result = await readOptionalTable(config, 'offers', ['request_id,created_at'], () => {
+            const params = new URLSearchParams()
+            params.set('request_id', `in.(${chunk.map(id => `"${String(id).replace(/"/g, '')}"`).join(',')})`)
+            params.set('order', 'created_at.asc')
+            return params
+          })
+          if (!result.available) throw new Error(result.error)
+          rows.push(...result.rows)
+        }
+        offers = { available: true, rows }
+      } catch (error) {
+        offers = { available: false, rows: [], error: error.message || String(error) }
+      }
+    }
+  }
+
+  const status = source => source.available ? 'ok' : 'indisponibil'
+  return {
+    start,
+    end,
+    drafts: drafts.available
+      ? { available: true, ...draftFunnel(drafts.total ?? drafts.rows.length, requests.available ? (requests.total ?? requests.rows.length) : null) }
+      : { available: false, error: drafts.error },
+    firstOffer: offers.available && requests.available
+      ? { available: true, ...firstOfferStats(requests.rows, offers.rows, { now }) }
+      : { available: false, error: offers.error || requests.error },
+    vip: vip.available
+      ? { available: true, ...vipSubscriptionSummary(vip.rows, { start, end }) }
+      : { available: false, error: vip.error },
+    notifications: notifications.available
+      ? { available: true, days: 7, ...notificationAttemptSummary(notifications.rows) }
+      : { available: false, error: notifications.error },
+    sources: {
+      buyer_request_form_drafts: status(drafts),
+      offers: status(offers),
+      vip_subscriptions: status(vip),
+      notification_email_attempts: status(notifications),
+    },
+  }
+}
+
+// Incercarile de trimitere email din ultimele `days` zile (status live al notificarilor).
+export async function fetchPlatformNotificationStatus({ days = 7, now = new Date() } = {}) {
+  const config = getPlatformConfig()
+  if (!config) return { available: false, error: 'Platform Supabase is not configured' }
+  const end = localDateFromTimestamp(now)
+  const start = addDaysIso(end, -(days - 1))
+  const result = await readOptionalTable(config, 'notification_email_attempts', ['status,created_at', 'created_at'], periodParams(start, end))
+  if (!result.available) return { available: false, error: result.error }
+  return { available: true, days, start, end, ...notificationAttemptSummary(result.rows) }
 }

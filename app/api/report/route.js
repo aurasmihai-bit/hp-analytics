@@ -3,7 +3,8 @@ import { getLatestSnapshot, upsertSnapshot, isFresh, logSync, getTabDailyRows, u
 import { getOptionalEnv, requireEnv } from '../../lib/env'
 import { fetchReportGa4Data, fetchReportGa4DailyData, REQUEST_FORM_EVENTS_SCHEMA_VERSION, CERERE_PAGES_SCHEMA_VERSION } from '../../lib/ga4'
 import { fetchGscData, fetchGscDailyData, isGscConfigured } from '../../lib/gsc'
-import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats, fetchPlatformBuyerRequestConversion } from '../../lib/platform'
+import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats, fetchPlatformBuyerRequestConversion, fetchPlatformKpis } from '../../lib/platform'
+import { requestsPer1000Sessions } from '../../lib/platform-kpis'
 import { requestFormEventTotals, requestsPerGa4Signup } from '../../lib/request-attribution'
 import { fetchAmplitudeAnalytics } from '../../lib/amplitude'
 import {
@@ -329,7 +330,7 @@ async function attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
   return data
 }
 
-async function attachPlatformRequestData(data, currFrom, currTo) {
+async function attachPlatformRequestData(data, currFrom, currTo, prevFrom = null, prevTo = null) {
   try {
     data.platformRequests = await fetchPlatformRequestStats({ start: currFrom, end: currTo })
   } catch (e) {
@@ -356,6 +357,28 @@ async function attachPlatformRequestData(data, currFrom, currTo) {
     data.platformBuyerConversion = await fetchPlatformBuyerRequestConversion({ start: currFrom, end: currTo })
   } catch (e) {
     console.warn('Platform buyer request conversion failed:', e.message)
+  }
+  // KPI-uri platforma: drafturi → cereri, prima oferta, VIP, notificari, cereri / 1.000 sesiuni.
+  try {
+    const [kpis, previousRequests] = await Promise.all([
+      fetchPlatformKpis({ start: currFrom, end: currTo }),
+      prevFrom && prevTo ? fetchPlatformRequestStats({ start: prevFrom, end: prevTo }).catch(() => null) : Promise.resolve(null),
+    ])
+    const sessions = sumField(data.traffic?.current, 'sessions')
+    const previousSessions = sumField(data.traffic?.previous, 'sessions')
+    data.platformKpis = {
+      ...(kpis || {}),
+      requestsPer1000Sessions: {
+        current: requestsPer1000Sessions(data.platformRequests?.count, sessions),
+        previous: previousRequests ? requestsPer1000Sessions(previousRequests.count, previousSessions) : null,
+        requests: Number(data.platformRequests?.count || 0),
+        previousRequests: previousRequests ? Number(previousRequests.count || 0) : null,
+        sessions,
+        previousSessions,
+      },
+    }
+  } catch (e) {
+    console.warn('Platform KPIs failed:', e.message)
   }
   return data
 }
@@ -2700,7 +2723,7 @@ export async function GET(request) {
       attachExitAnalysis(data)
       attachHomepageVariantAnalysis(data)
       attachConciergeTrafficAnalysis(data)
-      await attachPlatformRequestData(data, currFrom, currTo)
+      await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
       await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
       await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
       if (!skipAmplitude) await attachAmplitudeAnalytics(data, currFrom, currTo)
@@ -2742,7 +2765,7 @@ export async function GET(request) {
           built.gscSource = 'cache'
         }
         if (built.traffic && built.pages) {
-          await attachPlatformRequestData(built, currFrom, currTo)
+          await attachPlatformRequestData(built, currFrom, currTo, prevFrom, prevTo)
           attachExitAnalysis(built)
           attachReferralAnalysis(built)
           attachHomepageVariantAnalysis(built)
@@ -2767,7 +2790,7 @@ export async function GET(request) {
           built.gscSource = 'cache'
         }
         if (built.traffic && built.pages) {
-          await attachPlatformRequestData(built, currFrom, currTo)
+          await attachPlatformRequestData(built, currFrom, currTo, prevFrom, prevTo)
           attachExitAnalysis(built)
           attachReferralAnalysis(built)
           attachHomepageVariantAnalysis(built)
@@ -2795,13 +2818,13 @@ export async function GET(request) {
     try {
       data = await fetchReportGa4Data({ propertyId: getGa4Account(), currFrom, currTo, prevFrom, prevTo })
       await attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
-      await attachPlatformRequestData(data, currFrom, currTo)
+      await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
     } catch (ga4Err) {
       console.warn('GA4 direct report fetch failed; using Windsor fallback:', ga4Err.message)
       source = 'windsor'
       data = await fetchFromWindsor(currFrom, currTo, prevFrom, prevTo)
       await attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
-      await attachPlatformRequestData(data, currFrom, currTo)
+      await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
     }
 
     if (!hasUsefulReportMetrics(data)) {
@@ -2810,7 +2833,7 @@ export async function GET(request) {
         source = 'windsor'
         data = await fetchFromWindsor(currFrom, currTo, prevFrom, prevTo)
         await attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
-        await attachPlatformRequestData(data, currFrom, currTo)
+        await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
       } else {
         throw new Error('GA4 direct and Windsor returned only zero report metrics. Check GA4_ACCOUNT_ID and GOOGLE_SERVICE_ACCOUNT_JSON.')
       }

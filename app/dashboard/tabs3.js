@@ -694,6 +694,38 @@ function TabRecomandari({ data, onRegenerate, regenerating }) {
 
 
 
+
+// KPI-uri din platforma HomePitch; o sursa inaccesibila apare „indisponibil”, fara cifre inventate.
+function PlatformKpis({ kpis }) {
+  if (!kpis) return null
+  const unavailable = (source, label) => (
+    <KPI label={label} curr={null} sub={`indisponibil${source?.error ? ' — ' + String(source.error).slice(0, 90) : ''}`}/>
+  )
+  const per1000 = kpis.requestsPer1000Sessions || {}
+  const drafts = kpis.drafts || {}
+  const offer = kpis.firstOffer || {}
+  return (
+    <Sec title="Funnel platforma HomePitch">
+      <Grid>
+        <KPI label="Cereri la 1.000 sesiuni" curr={per1000.current} prev={per1000.previous ?? undefined} type="dec1"
+          sub={per1000.current === null || per1000.current === undefined ? 'fara sesiuni GA4 in perioada' : `${fmtN(per1000.requests)} cereri / ${fmtN(per1000.sessions)} sesiuni`}/>
+        {drafts.available
+          ? <KPI label="Drafturi → cereri" curr={drafts.requestsPerDraft === null ? null : drafts.requestsPerDraft * 100} type="pctN"
+              sub={`${fmtN(drafts.requests)} cereri / ${fmtN(drafts.drafts)} drafturi incepute (orientativ, nu leaga draftul de cerere)`}/>
+          : unavailable(drafts, 'Drafturi → cereri')}
+        {offer.available
+          ? <KPI label="Timp pana la prima oferta" curr={offer.medianHoursToFirstOffer} type="dec1"
+              sub={offer.medianHoursToFirstOffer === null ? 'nicio cerere cu oferta in perioada' : `ore (mediana) · ${fmtN(offer.withOffer)} cereri cu oferta, ${fmtN(offer.withoutOffer)} fara`}/>
+          : unavailable(offer, 'Timp pana la prima oferta')}
+        {offer.available
+          ? <KPI label="Cereri cu oferta in 48 h" curr={offer.within48hRate} type="pctN"
+              sub={`${fmtN(offer.within48h)} din ${fmtN(offer.eligibleFor48h)} cereri mai vechi de 48 h`}/>
+          : unavailable(offer, 'Cereri cu oferta in 48 h')}
+      </Grid>
+    </Sec>
+  )
+}
+
 /* ─── CERERE NOUA — COMPARATIE ─────────────────────────────────────── */
 function TabCerereNoua({ data }) {
   const pages = data.pages.current
@@ -1174,6 +1206,8 @@ export function TabCerereTracking({ data }) {
           sub={`${totalDays} zile analizate`}/>
         <KPI label="Inregistrari cumparatori" curr={totalCump}/>
       </Grid>
+
+      <PlatformKpis kpis={data.platformKpis}/>
 
       <Sec title="Evenimente formular /vreau + /new">
         {(requestEvents.totalEvents || 0) === 0 ? (

@@ -750,6 +750,28 @@ function PaymentBreakdown({ title, rows, labelField }) {
   )
 }
 
+
+// Abonati VIP din vip_subscriptions. MRR nu se afiseaza: nu stim sigur unitatea sumelor.
+function VipSubscriptions({ vip }) {
+  if (!vip) return null
+  if (!vip.available) {
+    return (
+      <Sec title="Abonati VIP">
+        <Signal type="neutral" title="Abonati VIP: indisponibil" body={`Nu pot citi vip_subscriptions cu cheia existenta.${vip.error ? ' ' + String(vip.error).slice(0, 160) : ''}`}/>
+      </Sec>
+    )
+  }
+  return (
+    <Sec title="Abonati VIP">
+      <Grid>
+        <KPI label="Abonati VIP activi" curr={vip.active} sub={vip.statusAvailable ? `din ${fmtN(vip.total)} abonamente in total` : 'indisponibil: tabelul nu are coloana status'}/>
+        <KPI label="Abonamente noi in perioada" curr={vip.newInPeriod}/>
+        <KPI label="MRR" curr={null} sub="indisponibil: unitatea sumelor (centi sau EUR) nu e clara"/>
+      </Grid>
+    </Sec>
+  )
+}
+
 export function TabPayments({ data }) {
   const analysis = data.paymentAnalytics?.summary ? data.paymentAnalytics : paymentFallback()
   const summary = analysis.summary || {}
@@ -782,6 +804,7 @@ export function TabPayments({ data }) {
         <KPI label="Checkout → paid" curr={summary.conversion_rate || 0} type="pctN"/>
         <KPI label="Valoare medie" curr={summary.average_order_value || 0} sub={eur(summary.average_order_value)}/>
       </Grid>
+      <VipSubscriptions vip={data.platformKpis?.vip}/>
 
       <Sec title="Evoluție plăți">
         <Card>
