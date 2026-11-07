@@ -63,7 +63,7 @@ export async function proxy(request) {
     return NextResponse.next()
   }
 
-  if (pathname === '/api/report' || pathname === '/api/sync' || pathname === '/api/weekly' || pathname === '/api/seo' || pathname.startsWith('/api/backlog') || pathname.startsWith('/api/platform') || pathname.startsWith('/api/concierge')) {
+  if (pathname === '/api/report' || pathname === '/api/sync' || pathname === '/api/weekly' || pathname === '/api/seo' || pathname === '/api/seo/gsc-push' || pathname.startsWith('/api/backlog') || pathname.startsWith('/api/platform') || pathname.startsWith('/api/concierge')) {
     return NextResponse.next()
   }
 
