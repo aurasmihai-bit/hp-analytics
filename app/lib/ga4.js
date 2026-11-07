@@ -5,6 +5,19 @@ const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
 const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 2
 // Aceeași versiune ca în app/api/report/route.js: altfel zilele salvate par mereu vechi și se recitesc.
 export const REQUEST_FORM_EVENTS_SCHEMA_VERSION = 2
+// 2 = cererePages contine si formularul /new (varianta VH), pe zile si pe canal.
+export const CERERE_PAGES_SCHEMA_VERSION = 2
+
+// /new = formularul VH; potrivire exacta, ca /newsletter sa nu intre aici.
+function isNewFormPagePath(value) {
+  const path = String(value || '').split('?')[0].split('#')[0].replace(/\/+$/, '')
+  return path === '/new' || path.startsWith('/new/')
+}
+
+function pagePathMatches(pagePath, pathPart) {
+  if (pathPart === '/new') return isNewFormPagePath(pagePath)
+  return String(pagePath || '').includes(pathPart)
+}
 
 function numberValue(value) {
   const n = Number(value)
@@ -210,7 +223,7 @@ function mapPageDailyRows(rows, pathPart) {
     page_path: dim(row, 1) || '/',
     screen_page_views: metric(row, 0),
     conversions: metric(row, 1),
-  })).filter(row => row.page_path.includes(pathPart))
+  })).filter(row => pagePathMatches(row.page_path, pathPart))
 }
 
 function mapPageChannelRows(rows, pathPart) {
@@ -220,7 +233,7 @@ function mapPageChannelRows(rows, pathPart) {
     screen_page_views: metric(row, 0),
     active_users: metric(row, 1),
     conversions: metric(row, 2),
-  })).filter(row => row.page_path.includes(pathPart))
+  })).filter(row => pagePathMatches(row.page_path, pathPart))
 }
 
 function mapTrackingRows(rows) {
@@ -542,15 +555,19 @@ export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFro
       pages: [],
     },
     cererePages: {
+      schemaVersion: CERERE_PAGES_SCHEMA_VERSION,
       daily: {
         cerereNoua: mapPageDailyRows(pageDailyCerereNoua, 'cerere-noua').sort((a,b) => a.date.localeCompare(b.date)),
         cereriNou: mapPageDailyRows(pageDailyCereriNou, '/cereri/nou').sort((a,b) => a.date.localeCompare(b.date)),
         vreau: mapPageDailyRows(pageDailyVreau, '/vreau').sort((a,b) => a.date.localeCompare(b.date)),
+        // aceleasi randuri (date × pagePath, fara filtru), deci fara un apel GA4 in plus
+        nou: mapPageDailyRows(pageDailyVreau, '/new').sort((a,b) => a.date.localeCompare(b.date)),
       },
       byChannel: {
         cerereNoua: mapPageChannelRows(pageChannelCerereNoua, 'cerere-noua'),
         cereriNou: mapPageChannelRows(pageChannelCereriNou, '/cereri/nou'),
         vreau: mapPageChannelRows(pageChannelVreau, '/vreau'),
+        nou: mapPageChannelRows(pageChannelVreau, '/new'),
       },
     },
     cerereTracking: mapTrackingRows(tracking).sort((a,b) => a.date.localeCompare(b.date)),
@@ -584,8 +601,9 @@ function emptyDailyPayload(date) {
     conversions: [],
     daily: { current: [], byChannel: [] },
     cererePages: {
-      daily: { cerereNoua: [], cereriNou: [], vreau: [] },
-      byChannel: { cerereNoua: [], cereriNou: [], vreau: [] },
+      schemaVersion: CERERE_PAGES_SCHEMA_VERSION,
+      daily: { cerereNoua: [], cereriNou: [], vreau: [], nou: [] },
+      byChannel: { cerereNoua: [], cereriNou: [], vreau: [], nou: [] },
     },
     cerereTracking: [],
     exitAnalysis: {
@@ -741,7 +759,7 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
   function addPageDaily(rows, key, pathPart) {
     rows.forEach(row => {
       const pagePath = dim(row, 1) || '/'
-      if (!pagePath.includes(pathPart)) return
+      if (!pagePathMatches(pagePath, pathPart)) return
       const date = gaDate(dim(row, 0))
       const day = ensureDailyPayload(days, date)
       day.cererePages.daily[key].push({
@@ -756,7 +774,7 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
   function addPageChannel(rows, key, pathPart) {
     rows.forEach(row => {
       const pagePath = dim(row, 2) || '/'
-      if (!pagePath.includes(pathPart)) return
+      if (!pagePathMatches(pagePath, pathPart)) return
       const date = gaDate(dim(row, 0))
       const day = ensureDailyPayload(days, date)
       day.cererePages.byChannel[key].push({
@@ -773,9 +791,12 @@ export async function fetchReportGa4DailyData({ propertyId, start, end }) {
   addPageDaily(pageDailyCerereNoua, 'cerereNoua', 'cerere-noua')
   addPageDaily(pageDailyCereriNou, 'cereriNou', '/cereri/nou')
   addPageDaily(pageDailyVreau, 'vreau', '/vreau')
+  // /new (VH): aceleasi randuri date × pagePath, fara apel GA4 suplimentar
+  addPageDaily(pageDailyVreau, 'nou', '/new')
   addPageChannel(pageChannelCerereNoua, 'cerereNoua', 'cerere-noua')
   addPageChannel(pageChannelCereriNou, 'cereriNou', '/cereri/nou')
   addPageChannel(pageChannelVreau, 'vreau', '/vreau')
+  addPageChannel(pageChannelVreau, 'nou', '/new')
 
   tracking.forEach(row => {
     const date = gaDate(dim(row, 0))

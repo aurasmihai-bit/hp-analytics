@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { C, KPI, Sec, Grid, Card, fmtN } from './components'
+import { conciergePipelineValue, countCreatedSince, firstContactAt, firstContactStats, CONCIERGE_LOST_STAGES } from '../lib/crm-metrics'
 
 const STAGES = [
   ['nou', 'Nou'],
@@ -729,11 +730,12 @@ function ConciergeReports({ rows }) {
   const completedTaskTotal = taskRows.reduce((sum, item) => sum + item.progress.completed, 0)
   const openTaskTotal = Math.max(0, paidTaskTotal - completedTaskTotal)
   const unfinishedTaskRequests = taskRows.filter(item => item.progress.open > 0).length
-  const totalValue = rows.reduce((sum, row) => sum + rowTotal(row), 0)
-  const avgValue = total ? totalValue / total : 0
-  const maxTime = rows.reduce((max, row) => Math.max(max, timestamp(row.createdAt)), 0) || Date.now()
-  const sevenDaysAgo = maxTime - 7 * 24 * 60 * 60 * 1000
-  const last7 = rows.filter(row => timestamp(row.createdAt) >= sevenDaysAgo).length
+  // Pipeline fara cererile pierdute (refuz); ultimele 7 zile fata de azi, nu fata de ultima cerere.
+  const openRows = rows.filter(row => !CONCIERGE_LOST_STAGES.has(row.stage))
+  const totalValue = conciergePipelineValue(rows, rowTotal)
+  const avgValue = openRows.length ? totalValue / openRows.length : 0
+  const last7 = countCreatedSince(rows, 7)
+  const contactStats = firstContactStats(rows.map(row => ({ createdAt: row.createdAt, firstContactAt: firstContactAt({ comments: row.comments, createdAt: row.createdAt }) })))
   const paidRate = total ? paid / total * 100 : 0
   const daily = buildDailySeries(rows, 30)
   const stageRows = STAGES.map(([id, label]) => ({
@@ -795,8 +797,9 @@ function ConciergeReports({ rows }) {
       <Grid>
         <KPI label="Cereri totale" curr={total}/>
         <KPI label="Ultimele 7 zile" curr={last7}/>
-        <KPI label="Pipeline" curr={totalValue} sub="EUR"/>
-        <KPI label="Valoare medie" curr={avgValue} sub="EUR / cerere"/>
+        <KPI label="Pipeline" curr={totalValue} sub="EUR, fara cererile refuzate"/>
+        <KPI label="Valoare medie" curr={avgValue} sub="EUR / cerere nerefuzata"/>
+        <KPI label="Timp pana la primul contact" curr={contactStats.medianHours} type="dec1" sub={contactStats.medianHours === null ? 'fara contacte inregistrate' : `ore (mediana) · ${contactStats.uncontacted} fara contact`}/>
         <KPI label="Plati pending" curr={pending}/>
         <KPI label="Rata platite" curr={paidRate} type="pctN"/>
         <div style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'14px 16px'}}>

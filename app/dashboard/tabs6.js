@@ -73,7 +73,7 @@ function IntentPagesTable({ rows }) {
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`0.5px solid ${C.border}`}}>
-            {['Pagina','Evenimente','Useri','Top event','Event names'].map(h=>(
+            {['Pagina','Evenimente','Useri (sumă zilnică)','Top event','Event names'].map(h=>(
               <th key={h} style={{textAlign:'left',padding:'7px 8px',color:C.hint,fontWeight:600,fontSize:10,textTransform:'uppercase'}}>{h}</th>
             ))}
           </tr>
@@ -104,7 +104,7 @@ function CohortsTable({ rows }) {
       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
         <thead>
           <tr style={{borderBottom:`0.5px solid ${C.border}`}}>
-            {['Cohorta','Canal','Device','Evenimente','Useri','Share'].map(h=>(
+            {['Cohorta','Canal','Device','Evenimente','Useri (sumă zilnică)','Share'].map(h=>(
               <th key={h} style={{textAlign:'left',padding:'7px 8px',color:C.hint,fontWeight:600,fontSize:10,textTransform:'uppercase'}}>{h}</th>
             ))}
           </tr>

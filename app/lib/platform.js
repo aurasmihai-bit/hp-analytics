@@ -11,6 +11,8 @@ import {
   countRequestVariants,
   computeBuyerRequestConversion,
 } from './request-attribution'
+import { fetchAllPages, medianByCurrency, downPaymentRatio } from './report-metrics'
+import { draftFunnel, firstOfferStats, vipSubscriptionSummary, notificationAttemptSummary } from './platform-kpis'
 
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_REQUESTS_TABLE = 'buyer_requests'
@@ -68,6 +70,21 @@ async function platformRest(config, params, extraHeaders = {}, table = config.re
     }
   }
   throw lastAuthError || new Error('Platform Supabase auth failed')
+}
+
+// PostgREST taie raspunsul la max-rows (implicit 1000), chiar daca cerem limit=10000.
+// Citim pe pagini de 1000 cu limit/offset si oprim la `maxRows`.
+async function platformRestAll(config, params, extraHeaders = {}, table = config.requestsTable, { maxRows = 50000 } = {}) {
+  let total = 0
+  const result = await fetchAllPages(async ({ offset, limit }) => {
+    const pageParams = new URLSearchParams(params)
+    pageParams.set('limit', String(limit))
+    pageParams.set('offset', String(offset))
+    const page = await platformRest(config, pageParams, extraHeaders, table)
+    if (offset === 0) total = page.total
+    return page.rows
+  }, { pageSize: 1000, maxRows })
+  return { rows: result.rows, total: total || result.rows.length, truncated: result.truncated }
 }
 
 function isMissingColumnError(error) {
@@ -283,7 +300,8 @@ function sanitizeRequestRow(row) {
     pre_approval: cleanText(row.pre_approval, ''),
     down_payment: downPayment,
     down_payment_currency: cleanText(row.down_payment_currency, ''),
-    down_payment_ratio: budgetMax && downPayment ? downPayment / budgetMax * 100 : null,
+    // doar in aceeasi moneda (avans RON / buget EUR nu se imparte direct)
+    down_payment_ratio: downPaymentRatio(budgetMax, row.currency, downPayment, row.down_payment_currency),
     buyer_score: buyerScore,
     buyer_score_bucket: buyerScoreBucket(buyerScore),
     buyer_score_level: cleanText(buyerScoreRelation?.level, ''),
@@ -387,6 +405,8 @@ function analyticsSummary(rows) {
   return {
     total: rows.length,
     medianBudgetMax: median(budgetMaxValues),
+    medianBudgetMaxByCurrency: medianByCurrency(rows, 'budget_max', 'currency'),
+    medianRentBudgetMaxByCurrency: medianByCurrency(rows, 'rent_budget_max', 'rent_currency'),
     avgBudgetMax: budgetMaxValues.length ? budgetMaxValues.reduce((s, v) => s + v, 0) / budgetMaxValues.length : null,
     medianRentBudgetMax: median(rentBudgetMaxValues),
     avgRentBudgetMax: rentBudgetMaxValues.length ? rentBudgetMaxValues.reduce((s, v) => s + v, 0) / rentBudgetMaxValues.length : null,
@@ -449,8 +469,7 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
     const params = new URLSearchParams()
     params.append('created_at', `gte.${localDateStart(start)}`)
     params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
-    params.set('order', 'created_at.asc')
-    params.set('limit', '10000')
+    params.set('order', 'created_at.asc,id.asc')
     return params
   }
 
@@ -470,7 +489,7 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
   const fetched = await fetchWithAttributionEmbed(selects, async select => {
     const params = baseParams()
     params.set('select', select)
-    const result = await platformRest(config, params, { Prefer: 'count=exact' })
+    const result = await platformRestAll(config, params, { Prefer: 'count=exact' })
     return result.rows
   }, {
     embedAvailable: getCachedEmbedAvailability(config),
@@ -575,14 +594,14 @@ export async function fetchPlatformBuyerRequestConversion({ start, end }) {
     params.set('select', select)
     params.append('created_at', `gte.${localDateStart(start)}`)
     params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
-    params.set('limit', '10000')
+    params.set('order', 'created_at.asc,user_id.asc')
     return params
   }
 
   const buyerParams = rangeParams('user_id,created_at')
   buyerParams.set('user_type', 'eq.buyer')
-  const { rows: buyers } = await platformRest(config, buyerParams, {}, 'profiles_public')
-  const { rows: requests } = await platformRest(config, rangeParams('user_id'))
+  const { rows: buyers } = await platformRestAll(config, buyerParams, {}, 'profiles_public')
+  const { rows: requests } = await platformRestAll(config, rangeParams('user_id,created_at'))
 
   const result = computeBuyerRequestConversion(buyers, requests)
   return {
@@ -602,10 +621,9 @@ export async function fetchPlatformRequestDailyStats({ start, end }) {
   params.set('select', 'created_at')
   params.append('created_at', `gte.${localDateStart(start)}`)
   params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
-  params.set('order', 'created_at.asc')
-  params.set('limit', '10000')
+  params.set('order', 'created_at.asc,id.asc')
 
-  const { rows } = await platformRest(config, params)
+  const { rows } = await platformRestAll(config, params)
 
   const days = {}
   rows.forEach(row => {
@@ -704,4 +722,112 @@ export async function fetchPlatformRequestAnalytics({ start, end, limit = 1000 }
       excludedFields: ['id', 'user_id', 'notes', 'meta_description'],
     },
   }
+}
+
+// ── KPI-uri platforma (punctul 6 din audit) ─────────────────────────
+// Fiecare citire e optionala: daca tabelul nu e accesibil cu cheia existenta sau coloanele
+// difera, intoarcem { available: false, error } si dashboard-ul afiseaza „indisponibil”.
+
+async function readOptionalTable(config, table, selects, buildParams, { maxRows = 20000 } = {}) {
+  let lastError = null
+  for (const select of selects) {
+    try {
+      const params = buildParams()
+      params.set('select', select)
+      const result = await platformRestAll(config, params, { Prefer: 'count=exact' }, table, { maxRows })
+      return { available: true, rows: result.rows, total: result.total, truncated: result.truncated, select }
+    } catch (error) {
+      lastError = error
+      if (!isMissingColumnError(error)) break
+    }
+  }
+  return { available: false, rows: [], error: lastError?.message || String(lastError || 'indisponibil') }
+}
+
+function periodParams(start, end, column = 'created_at') {
+  return () => {
+    const params = new URLSearchParams()
+    if (start) params.append(column, `gte.${localDateStart(start)}`)
+    if (end) params.append(column, `lt.${localDateStart(addDaysIso(end, 1))}`)
+    params.set('order', `${column}.asc`)
+    return params
+  }
+}
+
+export async function fetchPlatformKpis({ start, end, now = new Date() }) {
+  const config = getPlatformConfig()
+  if (!config) return null
+
+  const [drafts, requests, vip, notifications] = await Promise.all([
+    readOptionalTable(config, 'buyer_request_form_drafts', ['id,created_at', 'created_at'], periodParams(start, end)),
+    readOptionalTable(config, config.requestsTable, ['id,created_at'], periodParams(start, end)),
+    readOptionalTable(config, 'vip_subscriptions', ['is_active,expires_at,created_at', 'created_at'], () => {
+      const params = new URLSearchParams()
+      params.set('order', 'created_at.asc')
+      return params
+    }),
+    readOptionalTable(config, 'notification_email_attempts', ['outcome,error_code,attempted_at'], periodParams(addDaysIso(end, -6), end, 'attempted_at')),
+  ])
+
+  // Oferte pe cererile din perioada: offers.request_id + created_at (coloane neverificate pe live).
+  let offers = { available: false, rows: [], error: requests.available ? '' : 'cererile nu sunt accesibile' }
+  if (requests.available) {
+    const ids = requests.rows.map(row => row.id).filter(Boolean)
+    if (!ids.length) {
+      offers = { available: true, rows: [] }
+    } else {
+      const rows = []
+      try {
+        for (let i = 0; i < ids.length; i += 100) {
+          const chunk = ids.slice(i, i + 100)
+          const result = await readOptionalTable(config, 'offers', ['request_id,created_at'], () => {
+            const params = new URLSearchParams()
+            params.set('request_id', `in.(${chunk.map(id => `"${String(id).replace(/"/g, '')}"`).join(',')})`)
+            params.set('order', 'created_at.asc')
+            return params
+          })
+          if (!result.available) throw new Error(result.error)
+          rows.push(...result.rows)
+        }
+        offers = { available: true, rows }
+      } catch (error) {
+        offers = { available: false, rows: [], error: error.message || String(error) }
+      }
+    }
+  }
+
+  const status = source => source.available ? 'ok' : 'indisponibil'
+  return {
+    start,
+    end,
+    drafts: drafts.available
+      ? { available: true, ...draftFunnel(drafts.total ?? drafts.rows.length, requests.available ? (requests.total ?? requests.rows.length) : null) }
+      : { available: false, error: drafts.error },
+    firstOffer: offers.available && requests.available
+      ? { available: true, ...firstOfferStats(requests.rows, offers.rows, { now }) }
+      : { available: false, error: offers.error || requests.error },
+    vip: vip.available
+      ? { available: true, ...vipSubscriptionSummary(vip.rows, { start, end, now }) }
+      : { available: false, error: vip.error },
+    notifications: notifications.available
+      ? { available: true, days: 7, ...notificationAttemptSummary(notifications.rows) }
+      : { available: false, error: notifications.error },
+    sources: {
+      buyer_request_form_drafts: status(drafts),
+      offers: status(offers),
+      vip_subscriptions: status(vip),
+      notification_email_attempts: status(notifications),
+    },
+  }
+}
+
+// Incercarile de trimitere email din ultimele `days` zile (status live al notificarilor).
+export async function fetchPlatformNotificationStatus({ days = 7, now = new Date() } = {}) {
+  const config = getPlatformConfig()
+  if (!config) return { available: false, error: 'Platform Supabase is not configured' }
+  const end = localDateFromTimestamp(now)
+  const start = addDaysIso(end, -(days - 1))
+  const result = await readOptionalTable(config, 'notification_email_attempts', ['outcome,error_code,attempted_at'], periodParams(start, end, 'attempted_at'))
+  if (!result.available) return { available: false, error: result.error }
+  return { available: true, days, start, end, ...notificationAttemptSummary(result.rows) }
 }

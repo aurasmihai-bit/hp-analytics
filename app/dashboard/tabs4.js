@@ -207,14 +207,14 @@ export function TabRaportSaptamanal({ data }) {
               {/* KPI grid */}
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8,marginBottom:14}}>
                 {[
-                  {l:'Direct',      v:fmtN(current.direct_sess||0), sub:`${current.direct_sess>0?((current.direct_conv/current.direct_sess)*100).toFixed(1):0}% conv`},
-                  {l:'Social',      v:fmtN(current.social_sess||0), sub:`${current.social_sess>0?((current.social_conv/current.social_sess)*100).toFixed(1):0}% conv`, hl:true},
-                  {l:'Search',      v:fmtN(current.search_sess||0), sub:`${current.search_sess>0?((current.search_conv/current.search_sess)*100).toFixed(1):0}% conv`},
+                  {l:'Direct',      v:fmtN(current.direct_sess||0), sub:`${current.direct_sess>0?((current.direct_conv/current.direct_sess)*100).toFixed(1):0} ev. cheie/100 ses.`},
+                  {l:'Social',      v:fmtN(current.social_sess||0), sub:`${current.social_sess>0?((current.social_conv/current.social_sess)*100).toFixed(1):0} ev. cheie/100 ses.`, hl:true},
+                  {l:'Search',      v:fmtN(current.search_sess||0), sub:`${current.search_sess>0?((current.search_conv/current.search_sess)*100).toFixed(1):0} ev. cheie/100 ses.`},
                   {l:'Cereri noi',  v:current.cereri_noi||0, col:(current.cereri_noi||0)>5?C.green:(current.cereri_noi||0)>0?C.amber:C.red},
                   {l:'Inreg. c.',   v:current.bun_venit_c||0},
-                  {l:'Funnel %',    v:(current.funnel_rate||0)+'%', col:(current.funnel_rate||0)<15?C.red:C.green},
-                  {l:'Homepage %',  v:(current.homepage_rate||0)+'%', col:(current.homepage_rate||0)>8?C.green:(current.homepage_rate||0)>5?C.amber:C.red},
-                  {l:'/vreau %',    v:(current.vreau_rate||0)+'%', col:(current.vreau_rate||0)>3?C.green:C.hint},
+                  {l:'Formulare V+VH / /cereri',    v:(current.funnel_rate||0)+'%', col:(current.funnel_rate||0)<15?C.red:C.green},
+                  {l:'Homepage ev./100 views',  v:(current.homepage_rate||0), col:(current.homepage_rate||0)>8?C.green:(current.homepage_rate||0)>5?C.amber:C.red},
+                  {l:'/vreau ev./100 views',    v:(current.vreau_rate||0), col:(current.vreau_rate||0)>3?C.green:C.hint},
                 ].map(m=>(
                   <div key={m.l} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'10px 12px'}}>
                     <p style={{fontSize:9,color:C.hint,margin:'0 0 3px',textTransform:'uppercase',letterSpacing:'.05em'}}>{m.l}</p>

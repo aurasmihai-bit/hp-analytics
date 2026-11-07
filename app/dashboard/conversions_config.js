@@ -136,11 +136,12 @@ export const CONV_DEFINITIONS = [
 
 export const CATEGORIES = [...new Set(CONV_DEFINITIONS.map(c => c.category))]
 
-// /vreau este fluxul activ. Rutele vechi raman doar pentru audit/redirect.
+// /vreau (V) si /new (VH) sunt formularele active. Rutele vechi raman doar pentru audit/redirect.
 export const CERERE_PAGES = [
   {
     path: '/cerere-noua',
     label: 'cerere-noua',
+    key: 'cerereNoua',
     color: '#3B82C4',
     status: 'legacy',
     description: 'Ruta veche; monitorizata doar pentru trafic ratacit sau linkuri externe.',
@@ -148,6 +149,7 @@ export const CERERE_PAGES = [
   {
     path: '/cereri/nou',
     label: 'cereri/nou',
+    key: 'cereriNou',
     color: '#D97706',
     status: 'legacy',
     description: 'Ruta veche din pagina de cereri; ar trebui sa redirectioneze spre /vreau.',
@@ -155,8 +157,17 @@ export const CERERE_PAGES = [
   {
     path: '/vreau',
     label: 'vreau',
+    key: 'vreau',
     color: '#16A34A',
     status: 'active',
-    description: 'Fluxul activ pentru adaugarea unei cereri.',
+    description: 'Formular activ, varianta V.',
+  },
+  {
+    path: '/new',
+    label: 'new',
+    key: 'nou',
+    color: '#7C3AED',
+    status: 'active',
+    description: 'Formular activ, varianta VH (din homepage).',
   },
 ]

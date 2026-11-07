@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server'
 import { getLatestSnapshot, upsertSnapshot, isFresh, logSync, getTabDailyRows, upsertTabDailyRows } from '../../lib/supabase'
 import { getOptionalEnv, requireEnv } from '../../lib/env'
-import { fetchReportGa4Data, fetchReportGa4DailyData, REQUEST_FORM_EVENTS_SCHEMA_VERSION } from '../../lib/ga4'
-import { fetchGscData, fetchGscDailyData } from '../../lib/gsc'
-import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats, fetchPlatformBuyerRequestConversion } from '../../lib/platform'
+import { fetchReportGa4Data, fetchReportGa4DailyData, REQUEST_FORM_EVENTS_SCHEMA_VERSION, CERERE_PAGES_SCHEMA_VERSION } from '../../lib/ga4'
+import { fetchGscData, fetchGscDailyData, isGscConfigured } from '../../lib/gsc'
+import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats, fetchPlatformBuyerRequestConversion, fetchPlatformKpis } from '../../lib/platform'
+import { requestsPer1000Sessions } from '../../lib/platform-kpis'
 import { requestFormEventTotals, requestsPerGa4Signup } from '../../lib/request-attribution'
 import { fetchAmplitudeAnalytics } from '../../lib/amplitude'
+import {
+  completedDaysRange,
+  bucharestDate,
+  bucharestDayStartUtc,
+  bucharestDayEndUtc,
+  tabDayCompleteness,
+  selectTabDayRefreshDates,
+  isInternalReferrer,
+  isNewFormPath,
+  activeFormViews as countActiveFormViews,
+  fetchAllPages,
+} from '../../lib/report-metrics'
 
 export const maxDuration = 60
 
@@ -61,12 +74,9 @@ function subtractPrev(all60, curr30, key) {
   return Object.values(m)
 }
 
+// Ultimele `days` zile complete (pana ieri, ora Romaniei) + perioada anterioara de aceeasi lungime.
 function dateRange(days, now) {
-  const currTo   = now.toISOString().slice(0,10)
-  const currFrom = new Date(now - days * 864e5).toISOString().slice(0,10)
-  const prevFrom = new Date(now - days * 2 * 864e5).toISOString().slice(0,10)
-  const prevTo   = new Date(now - days * 864e5 - 864e5).toISOString().slice(0,10)
-  return { currFrom, currTo, prevFrom, prevTo }
+  return completedDaysRange(days, now)
 }
 
 function isIsoDate(value) {
@@ -320,7 +330,7 @@ async function attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
   return data
 }
 
-async function attachPlatformRequestData(data, currFrom, currTo) {
+async function attachPlatformRequestData(data, currFrom, currTo, prevFrom = null, prevTo = null) {
   try {
     data.platformRequests = await fetchPlatformRequestStats({ start: currFrom, end: currTo })
   } catch (e) {
@@ -347,6 +357,28 @@ async function attachPlatformRequestData(data, currFrom, currTo) {
     data.platformBuyerConversion = await fetchPlatformBuyerRequestConversion({ start: currFrom, end: currTo })
   } catch (e) {
     console.warn('Platform buyer request conversion failed:', e.message)
+  }
+  // KPI-uri platforma: drafturi → cereri, prima oferta, VIP, notificari, cereri / 1.000 sesiuni.
+  try {
+    const [kpis, previousRequests] = await Promise.all([
+      fetchPlatformKpis({ start: currFrom, end: currTo }),
+      prevFrom && prevTo ? fetchPlatformRequestStats({ start: prevFrom, end: prevTo }).catch(() => null) : Promise.resolve(null),
+    ])
+    const sessions = sumField(data.traffic?.current, 'sessions')
+    const previousSessions = sumField(data.traffic?.previous, 'sessions')
+    data.platformKpis = {
+      ...(kpis || {}),
+      requestsPer1000Sessions: {
+        current: requestsPer1000Sessions(data.platformRequests?.count, sessions),
+        previous: previousRequests ? requestsPer1000Sessions(previousRequests.count, previousSessions) : null,
+        requests: Number(data.platformRequests?.count || 0),
+        previousRequests: previousRequests ? Number(previousRequests.count || 0) : null,
+        sessions,
+        previousSessions,
+      },
+    }
+  } catch (e) {
+    console.warn('Platform KPIs failed:', e.message)
   }
   return data
 }
@@ -453,6 +485,15 @@ function missingConciergeTrafficRanges(rows, start, end) {
   return mergeRanges(dates.map(date => ({ start: date, end: date })))
 }
 
+function missingCererePagesRanges(rows, start, end) {
+  const byDate = new Map((rows || []).map(row => [row.data_date, row]))
+  const dates = eachDate(start, end).filter(date => {
+    const payload = byDate.get(date)?.payload
+    return !payload || payload.cererePages?.schemaVersion !== CERERE_PAGES_SCHEMA_VERSION
+  })
+  return mergeRanges(dates.map(date => ({ start: date, end: date })))
+}
+
 function missingReferralRanges(rows, start, end) {
   const byDate = new Map((rows || []).map(row => [row.data_date, row]))
   const dates = eachDate(start, end).filter(date => {
@@ -471,8 +512,9 @@ function emptyTabDay(date) {
     daily: { current: [], byChannel: [] },
     gsc: { current: [], queries: [], pages: [] },
     cererePages: {
-      daily: { cerereNoua: [], cereriNou: [], vreau: [] },
-      byChannel: { cerereNoua: [], cereriNou: [], vreau: [] },
+      schemaVersion: CERERE_PAGES_SCHEMA_VERSION,
+      daily: { cerereNoua: [], cereriNou: [], vreau: [], nou: [] },
+      byChannel: { cerereNoua: [], cereriNou: [], vreau: [], nou: [] },
     },
     cerereTracking: [],
     exitAnalysis: {
@@ -509,10 +551,16 @@ function mergeTabDay(date, ga4Day = {}, gscDay = {}, platformDay = null) {
   }
 }
 
-async function fetchAndSaveTabDailyRange(start, end) {
+// Citeste din GA4 / GSC / platforma zilele start..end si le salveaza in hp_tab_data_daily.
+// `existingByDate` = randurile deja salvate: daca GSC sau platforma pica, pastram datele vechi
+// ale zilei in loc sa le suprascriem cu gol. `sources.ga4Complete/gscComplete` spune daca ziua
+// era deja completa la salvare (ziua de azi si ultimele zile raman marcate incomplete si se recitesc).
+async function fetchAndSaveTabDailyRange(start, end, existingByDate = new Map()) {
+  // Fara Search Console configurat, GSC lipsa nu e o eroare de reincercat.
+  const gscConfigured = isGscConfigured()
   const [ga4ByDate, gscResult, platformResult] = await Promise.allSettled([
     fetchReportGa4DailyData({ propertyId: getGa4Account(), start, end }),
-    fetchGscDailyData({ start, end }),
+    gscConfigured ? fetchGscDailyData({ start, end }) : Promise.resolve({}),
     fetchPlatformRequestDailyStats({ start, end }),
   ])
 
@@ -527,19 +575,30 @@ async function fetchAndSaveTabDailyRange(start, end) {
   }
 
   const ga4 = ga4ByDate.value || {}
-  const gsc = gscResult.status === 'fulfilled' ? gscResult.value || {} : {}
-  const platform = platformResult.status === 'fulfilled' ? platformResult.value || {} : {}
+  const gscOk = gscResult.status === 'fulfilled'
+  const platformOk = platformResult.status === 'fulfilled'
+  const gsc = gscOk ? gscResult.value || {} : {}
+  const platform = platformOk ? platformResult.value || {} : {}
   const syncedAt = new Date().toISOString()
-  const rows = eachDate(start, end).map(date => ({
-    data_date: date,
-    payload: mergeTabDay(date, ga4[date], gsc[date], platform[date]),
-    sources: {
-      ga4: 'google_analytics_data_api',
-      gsc: gsc[date] ? 'search_console' : 'none',
-      platform: platform[date]?.source || 'none',
-    },
-    synced_at: syncedAt,
-  }))
+  const rows = eachDate(start, end).map(date => {
+    const previous = existingByDate.get(date)
+    const previousPayload = previous?.payload || null
+    const gscDay = gscOk ? gsc[date] : (previousPayload?.gsc || null)
+    const platformDay = platformOk ? platform[date] : (previousPayload?.platformRequests || null)
+    const completeness = tabDayCompleteness(date, syncedAt)
+    return {
+      data_date: date,
+      payload: mergeTabDay(date, ga4[date], gscDay || {}, platformDay),
+      sources: {
+        ga4: 'google_analytics_data_api',
+        gsc: gscOk ? (gsc[date] ? 'search_console' : 'none') : (previous?.sources?.gsc === 'search_console' ? 'search_console' : 'error'),
+        platform: platformOk ? (platform[date]?.source || 'none') : (previous?.sources?.platform || 'error'),
+        ga4Complete: completeness.ga4Complete,
+        gscComplete: completeness.gscComplete && gscOk,
+      },
+      synced_at: syncedAt,
+    }
+  })
   await upsertTabDailyRows(rows)
   return rows
 }
@@ -688,9 +747,26 @@ function aggregateGscPages(payloads) {
   ).sort((a,b) => Number(b.organic_google_search_impressions || 0) - Number(a.organic_google_search_impressions || 0))
 }
 
+// Zilele salvate inainte de /new (schema 1) nu au cererePages.daily.nou: il luam din
+// randurile pe pagini ale zilei (pages are date × pagePath, deci aceleasi views).
+function cererePageDailyRows(payload, key) {
+  const rows = payload.cererePages?.daily?.[key]
+  if (key === 'nou' && !Array.isArray(rows)) {
+    return (payload.pages || [])
+      .filter(page => isNewFormPath(page.page_path))
+      .map(page => ({
+        date: payload.date,
+        page_path: page.page_path,
+        screen_page_views: Number(page.screen_page_views || 0),
+        conversions: Number(page.conversions || 0),
+      }))
+  }
+  return rows || []
+}
+
 function aggregatePageDaily(payloads, key) {
   return aggregateBy(
-    payloads.flatMap(payload => payload.cererePages?.daily?.[key] || []),
+    payloads.flatMap(payload => cererePageDailyRows(payload, key)),
     row => `${row.date}::${row.page_path}`,
     ['screen_page_views', 'conversions']
   ).sort((a,b) => String(a.date || '').localeCompare(String(b.date || '')))
@@ -928,6 +1004,18 @@ function hpAnalyticsExportConfig() {
   }
 }
 
+// Citeste toate randurile unei resurse din export, cate 1000 (limita implicita PostgREST).
+// Nu stim sigur daca exportul respecta `offset`: daca pagina 2 vine identica cu pagina 1,
+// ne oprim si marcam rezultatul ca trunchiat (fara randuri dublate).
+async function hpAnalyticsExportAll(resource, params = {}, { pageSize = 1000, maxRows = 100000 } = {}) {
+  const result = await fetchAllPages(
+    ({ offset, limit }) => hpAnalyticsExport(resource, { ...params, limit, offset: offset || null }),
+    { pageSize, maxRows }
+  )
+  if (result.truncated) console.warn(`HP Analytics export ${resource}: rezultat posibil trunchiat (${result.rows.length} randuri)`)
+  return result
+}
+
 async function hpAnalyticsExport(resource, params = {}) {
   const config = hpAnalyticsExportConfig()
   if (!config) throw new Error('HP Analytics export token is not configured')
@@ -996,18 +1084,18 @@ async function platformAbFetch(path, params) {
   throw lastAuthError || new Error('Platform Supabase auth failed')
 }
 
+// Zile calendaristice in ora Romaniei, ca la cereri (platform.js): A/B si plati folosesc
+// aceleasi limite de zi, deci 00:30 ora Romaniei nu mai cade in ziua anterioara (UTC).
 function eventDate(value) {
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString().slice(0, 10)
+  return value ? bucharestDate(value) : null
 }
 
 function isoStartOfDay(date) {
-  return new Date(`${date}T00:00:00.000Z`).toISOString()
+  return bucharestDayStartUtc(date)
 }
 
 function isoEndOfDay(date) {
-  return new Date(`${date}T23:59:59.999Z`).toISOString()
+  return bucharestDayEndUtc(date)
 }
 
 function sortNewestFirst(a, b) {
@@ -1209,11 +1297,10 @@ async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
 
     if (exportConfig) {
       tests = await hpAnalyticsExport('ab_tests', { limit: 1000 })
-      fetchEvents = (from, to, testId) => hpAnalyticsExport('ab_test_events', {
+      fetchEvents = (from, to, testId) => hpAnalyticsExportAll('ab_test_events', {
         since: isoStartOfDay(from),
         until: isoEndOfDay(to),
         ab_test_id: testId,
-        limit: 50000,
       })
     } else {
       const testParams = new URLSearchParams()
@@ -1222,16 +1309,18 @@ async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
       testParams.set('order', 'created_at.desc')
       testParams.set('limit', '1')
       tests = await platformAbFetch('ab_tests', testParams)
-      fetchEvents = (from, to, testId) => {
+      // PostgREST taie la max-rows (implicit 1000): citim pe pagini cu limit/offset.
+      fetchEvents = (from, to, testId) => fetchAllPages(({ offset, limit }) => {
         const params = new URLSearchParams()
         params.set('select', 'variant,event_type,session_id,user_id,metadata,created_at')
         params.set('ab_test_id', `eq.${testId}`)
         params.set('created_at', `gte.${isoStartOfDay(from)}`)
         params.append('created_at', `lte.${isoEndOfDay(to)}`)
-        params.set('order', 'created_at.asc')
-        params.set('limit', '50000')
+        params.set('order', 'created_at.asc,id.asc')
+        params.set('limit', String(limit))
+        params.set('offset', String(offset))
         return platformAbFetch('ab_test_events', params)
-      }
+      })
     }
 
     const test = (tests || [])
@@ -1251,12 +1340,15 @@ async function fetchHeaderMenuAbAnalysis(currFrom, currTo, prevFrom, prevTo) {
       }
     }
 
-    const [events, previousEvents] = await Promise.all([
+    const [eventsResult, previousEventsResult] = await Promise.all([
       fetchEvents(currFrom, currTo, test.id),
       fetchEvents(prevFrom, prevTo, test.id),
     ])
+    const truncated = Boolean(eventsResult.truncated || previousEventsResult.truncated)
     return {
-      ...summarizeHeaderMenuEvents(events, previousEvents),
+      ...summarizeHeaderMenuEvents(eventsResult.rows, previousEventsResult.rows),
+      ...(truncated ? { dataWarning: 'Evenimentele A/B par trunchiate (exportul nu a dat toate paginile). Cifrele pot fi mai mici decat in realitate.' } : {}),
+      eventsLoaded: eventsResult.rows.length,
       test: {
         id: test.id,
         name: test.name,
@@ -1289,11 +1381,11 @@ async function attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prev
 }
 
 function paymentRangeStart(date) {
-  return `${date}T00:00:00.000Z`
+  return bucharestDayStartUtc(date)
 }
 
 function paymentRangeEnd(date) {
-  return `${date}T23:59:59.999Z`
+  return bucharestDayEndUtc(date)
 }
 
 function normalizePaymentEvent(row = {}) {
@@ -1341,7 +1433,7 @@ function normalizePaymentEvent(row = {}) {
     utm_medium: row.utm_medium || '',
     utm_campaign: row.utm_campaign || '',
     created_at: row.created_at || null,
-    date: row.created_at ? String(row.created_at).slice(0, 10) : '',
+    date: row.created_at ? (bucharestDate(row.created_at) || '') : '',
     metadata,
   }
 }
@@ -1462,11 +1554,11 @@ function buildPaymentAnalytics(currentRows = [], previousRows = [], setupIssue =
 
 async function fetchPaymentAnalytics(currFrom, currTo, prevFrom, prevTo) {
   try {
-    const [currentRows, previousRows] = await Promise.all([
-      hpAnalyticsExport('stripe_payment_events', { since: paymentRangeStart(currFrom), until: paymentRangeEnd(currTo), limit: 50000 }),
-      hpAnalyticsExport('stripe_payment_events', { since: paymentRangeStart(prevFrom), until: paymentRangeEnd(prevTo), limit: 50000 }),
+    const [current, previous] = await Promise.all([
+      hpAnalyticsExportAll('stripe_payment_events', { since: paymentRangeStart(currFrom), until: paymentRangeEnd(currTo) }),
+      hpAnalyticsExportAll('stripe_payment_events', { since: paymentRangeStart(prevFrom), until: paymentRangeEnd(prevTo) }),
     ])
-    return buildPaymentAnalytics(currentRows, previousRows)
+    return buildPaymentAnalytics(current.rows, previous.rows)
   } catch (e) {
     return buildPaymentAnalytics([], [], e.message || 'Nu pot citi stripe_payment_events din HomePitch.')
   }
@@ -1550,8 +1642,11 @@ function aggregateConciergeRows(rows = []) {
 }
 
 function buildReferralAnalysisFromPayloads(currentPayloads = [], previousPayloads = []) {
-  const rows = currentPayloads.flatMap(payload => payload.referrals?.rows || [])
-  const previousRows = previousPayloads.flatMap(payload => payload.referrals?.rows || [])
+  // Navigarea interna (homepitch.ro → homepitch.ro) nu e referral: o scoatem din ambele perioade.
+  const external = row => !isInternalReferrer(row.referrer_full || row.page_referrer)
+  const allRows = currentPayloads.flatMap(payload => payload.referrals?.rows || [])
+  const rows = allRows.filter(external)
+  const previousRows = previousPayloads.flatMap(payload => payload.referrals?.rows || []).filter(external)
   const aggregate = (items = []) => {
     const groups = new Map()
     items.forEach(row => {
@@ -1593,9 +1688,9 @@ function buildReferralAnalysisFromPayloads(currentPayloads = [], previousPayload
   return {
     schemaVersion: 1,
     rows: list,
-    rawRows: rows,
     summary: {
       referrers: list.length,
+      internal_views_excluded: allRows.filter(row => !external(row)).reduce((sum, row) => sum + Number(row.screen_page_views || 0), 0),
       views,
       previous_views: previousViews,
       conversions,
@@ -1944,6 +2039,13 @@ function attachExitAnalysis(data) {
   return data
 }
 
+function attachReferralAnalysis(data) {
+  if (!data.referrals?.summary) {
+    data.referrals = buildReferralAnalysisFromPayloads([{ referrals: data.referrals || { rows: [] } }], [])
+  }
+  return data
+}
+
 function attachHomepageVariantAnalysis(data) {
   if (!data.homepageVariants) {
     data.homepageVariants = buildHomepageVariantAnalysisFromPayloads([], [], data.pages?.current || [], data.pages?.previous || [])
@@ -1960,7 +2062,7 @@ function attachConciergeTrafficAnalysis(data) {
 }
 
 function composeFromTabDailyRows(rows, currFrom, currTo, prevFrom, prevTo) {
-  const payloadFor = row => row.payload || emptyTabDay(row.data_date)
+  const payloadFor = row => row.payload ? { ...row.payload, date: row.payload.date || row.data_date } : emptyTabDay(row.data_date)
   const currentPayloads = rows.filter(row => row.data_date >= currFrom && row.data_date <= currTo).map(payloadFor)
   const previousPayloads = rows.filter(row => row.data_date >= prevFrom && row.data_date <= prevTo).map(payloadFor)
   const currentPages = aggregatePages(currentPayloads)
@@ -1992,13 +2094,17 @@ function composeFromTabDailyRows(rows, currFrom, currTo, prevFrom, prevTo) {
         cerereNoua: aggregatePageDaily(currentPayloads, 'cerereNoua'),
         cereriNou: aggregatePageDaily(currentPayloads, 'cereriNou'),
         vreau: aggregatePageDaily(currentPayloads, 'vreau'),
+        nou: aggregatePageDaily(currentPayloads, 'nou'),
       },
       byChannel: {
         cerereNoua: aggregatePageChannel(currentPayloads, 'cerereNoua'),
         cereriNou: aggregatePageChannel(currentPayloads, 'cereriNou'),
         vreau: aggregatePageChannel(currentPayloads, 'vreau'),
+        nou: aggregatePageChannel(currentPayloads, 'nou'),
       },
     },
+    // users adunati pe zile (fiecare zi din cache are activeUsers propriu)
+    activeUsersMode: 'daily_sum',
     cerereTracking: aggregateTracking(currentPayloads),
     requestFormEvents: buildRequestFormEventsFromPayloads(currentPayloads),
     exitAnalysis: buildExitAnalysisFromPayloads(currentPayloads, currentPages),
@@ -2009,7 +2115,7 @@ function composeFromTabDailyRows(rows, currFrom, currTo, prevFrom, prevTo) {
   }
 }
 
-async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, forceRefresh }) {
+async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, forceRefresh, now = new Date() }) {
   const rangeStart = prevFrom
   const rangeEnd = currTo
   const rangeDays = eachDate(rangeStart, rangeEnd).length
@@ -2017,20 +2123,28 @@ async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, force
     throw new Error(`Tab daily cache skipped for ${rangeDays} days; using snapshot fallback`)
   }
   const initialRows = await getTabDailyRows(rangeStart, rangeEnd)
-  const refreshDate = forceRefresh ? currTo : null
+  // Zilele recente (GA4: ultimele 3, GSC: ultimele 4) si zilele salvate incomplete se recitesc
+  // automat, cel mult o data la cateva ore; cu refresh=1 (sync zilnic) imediat.
+  const refreshDates = selectTabDayRefreshDates(initialRows, { now, force: forceRefresh, maxDays: forceRefresh ? 21 : 7 })
   const baseRanges = mergeRanges([
-    ...missingRanges(initialRows, rangeStart, rangeEnd, refreshDate),
+    ...missingRanges(initialRows, rangeStart, rangeEnd),
+    ...refreshDates.map(date => ({ start: date, end: date })),
     ...missingExitAnalysisRanges(initialRows, rangeStart, rangeEnd),
     ...missingRequestFormEventRanges(initialRows, rangeStart, rangeEnd),
     ...missingConciergeTrafficRanges(initialRows, rangeStart, rangeEnd),
   ])
-  const referralRanges = splitRanges(missingReferralRanges(initialRows, rangeStart, rangeEnd), 7)
+  // Completari de schema (referrers, /new pe canal) se fac treptat, cu buget pe request.
+  const referralRanges = splitRanges(mergeRanges([
+    ...missingReferralRanges(initialRows, rangeStart, rangeEnd),
+    ...missingCererePagesRanges(initialRows, rangeStart, rangeEnd),
+  ]), 7)
   const referralBackfillBudget = forceRefresh ? 21 : 10
   const boundedReferralRanges = limitRangesByDays(referralRanges, referralBackfillBudget)
   const ranges = mergeRanges([...baseRanges, ...boundedReferralRanges])
 
+  const existingByDate = new Map((initialRows || []).map(row => [row.data_date, row]))
   for (const range of ranges) {
-    await fetchAndSaveTabDailyRange(range.start, range.end)
+    await fetchAndSaveTabDailyRange(range.start, range.end, existingByDate)
   }
 
   const rows = ranges.length ? await getTabDailyRows(rangeStart, rangeEnd) : initialRows
@@ -2047,6 +2161,7 @@ async function buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, force
   return {
     data: composeFromTabDailyRows(rows, currFrom, currTo, prevFrom, prevTo),
     fetchedRanges: ranges,
+    refreshedDates: refreshDates,
     pendingReferralBackfillDays: Math.max(
       0,
       referralRanges.reduce((sum, range) => sum + countRangeDays(range), 0) -
@@ -2098,7 +2213,11 @@ function generateRecommendations(data) {
 
   const h3r = rate(h3), hpr = rate(hp), vreauR = rate(vreau)
   const cereriViews = cereri?.screen_page_views || 0
-  const activeFormViews = vreau?.screen_page_views || 0
+  // Formularele active: /vreau (V) + /new (VH). Fara /new alerta de CTA aparea fals.
+  const newForm = get('/new')
+  const vreauViews = vreau?.screen_page_views || 0
+  const newFormViews = newForm?.screen_page_views || 0
+  const activeFormViews = countActiveFormViews(pages)
   const legacyFormViews = (ceNou?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
   const totalFormViews = activeFormViews
   const funnelRate = cereriViews > 0 ? totalFormViews/cereriViews*100 : 0
@@ -2196,7 +2315,7 @@ function generateRecommendations(data) {
     insights.push({ type:'info', tag:'PRIORITATE', title:`Social Media: ${socialConvR.toFixed(1)}% conv rate — cel mai eficient canal`, body:`De ${(socialConvR/Math.max(directConvR,0.1)).toFixed(1)}x mai eficient decat Direct. Cu ${(social?.sessions||0).toLocaleString('ro')} sesiuni din social, dublarea postari = dublarea conversiilor.` })
 
   if (vreauR > 0) {
-    insights.push({ type: vreauR >= 3 ? 'positive' : 'neutral', title:`/vreau este fluxul activ — ${vreauR.toFixed(1)}% conv rate`, body:'Monitorizeaza formularul activ si foloseste rutele vechi doar ca audit/redirect.' })
+    insights.push({ type: vreauR >= 3 ? 'positive' : 'neutral', title:`/vreau (V): ${vreauR.toFixed(1)} evenimente-cheie / 100 views`, body:`Formularele active sunt /vreau (V, ${vreauViews.toLocaleString('ro')} views) si /new (VH, ${newFormViews.toLocaleString('ro')} views). Rutele vechi raman doar audit/redirect.` })
   }
 
   // Homepage gap
@@ -2280,8 +2399,8 @@ function generateRecommendations(data) {
   if (legacyFormViews > 20)
     actions.push({ urgency:'important', title:`Rute legacy cerere: ${legacyFormViews} views inca ajung pe URL-uri vechi`, body:'Nu mai tratam /cerere-noua sau /cereri/nou ca formulare active. Ele trebuie monitorizate doar ca trafic ratacit.', fix:'Verifica redirect 301 de pe /cerere-noua si /cereri/nou catre /vreau si actualizeaza linkurile interne care mai trimit catre rutele vechi.' })
 
-  if (funnelRate < 15)
-    actions.push({ urgency:'urgent', title:`Funnel /cereri → formulare: ${funnelRate.toFixed(0)}% — CTA inline lipseste`, body:`${cereriViews.toLocaleString('ro')} vizite pe /cereri dar doar ${totalFormViews} (${funnelRate.toFixed(0)}%) ajung la formulare.`, fix:"Insereaza card dark-navy dupa pozitia 4 din gridul de cereri: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati. Efort: 30 minute." })
+  if (cereriViews > 0 && funnelRate < 15)
+    actions.push({ urgency:'urgent', title:`Funnel /cereri → formulare: ${funnelRate.toFixed(0)}% — CTA inline lipseste`, body:`${cereriViews.toLocaleString('ro')} vizite pe /cereri, ${totalFormViews.toLocaleString('ro')} views pe formulare (/vreau ${vreauViews.toLocaleString('ro')} + /new ${newFormViews.toLocaleString('ro')}, ${funnelRate.toFixed(0)}%). La formulare se ajunge si din alte pagini, deci raportul e orientativ.`, fix:"Insereaza card dark-navy dupa pozitia 4 din gridul de cereri: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati. Efort: 30 minute." })
 
   if (totalCereriNoi > 0 && dailyRequestRate < requestDailyTarget)
     actions.push({ urgency:'urgent', title:`Target cereri noi: ${dailyRequestRate.toFixed(2)}/zi vs ${requestDailyTarget}/zi`, body:`In perioada curenta sunt ${totalCereriNoi} cereri noi. Pentru targetul de ${requestDailyTarget}/zi lipsesc aproximativ ${(requestDailyGap * Math.max(data.days || 30, 1)).toFixed(0)} cereri pe interval.`, fix:"Lanseaza un sprint de 14 zile: toate CTA-urile principale pentru cumparatori duc catre /vreau, adauga CTA sticky pe mobile si afiseaza un reminder dupa login: 'Adauga cererea si primesti oferte de la agenti'. Masoara cereri/zi si buyer_requests." })
@@ -2426,6 +2545,9 @@ function generateRecommendations(data) {
       hpr: parseFloat(hpr.toFixed(1)),
       h3r: parseFloat(h3r.toFixed(1)),
       funnelRate: parseFloat(funnelRate.toFixed(1)),
+      vreauViews,
+      newFormViews,
+      activeFormViews,
       totalCereriNoi,
       platformCereriNoi,
       trackingCereriNoi,
@@ -2554,6 +2676,7 @@ function buildResponse(snap, label, days, now) {
     conciergeTraffic: snap.concierge_traffic || { schemaVersion: CONCIERGE_TRAFFIC_SCHEMA_VERSION, rows: [] },
     referrals: snap.referrals || { schemaVersion: 1, rows: [], summary: { referrers: 0, views: 0, conversions: 0 } },
     recommendations: snap.recommendations,
+    activeUsersMode: 'period',
   }
 }
 
@@ -2565,6 +2688,8 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const forceRefresh = searchParams.get('refresh') === '1'
   const skipAmplitude = searchParams.get('skipAmplitude') === '1'
+  // Folosit de /api/sync: doar completeaza / reimprospateaza cache-ul zilnic, fara A/B, plati, Amplitude.
+  const backfillOnly = searchParams.get('backfillOnly') === '1'
   const now = new Date()
 
   let days, currFrom, currTo, prevFrom, prevTo
@@ -2578,13 +2703,27 @@ export async function GET(request) {
 
   // ── 1. Prefer daily tab-data cache; fetch only missing days ──────
   try {
-    const cached = await buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, forceRefresh })
+    const cached = await buildFromTabDataCache({ currFrom, currTo, prevFrom, prevTo, forceRefresh, now })
     const data = cached.data
+    if (backfillOnly) {
+      return NextResponse.json({
+        ok: true,
+        days,
+        currFrom,
+        currTo,
+        prevFrom,
+        prevTo,
+        _source: cached.fetchedRanges.length ? 'tab_db_incremental' : 'tab_db',
+        _fetchedRanges: cached.fetchedRanges,
+        _refreshedDates: cached.refreshedDates,
+        _pendingReferralBackfillDays: cached.pendingReferralBackfillDays,
+      })
+    }
     if (hasUsefulReportMetrics(data)) {
       attachExitAnalysis(data)
       attachHomepageVariantAnalysis(data)
       attachConciergeTrafficAnalysis(data)
-      await attachPlatformRequestData(data, currFrom, currTo)
+      await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
       await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
       await attachPaymentAnalytics(data, currFrom, currTo, prevFrom, prevTo)
       if (!skipAmplitude) await attachAmplitudeAnalytics(data, currFrom, currTo)
@@ -2597,9 +2736,11 @@ export async function GET(request) {
         _source: cached.fetchedRanges.length ? 'tab_db_incremental' : 'tab_db',
         _cachedAt: cached.cachedAt,
         _fetchedRanges: cached.fetchedRanges,
+        _refreshedDates: cached.refreshedDates,
         _pendingReferralBackfillDays: cached.pendingReferralBackfillDays,
       })
     }
+    if (backfillOnly) return NextResponse.json({ error: 'Cache-ul zilnic nu are metrici utile' }, { status: 500 })
     console.warn('Tab daily cache has only zero report metrics; falling back')
   } catch (e) {
     if (isMissingTabDataTable(e)) {
@@ -2607,6 +2748,7 @@ export async function GET(request) {
     } else {
       console.warn('Tab daily cache unavailable; falling back to snapshots:', e.message)
     }
+    if (backfillOnly) return NextResponse.json({ error: `Backfill cache zilnic esuat: ${e.message}` }, { status: 500 })
   }
 
   // ── 1. Try Supabase cache ────────────────────────────────────────
@@ -2623,14 +2765,15 @@ export async function GET(request) {
           built.gscSource = 'cache'
         }
         if (built.traffic && built.pages) {
-          await attachPlatformRequestData(built, currFrom, currTo)
+          await attachPlatformRequestData(built, currFrom, currTo, prevFrom, prevTo)
           attachExitAnalysis(built)
+          attachReferralAnalysis(built)
           attachHomepageVariantAnalysis(built)
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
           if (!skipAmplitude) await attachAmplitudeAnalytics(built, currFrom, currTo)
-          built.recommendations = generateRecommendations(built)
+          built.recommendations = generateRecommendations({ ...built, days })
         }
         if (hasUsefulReportMetrics(built)) {
           return NextResponse.json({ ...built, _source:'cache', _cachedAt: snap.synced_at })
@@ -2647,14 +2790,15 @@ export async function GET(request) {
           built.gscSource = 'cache'
         }
         if (built.traffic && built.pages) {
-          await attachPlatformRequestData(built, currFrom, currTo)
+          await attachPlatformRequestData(built, currFrom, currTo, prevFrom, prevTo)
           attachExitAnalysis(built)
+          attachReferralAnalysis(built)
           attachHomepageVariantAnalysis(built)
           attachConciergeTrafficAnalysis(built)
           await attachHeaderMenuAbAnalysis(built, currFrom, currTo, prevFrom, prevTo)
           await attachPaymentAnalytics(built, currFrom, currTo, prevFrom, prevTo)
           if (!skipAmplitude) await attachAmplitudeAnalytics(built, currFrom, currTo)
-          built.recommendations = generateRecommendations(built)
+          built.recommendations = generateRecommendations({ ...built, days })
         }
         if (hasUsefulReportMetrics(built)) {
           return NextResponse.json({ ...built, _source:'stale_cache', _cachedAt: snap.synced_at, _warning:'Date din cache mai vechi de 6h' })
@@ -2674,13 +2818,13 @@ export async function GET(request) {
     try {
       data = await fetchReportGa4Data({ propertyId: getGa4Account(), currFrom, currTo, prevFrom, prevTo })
       await attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
-      await attachPlatformRequestData(data, currFrom, currTo)
+      await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
     } catch (ga4Err) {
       console.warn('GA4 direct report fetch failed; using Windsor fallback:', ga4Err.message)
       source = 'windsor'
       data = await fetchFromWindsor(currFrom, currTo, prevFrom, prevTo)
       await attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
-      await attachPlatformRequestData(data, currFrom, currTo)
+      await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
     }
 
     if (!hasUsefulReportMetrics(data)) {
@@ -2689,7 +2833,7 @@ export async function GET(request) {
         source = 'windsor'
         data = await fetchFromWindsor(currFrom, currTo, prevFrom, prevTo)
         await attachSearchConsoleData(data, currFrom, currTo, prevFrom, prevTo)
-        await attachPlatformRequestData(data, currFrom, currTo)
+        await attachPlatformRequestData(data, currFrom, currTo, prevFrom, prevTo)
       } else {
         throw new Error('GA4 direct and Windsor returned only zero report metrics. Check GA4_ACCOUNT_ID and GOOGLE_SERVICE_ACCOUNT_JSON.')
       }
@@ -2699,6 +2843,7 @@ export async function GET(request) {
     }
 
     attachExitAnalysis(data)
+    attachReferralAnalysis(data)
     attachHomepageVariantAnalysis(data)
     attachConciergeTrafficAnalysis(data)
     await attachHeaderMenuAbAnalysis(data, currFrom, currTo, prevFrom, prevTo)
@@ -2723,7 +2868,7 @@ export async function GET(request) {
       console.warn('Supabase write failed:', dbErr.message)
     }
 
-    return NextResponse.json({ generatedAt: now.toISOString(), periodLabel: label, days, ...data, _source:source })
+    return NextResponse.json({ generatedAt: now.toISOString(), periodLabel: label, days, activeUsersMode: 'period', ...data, _source:source })
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

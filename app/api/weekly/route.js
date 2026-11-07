@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
-import { getWeeklyReports, upsertWeeklyReport } from '../../lib/supabase'
+import { getWeeklyReports, getWeeklyReport, upsertWeeklyReport } from '../../lib/supabase'
 import { getOptionalEnv, requireEnv } from '../../lib/env'
 import { fetchWeeklyGa4Data } from '../../lib/ga4'
 import { fetchGscSummary } from '../../lib/gsc'
 import { fetchPlatformRequestStats } from '../../lib/platform'
+import { weekBounds, previousWeekStart, activeFormViews, gscTotals } from '../../lib/report-metrics'
 
 const DEFAULT_GA4_ACCOUNT = '521779420'
 
@@ -13,7 +14,8 @@ function getGa4Account() {
 
 async function w(fields, from, to, filters, account = getGa4Account()) {
   const params = new URLSearchParams({ api_key: requireEnv('WINDSOR_API_KEY'), date_from: from, date_to: to })
-  if (account) params.set('accounts', account)
+  // mereu doar proprietatea GA4 configurata, niciodata toate conturile din Windsor
+  params.set('accounts', account || getGa4Account())
   params.set('fields', fields.join(','))
   if (filters) params.set('filters', JSON.stringify(filters))
   const res = await fetch(`https://connectors.windsor.ai/googleanalytics4?${params}`, { cache: 'no-store' })
@@ -114,19 +116,9 @@ function parseOffsetWeeks(value) {
   return offset
 }
 
+// Luni–duminica in ora Romaniei (serverul Vercel ruleaza in UTC).
 function getWeekBounds(offsetWeeks = 0) {
-  const now = new Date()
-  const day = now.getDay() // 0=sun
-  const mondayOffset = day === 0 ? -6 : 1 - day
-  const monday = new Date(now)
-  monday.setDate(now.getDate() + mondayOffset - offsetWeeks * 7)
-  monday.setHours(0,0,0,0)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  return {
-    start: monday.toISOString().slice(0,10),
-    end:   sunday.toISOString().slice(0,10),
-  }
+  return weekBounds(offsetWeeks, new Date())
 }
 
 function hasValidCronAuth(request) {
@@ -149,7 +141,7 @@ function getCereriNoiCount(tracking, pages) {
   const keyEventTotal = sumField(tracking, 'conversions_bravo_cerere_noua')
   if (keyEventTotal > 0) return keyEventTotal
 
-  const cererePaths = new Set(['/vreau'])
+  const cererePaths = new Set(['/vreau', '/new'])
   return pages
     .filter(p => cererePaths.has(normalizePath(p.page_path)))
     .reduce((s, p) => s + numberValue(p.conversions), 0)
@@ -179,7 +171,9 @@ function extractMetrics(data) {
   const hp     = getPage('/')
   const h3     = getPage('/home3')
 
-  const totalFormViews = metric(vreau, 'screen_page_views')
+  // formularele active: /vreau (V) + /new (VH)
+  const newForm = getPage('/new')
+  const totalFormViews = activeFormViews(pages)
   const legacyFormViews = metric(ceNou, 'screen_page_views') + metric(cereriNou, 'screen_page_views')
   const cereriViews = metric(cereri, 'screen_page_views')
   const funnelRate = cereriViews > 0 ? +(totalFormViews/cereriViews*100).toFixed(2) : 0
@@ -208,6 +202,7 @@ function extractMetrics(data) {
     homepage_rate: rate(hp),
     home3_rate:    rate(h3),
     vreau_rate:    rate(vreau),
+    new_form_views: metric(newForm, 'screen_page_views'),
     cereri_views:  cereriViews,
     form_views:    totalFormViews,
     legacy_form_views: legacyFormViews,
@@ -243,17 +238,17 @@ function generateWeeklyInsights(curr, prev) {
   }
 
   // Funnel
-  if (curr.funnel_rate < 15) insights.push({ type:'negative', title:`Funnel /cereri → formulare: ${curr.funnel_rate}%`, body:`${curr.cereri_views.toLocaleString('ro')} views pe /cereri, doar ${curr.form_views} ajung la formulare. CTA inline lipseste.` })
+  if (curr.cereri_views > 0 && curr.funnel_rate < 15) insights.push({ type:'negative', title:`Funnel /cereri → formulare: ${curr.funnel_rate}%`, body:`${curr.cereri_views.toLocaleString('ro')} views pe /cereri, ${curr.form_views} views pe formularele /vreau + /new. CTA inline lipseste.` })
 
   // Homepage rate
   if (curr.homepage_rate > 8) insights.push({ type:'positive', title:`Homepage: ${curr.homepage_rate}% conv rate — performanta excelenta`, body:'Peste target de 8%. Mentine.' })
   else if (curr.homepage_rate < 5) insights.push({ type:'negative', title:`Homepage: ${curr.homepage_rate}% conv rate sub asteptari`, body:'Target: 8%+. Verifica CTA-urile.' })
 
-  if (curr.legacy_form_views > 20) insights.push({ type:'info', title:`${curr.legacy_form_views} views pe rute vechi de cerere`, body:'Fluxul activ este /vreau. Verifica redirect 301 si linkurile interne vechi.' })
+  if (curr.legacy_form_views > 20) insights.push({ type:'info', title:`${curr.legacy_form_views} views pe rute vechi de cerere`, body:'Formularele active sunt /vreau si /new. Verifica redirect 301 si linkurile interne vechi.' })
 
   // Actiuni
   if (curr.cereri_noi < 2) actions.push({ urgency:'urgent', title:'Cereri noi sub 2 saptamana aceasta — verifica CTA pe /cereri', fix:'Insereaza card CTA dupa pozitia 4 din gridul de cereri.' })
-  if (curr.funnel_rate < 10) actions.push({ urgency:'urgent', title:`Funnel /cereri: doar ${curr.funnel_rate}% progresie`, fix:'Card CTA inline dupa randul 2 din grid.' })
+  if (curr.cereri_views > 0 && curr.funnel_rate < 10) actions.push({ urgency:'urgent', title:`Funnel /cereri: doar ${curr.funnel_rate}% progresie`, fix:'Card CTA inline dupa randul 2 din grid.' })
   if (curr.cereri_noi >= 0) actions.push({ urgency:'seo', title:'Creeaza o pagina de continut SEO luna aceasta', fix:"Prioritate: '/agenti-imobiliari-bucuresti' sau ghid 'Cum sa cumperi apartament Romania 2025'." })
 
   return { insights, actions }
@@ -313,7 +308,8 @@ async function fetchWeeklyData(start, end, account) {
     gsc: {
       clicks:      sumField(gscRaw,'organic_google_search_clicks'),
       impressions: sumField(gscRaw,'organic_google_search_impressions'),
-      position:    gscRaw.length > 0 ? sumField(gscRaw,'organic_google_search_average_position')/gscRaw.length : null,
+      // pozitie ponderata cu impresiile
+      position:    gscTotals(gscRaw).position,
     },
   }
   return rawData
@@ -331,19 +327,11 @@ async function handleGenerate(start, end, request) {
 
   if (!hasUsefulWeeklyMetrics(rawData)) {
     let fallbackData = await fetchWeeklyData(start, end, configuredAccount)
-    logWeeklyDataStats(start, end, fallbackData, configuredAccount ? 'windsor-configured-account' : 'windsor-all-accounts')
+    logWeeklyDataStats(start, end, fallbackData, 'windsor-configured-account')
     if (hasUsefulWeeklyMetrics(fallbackData)) rawData = fallbackData
   }
 
-  if (configuredAccount && !hasUsefulWeeklyMetrics(rawData)) {
-    try {
-      const fallbackData = await fetchWeeklyData(start, end, null)
-      logWeeklyDataStats(start, end, fallbackData, 'windsor-all-accounts-fallback')
-      if (hasUsefulWeeklyMetrics(fallbackData)) rawData = fallbackData
-    } catch (e) {
-      console.warn('Weekly all-accounts Windsor fallback failed:', e.message)
-    }
-  }
+  // Fara fallback Windsor pe „toate conturile”: ar putea aduna date din alte proprietati GA4.
 
   if (!hasUsefulWeeklyMetrics(rawData)) {
     throw new Error('GA4 direct and Windsor fallback returned only zero weekly metrics. Check GA4_ACCOUNT_ID and GOOGLE_SERVICE_ACCOUNT_JSON before saving this weekly report.')
@@ -364,12 +352,10 @@ async function handleGenerate(start, end, request) {
 
   const metrics = extractMetrics(rawData)
 
-  // Fetch saptamana anterioara pentru comparatie
+  // Comparatie cu saptamana imediat anterioara (start − 7 zile), si la regenerarea unei saptamani vechi.
   let prevMetrics = null
   try {
-    const prevReports = await getWeeklyReports(2)
-    const found = prevReports?.find(r => r.week_start !== start)
-    if (found) prevMetrics = found
+    prevMetrics = await getWeeklyReport(previousWeekStart(start))
   } catch (e) {
     console.warn('Previous weekly report lookup failed:', e.message)
   }

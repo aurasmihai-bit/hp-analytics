@@ -1127,6 +1127,64 @@ function riskColor(risk) {
   return C.green
 }
 
+
+function hoursAgo(value) {
+  const t = value ? Date.parse(value) : NaN
+  return Number.isFinite(t) ? (Date.now() - t) / 36e5 : null
+}
+
+function fmtDateTime(value) {
+  if (!value) return '—'
+  return new Date(value).toLocaleString('ro-RO', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+}
+
+// Status live din date reale; ce nu se poate citi apare „indisponibil”.
+function LiveProcessStatus() {
+  const [state, setState] = useState({ loading: true, data: null, error: '' })
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/process-status', { cache: 'no-store' })
+      .then(res => res.json().then(json => ({ ok: res.ok, json })))
+      .then(({ ok, json }) => { if (!cancelled) setState({ loading: false, data: ok ? json : null, error: ok ? '' : (json?.error || 'Eroare') }) })
+      .catch(error => { if (!cancelled) setState({ loading: false, data: null, error: error.message }) })
+    return () => { cancelled = true }
+  }, [])
+  const box = { background:C.card, border:`0.5px solid ${C.border}`, borderRadius:14, padding:'14px 16px', marginBottom:16 }
+  if (state.loading) return <section style={box}><p style={{margin:0,fontSize:13,color:C.muted}}>Se incarca statusul live...</p></section>
+  if (!state.data) return <section style={box}><p style={{margin:0,fontSize:13,color:C.red}}>Status live indisponibil: {state.error}</p></section>
+  const { processes = [], notifications = {}, cronJobs = {} } = state.data
+  return (
+    <section style={box}>
+      <p style={{fontSize:13,fontWeight:700,color:C.text,margin:'0 0 10px'}}>Status live</p>
+      <div style={{display:'grid',gap:8}}>
+        {processes.map(row => {
+          const age = hoursAgo(row.lastRunAt)
+          const late = row.expectedEveryHours && age !== null && age > row.expectedEveryHours * 1.5
+          const color = !row.available ? C.gray : !row.lastRunAt ? C.amber : late ? C.red : C.green
+          const label = !row.available ? 'indisponibil' : !row.lastRunAt ? 'fara rulari' : late ? 'intarziat' : 'ok'
+          return (
+            <div key={row.name} style={{display:'grid',gridTemplateColumns:'minmax(200px,1.4fr) 120px minmax(140px,1fr) 100px',gap:10,alignItems:'center',fontSize:12,borderBottom:`0.5px solid ${C.border}`,paddingBottom:8}}>
+              <span style={{color:C.text,fontWeight:600}}>{row.name}<span style={{display:'block',fontWeight:400,color:C.hint}}>{row.schedule}</span></span>
+              <span style={{color:C.muted}}>{fmtDateTime(row.lastRunAt)}</span>
+              <span style={{color:C.hint}}>{row.available ? row.detail : String(row.error || '').slice(0, 120)}</span>
+              <span style={{color,fontWeight:700}}>{label}</span>
+            </div>
+          )
+        })}
+        <div style={{fontSize:12,color:C.muted}}>
+          <strong style={{color:C.text}}>Emailuri HomePitch (notification_email_attempts, 7 zile): </strong>
+          {notifications.available
+            ? `${notifications.attempts} incercari${notifications.failed !== null ? `, ${notifications.failed} esuate (${(notifications.failureRate || 0).toFixed(1)}%)` : ', status esec indisponibil'} · ultima: ${fmtDateTime(notifications.lastAttemptAt)}`
+            : `indisponibil${notifications.error ? ' — ' + String(notifications.error).slice(0, 140) : ''}`}
+        </div>
+        <div style={{fontSize:12,color:C.muted}}>
+          <strong style={{color:C.text}}>Cron-uri HomePitch (cron.job_run_details): </strong>indisponibil. {cronJobs.note}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function statusColor(status) {
   if (String(status).toLowerCase().includes('dezactivat')) return C.gray
   if (String(status).toLowerCase().includes('partial')) return C.amber
@@ -1472,6 +1530,12 @@ export default function AutomatedProcessesPage() {
             <SummaryCard label="Dependinte externe" value={externalCount} sub="Brevo, Stripe, CRM, Google etc." color={C.amber}/>
           </div>
         </section>
+
+        <div role="note" style={{background:C.softAmber,border:`0.5px solid ${C.amber}`,borderRadius:12,padding:'12px 14px',marginBottom:16,fontSize:13,color:C.text,lineHeight:1.5}}>
+          <strong style={{color:C.amber}}>Status scris manual.</strong> Coloana „Status” din catalog este completata de mana, nu vine din rularile reale. Un cron care a cazut poate aparea tot „Activ”. Pentru ultima rulare reala vezi sectiunea „Status live” de mai jos.
+        </div>
+
+        <LiveProcessStatus/>
 
         <section style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:8,marginBottom:18}}>
           {MONITORING_AREAS.map(area => (

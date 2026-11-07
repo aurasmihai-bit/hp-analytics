@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState, useCallback } from 'react'
 import { C, COLORS, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Action, Sec, Grid, Card, LineChart, BarChart, PageLink, BASE_URL } from './components'
 import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
+import { gscTotals, keyEventsPer100, activeFormViews } from '../lib/report-metrics'
 
 const PRESETS = [
   {id:'combo', label:'Sesiuni + Conv', metrics:[{field:'sessions',label:'Sesiuni',color:'#3B82C4'},{field:'conversions',label:'Conversii',color:'#D97706'}]},
@@ -67,8 +68,9 @@ function TabSemnale({ data }) {
   const h3r=h3&&h3.screen_page_views>0?h3.conversions/h3.screen_page_views*100:0
   const hpr=hp&&hp.screen_page_views>0?hp.conversions/hp.screen_page_views*100:0
   const cereriPage=pages.find(p=>p.page_path==='/cereri')
-  const vreauPage=pages.find(p=>p.page_path==='/vreau')
-  const funnelDrop=cereriPage&&vreauPage?((vreauPage.screen_page_views/cereriPage.screen_page_views)*100):null
+  // formularele active: /vreau (V) + /new (VH)
+  const formViews=activeFormViews(pages)
+  const funnelDrop=cereriPage&&cereriPage.screen_page_views>0&&formViews>0?(formViews/cereriPage.screen_page_views*100):null
   const sigs=[]
   const sd=dlt(tc,tp)
   if(sd!==null){
@@ -80,7 +82,7 @@ function TabSemnale({ data }) {
     const d2=dlt(social.sessions,socialP.sessions)
     if(d2!==null&&Math.abs(d2)>20) sigs.push({type:d2>0?'positive':'negative',title:`Social Media ${d2>0?'+':''}${d2.toFixed(0)}%`,body:`${fmtN(social.sessions)} sesiuni din social. ${d2>0?'Identifica postul viral si replica formatul.':'Activitate in scadere — verifica frecventa postarilor.'}`})
   }
-  if(funnelDrop!==null) sigs.push({type:funnelDrop<15?'negative':'neutral',title:`Funnel cerere: ${funnelDrop.toFixed(0)}% din /cereri ajung la /vreau`,body:`${fmtN(cereriPage?.screen_page_views)} vizite pe /cereri, doar ${fmtN(vreauPage?.screen_page_views)} pe /vreau. ${funnelDrop<15?'Drop major — adauga CTA mai vizibil pe lista de cereri.':'Drop normal dar optimizabil.'}`})
+  if(funnelDrop!==null) sigs.push({type:funnelDrop<15?'negative':'neutral',title:`Formulare / views /cereri: ${funnelDrop.toFixed(0)}%`,body:`${fmtN(cereriPage?.screen_page_views)} views pe /cereri si ${fmtN(formViews)} pe formularele /vreau + /new. La formulare se ajunge si din alte pagini, deci raportul e orientativ. ${funnelDrop<15?'Raport mic — verifica CTA-ul de pe lista de cereri.':'Raport normal, dar optimizabil.'}`})
   const gD=dlt(gC,gP)
   if(gD!==null&&Math.abs(gD)>10) sigs.push({type:gD>0?'positive':'negative',title:`SEO: ${gD>0?'+':''}${gD.toFixed(0)}% clicks organice`,body:`${Math.round(gC)} clicks vs ${Math.round(gP)} perioada anterioara.`})
   if(custConv===0) sigs.push({type:'neutral',title:'Conversii custom = 0 — Key Events neconfigurate',body:'conversions_signup, offer_accepted si bravo_cerere_noua returneaza 0. GA4 Admin - Events - Mark as conversion.'})
@@ -118,7 +120,7 @@ function TabTrafic({ data }) {
         {['Direct','Organic Social','Organic Search','Referral'].map(ch=>{
           const c=curr.find(r=>r.session_default_channel_group===ch)
           const p=prev.find(r=>r.session_default_channel_group===ch)
-          return <KPI key={ch} label={ch} curr={c?.sessions||0} prev={p?.sessions||0} sub={c&&c.sessions>0?`${((c.conversions||0)/c.sessions*100).toFixed(1)}% conv rate`:undefined}/>
+          return <KPI key={ch} label={ch} curr={c?.sessions||0} prev={p?.sessions||0} sub={c&&c.sessions>0?`${keyEventsPer100(c.conversions,c.sessions).toFixed(1)} ev. cheie / 100 sesiuni`:undefined}/>
         })}
       </Grid>
       <Sec title="Canale de trafic">
@@ -127,7 +129,7 @@ function TabTrafic({ data }) {
           const p=prev.find(r=>r.session_default_channel_group===ch)
           const d=p?dlt(row.sessions,p.sessions):null
           const pct=Math.round(row.sessions/maxS*100)
-          const convR=row.sessions>0?(row.conversions/row.sessions*100).toFixed(1)+'%':'—'
+          const convR=row.sessions>0?keyEventsPer100(row.conversions,row.sessions).toFixed(1):'—'
           const dCol=d===null?C.gray:d>0?C.green:C.red
           const col=chColors[ch]||C.blue
           return (
@@ -142,7 +144,7 @@ function TabTrafic({ data }) {
                 {d!==null&&<span style={{fontSize:11,fontWeight:500,color:dCol,width:40,textAlign:'right',flexShrink:0}}>{d>0?'+':''}{ d.toFixed(0)}%</span>}
               </div>
               <div style={{display:'flex',gap:18,marginLeft:20,fontSize:12,color:C.hint,flexWrap:'wrap'}}>
-                <span>Conv rate: <strong style={{color:C.text}}>{convR}</strong></span>
+                <span title="Evenimente-cheie GA4 la 100 de sesiuni; o sesiune poate avea mai multe">Ev. cheie / 100 sesiuni: <strong style={{color:C.text}}>{convR}</strong></span>
                 <span>Eng: <strong style={{color:C.text}}>{Math.round((row.engagement_rate||0)*100)}%</strong></span>
                 <span>Dur: <strong style={{color:C.text}}>{Math.round(row.average_session_duration||0)}s</strong></span>
                 <span>Useri noi: <strong style={{color:C.text}}>{fmtN(row.newusers)}</strong></span>
@@ -153,14 +155,14 @@ function TabTrafic({ data }) {
         })}
       </Sec>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <Sec title="Conversii per canal">
+        <Sec title="Evenimente-cheie per canal">
           <Card style={{padding:'12px 16px'}}>
             <BarChart data={sorted} labelField="session_default_channel_group" valueField="conversions" color={C.amber}/>
           </Card>
         </Sec>
-        <Sec title="Conv rate per canal">
+        <Sec title="Evenimente-cheie la 100 sesiuni, per canal">
           <Card style={{padding:'12px 16px'}}>
-            <BarChart data={sorted.map(r=>({...r,conv_rate:r.sessions>0?r.conversions/r.sessions*100:0}))} labelField="session_default_channel_group" valueField="conv_rate" color={C.green}/>
+            <BarChart data={sorted.map(r=>({...r,conv_rate:keyEventsPer100(r.conversions,r.sessions)}))} labelField="session_default_channel_group" valueField="conv_rate" color={C.green}/>
           </Card>
         </Sec>
       </div>
@@ -175,8 +177,10 @@ function TabSEO({ data }) {
   const queries=gsc.queries||[], gscPages=gsc.pages||[]
   const cCl=sum(curr,'organic_google_search_clicks'), pCl=sum(prev,'organic_google_search_clicks')
   const cIm=sum(curr,'organic_google_search_impressions'), pIm=sum(prev,'organic_google_search_impressions')
-  const cCtr=avg(curr,'organic_google_search_click_through_rate'), pCtr=avg(prev,'organic_google_search_click_through_rate')
-  const cPos=avg(curr,'organic_google_search_average_position'), pPos=avg(prev,'organic_google_search_average_position')
+  // CTR = clickuri / impresii; pozitia ponderata cu impresiile (nu medii simple pe zile)
+  const cTot=gscTotals(curr), pTot=gscTotals(prev)
+  const cCtr=cTot.ctr, pCtr=pTot.ctr
+  const cPos=cTot.position, pPos=pTot.position
   const insights=[]
   const gD=dlt(cCl,pCl)
   if(gD!==null&&Math.abs(gD)>10) insights.push({type:gD>0?'positive':'negative',title:`Clicks organice ${gD>0?'+':''}${gD.toFixed(0)}%`,body:`${Math.round(cCl)} clicks vs ${Math.round(pCl)} perioada anterioara.`})
@@ -192,6 +196,11 @@ function TabSEO({ data }) {
   const hasSeoData=cCl>0||cIm>0||pCl>0||pIm>0||topQ.length>0||topP.length>0
   if(!hasSeoData) insights.unshift({type:'negative',title:'Date SEO lipsa din Search Console',body:'Conexiunea Google Search Console nu returneaza randuri pentru proprietatea site-ului. Verifica accesul service account-ului in Search Console; dashboardul incearca si fallback Windsor.'})
   const topQuery = topQ.find(q=>q.query&&q.query!=='(not provided)')
+  const opportunities=queries
+    .filter(q=>q.query&&q.query!=='(not provided)'&&Number(q.organic_google_search_impressions||0)>=5)
+    .filter(q=>{const pos=Number(q.organic_google_search_average_position||0);return pos>=4&&pos<=20})
+    .sort((a,b)=>Number(b.organic_google_search_impressions||0)-Number(a.organic_google_search_impressions||0))
+    .slice(0,15)
   const seoSnapshot = hasSeoData
     ? `Pozitia medie actuala: ${cPos ? cPos.toFixed(1) : '—'} · ${fmtN(cIm)} impressions · ${fmtN(cCl)} clicks${topQuery ? ` · top query: "${topQuery.query}"` : ''}.`
     : 'Nu exista inca date Search Console pentru intervalul selectat. Pastreaza conexiunea activa si revino dupa acumularea de impressions.'
@@ -200,8 +209,8 @@ function TabSEO({ data }) {
       <Grid>
         <KPI label="Clicks organice" curr={Math.round(cCl)} prev={Math.round(pCl)}/>
         <KPI label="Impressions" curr={Math.round(cIm)} prev={Math.round(pIm)}/>
-        <KPI label="CTR mediu" curr={cCtr} prev={pCtr} type="pct"/>
-        <KPI label="Pozitie medie" curr={cPos} prev={pPos} type="dec1" inv/>
+        <KPI label="CTR (clickuri / impresii)" curr={cCtr} prev={pCtr} type="pct"/>
+        <KPI label="Pozitie medie (ponderata)" curr={cPos} prev={pPos} type="dec1" inv/>
       </Grid>
       {insights.length>0&&<Sec title="Observatii SEO">{insights.map((s,i)=><Signal key={i} {...s}/>)}</Sec>}
       <Sec title="Evolutie clicks si impressions">
@@ -236,7 +245,7 @@ function TabSEO({ data }) {
       {topP.length>0&&<Sec title="Top pagini organice"><Card style={{padding:'12px 16px'}}><BarChart data={topP} labelField="page_path" valueField="organic_google_search_clicks" color={C.green}/></Card></Sec>}
 
       {/* ZONA CUVINTE CHEIE — SEO + AI */}
-      <Sec title="Cuvinte cheie cu potential — SEO si AI Search">
+      <Sec title="Interogari cu potential (Search Console)">
         <div style={{background:'linear-gradient(135deg,#1A2B4A,#1e3a6e)',borderRadius:12,padding:'14px 18px',marginBottom:14,color:'#fff'}}>
           <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.07em',color:'rgba(255,255,255,.55)',margin:'0 0 4px'}}>Snapshot Search Console — actualizat din date live</p>
           <p style={{fontSize:13,color:'rgba(255,255,255,.8)',margin:0,lineHeight:1.5}}>
@@ -244,118 +253,34 @@ function TabSEO({ data }) {
           </p>
         </div>
 
-        {/* Categorii de keywords */}
-        {[
-          {
-            cat: 'Cerere de cumparare — intent direct (prioritate 1)',
-            col: C.red,
-            desc: 'Oamenii care cauta exact ce ofera HomePitch. Volum mediu, intent maxim.',
-            keywords: [
-              {kw:'cerere cumparare apartament',vol:'~500/luna',dif:'mica',tip:'pagina /cereri',ai:'DA'},
-              {kw:'adauga cerere imobiliara',vol:'~200/luna',dif:'mica',tip:'pagina /vreau',ai:'DA'},
-              {kw:'cum sa gasesti un apartament fara agent',vol:'~800/luna',dif:'medie',tip:'articol blog',ai:'DA'},
-              {kw:'platforma cumparare apartament Romania',vol:'~300/luna',dif:'medie',tip:'homepage',ai:'DA'},
-              {kw:'cerere oferta imobiliara',vol:'~150/luna',dif:'mica',tip:'pagina /cereri',ai:'NU'},
-            ]
-          },
-          {
-            cat: 'Agent imobiliar — recrutare si credibilitate (prioritate 2)',
-            col: C.amber,
-            desc: 'Agentii cauta platforme unde gasesc cumparatori calificati. Volum mic, valoare mare.',
-            keywords: [
-              {kw:'agenti imobiliari bucuresti',vol:'~2000/luna',dif:'mare',tip:'pagina /agenti',ai:'DA'},
-              {kw:'platforma agenti imobiliari',vol:'~400/luna',dif:'mica',tip:'pagina /pentru-agenti',ai:'DA'},
-              {kw:'cum sa gasesti clienti imobiliari',vol:'~600/luna',dif:'medie',tip:'articol blog',ai:'DA'},
-              {kw:'lead-uri imobiliare cumparatori',vol:'~250/luna',dif:'mica',tip:'landing agenti',ai:'DA'},
-              {kw:'homepitch agent',vol:'branded',dif:'mica',tip:'homepage',ai:'DA'},
-            ]
-          },
-          {
-            cat: 'Cumparator activ — intent tranzactional (prioritate 2)',
-            col: C.green,
-            desc: 'Oamenii in cautare activa de proprietate. Volum mare dar competitie ridicata.',
-            keywords: [
-              {kw:'apartamente de vanzare bucuresti',vol:'~8000/luna',dif:'mare',tip:'pagina de cereri filtrata',ai:'DA'},
-              {kw:'apartament 2 camere bucuresti pret',vol:'~3000/luna',dif:'mare',tip:'landing filtrat',ai:'DA'},
-              {kw:'cumpar apartament bucuresti',vol:'~1500/luna',dif:'mare',tip:'pagina /cereri',ai:'DA'},
-              {kw:'apartamente sector 2 de vanzare',vol:'~900/luna',dif:'medie',tip:'pagina filtrata zona',ai:'NU'},
-              {kw:'apartament 3 camere pret 2025',vol:'~1200/luna',dif:'medie',tip:'articol ghid pret',ai:'DA'},
-            ]
-          },
-          {
-            cat: 'AI Search — ChatGPT, Perplexity, Gemini (prioritate 3)',
-            col: C.purple,
-            desc: 'Queries pe care oamenii le pun in AI si HomePitch ar trebui sa apara in raspunsuri. Necesita continut de tip "raspuns definitiv".',
-            keywords: [
-              {kw:'cum functioneaza homepitch',vol:'AI',dif:'mica',tip:'pagina /cum-functioneaza',ai:'DA'},
-              {kw:'cele mai bune platforme imobiliare romania 2025',vol:'AI',dif:'mica',tip:'articol comparativ',ai:'DA'},
-              {kw:'alternativa imobiliare.ro',vol:'~200/luna',dif:'medie',tip:'landing comparativ',ai:'DA'},
-              {kw:'platforma unde cumparatorul face cerere si primeste oferte',vol:'AI',dif:'mica',tip:'homepage + FAQ',ai:'DA'},
-              {kw:'cum sa cumperi apartament fara stres romania',vol:'AI+SEO',dif:'mica',tip:'ghid complet',ai:'DA'},
-            ]
-          },
-          {
-            cat: 'Long-tail cu conversie ridicata (prioritate 1 — quick wins)',
-            col: C.blue,
-            desc: 'Volume mici, competitie minima, intent clar. Cele mai rapide de rankat.',
-            keywords: [
-              {kw:'vreau sa cumpar apartament in bucuresti',vol:'~300/luna',dif:'mica',tip:'/vreau',ai:'DA'},
-              {kw:'agenti imobiliari care vin la tine cu oferte',vol:'~100/luna',dif:'mica',tip:'homepage',ai:'DA'},
-              {kw:'adauga cerere si primesti oferte imobiliare',vol:'~80/luna',dif:'mica',tip:'/vreau',ai:'DA'},
-              {kw:'caut apartament 2 camere bucuresti buget 100000',vol:'~200/luna',dif:'mica',tip:'cerere filtrata',ai:'NU'},
-              {kw:'scor cumparator imobiliare',vol:'~50/luna',dif:'mica',tip:'/scor-cumparator',ai:'DA'},
-            ]
-          },
-        ].map(({cat,col,desc,keywords})=>(
-          <div key={cat} style={{marginBottom:16}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
-              <div style={{width:10,height:10,borderRadius:'50%',background:col,flexShrink:0}}/>
-              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{cat}</span>
-            </div>
-            <p style={{fontSize:12,color:C.muted,margin:'0 0 8px',marginLeft:18}}>{desc}</p>
-            <div style={{overflowX:'auto',marginLeft:18}}>
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                <thead>
-                  <tr style={{borderBottom:`0.5px solid ${C.border}`,background:C.softPanel}}>
-                    {['Cuvant cheie','Volum/luna','Dificultate','Pagina recomandata','AI Search'].map(h=>(
-                      <th key={h} style={{textAlign:'left',padding:'5px 10px',color:C.hint,fontWeight:600,fontSize:9,textTransform:'uppercase',letterSpacing:'.05em'}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {keywords.map((k,i)=>(
-                    <tr key={i} style={{borderBottom:`0.5px solid ${C.border}`}}>
-                      <td style={{padding:'7px 10px',color:C.text,fontWeight:500}}>{k.kw}</td>
-                      <td style={{padding:'7px 10px',color:C.muted}}>{k.vol}</td>
-                      <td style={{padding:'7px 10px'}}>
-                        <span style={{fontSize:10,fontWeight:600,padding:'2px 6px',borderRadius:4,
-                          background:k.dif==='mica'?C.softGreen:k.dif==='medie'?C.softAmber:k.dif==='mare'?C.softRed:C.softBlue,
-                          color:k.dif==='mica'?C.green:k.dif==='medie'?C.amber:k.dif==='mare'?C.red:C.blue
-                        }}>{k.dif}</span>
-                      </td>
-                      <td style={{padding:'7px 10px',fontFamily:'monospace',fontSize:10,color:C.blue}}>{k.tip}</td>
-                      <td style={{padding:'7px 10px',textAlign:'center'}}>
-                        <span style={{fontSize:11,fontWeight:600,color:k.ai==='DA'?C.green:C.hint}}>{k.ai==='DA'?'✓':'-'}</span>
-                      </td>
-                    </tr>
+        {/* Interogari reale din Search Console (fara volume estimate) */}
+        {opportunities.length===0 ? (
+          <p style={{fontSize:13,color:C.hint,margin:0}}>Nu exista inca interogari pe pozitiile 4–20 cu minim 5 impresii in perioada selectata.</p>
+        ) : (
+          <div style={{overflowX:'auto'}}>
+            <p style={{fontSize:12,color:C.muted,margin:'0 0 8px'}}>Interogari din Search Console pe pozitiile 4–20 (aproape de prima pagina / top 3), ordonate dupa impresii. Cifrele sunt reale, din perioada selectata.</p>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead>
+                <tr style={{borderBottom:`0.5px solid ${C.border}`,background:C.softPanel}}>
+                  {['Interogare','Impresii','Clickuri','CTR','Pozitie'].map(h=>(
+                    <th key={h} style={{textAlign:'left',padding:'5px 10px',color:C.hint,fontWeight:600,fontSize:9,textTransform:'uppercase',letterSpacing:'.05em'}}>{h}</th>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </tr>
+              </thead>
+              <tbody>
+                {opportunities.map((q,i)=>(
+                  <tr key={i} style={{borderBottom:`0.5px solid ${C.border}`}}>
+                    <td style={{padding:'7px 10px',color:C.text,fontWeight:500}}>{q.query}</td>
+                    <td style={{padding:'7px 10px',color:C.muted}}>{fmtN(q.organic_google_search_impressions)}</td>
+                    <td style={{padding:'7px 10px',color:C.muted}}>{fmtN(q.organic_google_search_clicks)}</td>
+                    <td style={{padding:'7px 10px',color:C.muted}}>{(Number(q.organic_google_search_impressions)>0?Number(q.organic_google_search_clicks||0)/Number(q.organic_google_search_impressions)*100:0).toFixed(1)}%</td>
+                    <td style={{padding:'7px 10px',color:C.muted}}>{Number(q.organic_google_search_average_position||0).toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
-
-        {/* Ghid de actiune */}
-        <div style={{background:C.softGreen,border:`0.5px solid ${C.green}`,borderRadius:10,padding:'14px 16px',marginTop:8}}>
-          <p style={{fontSize:12,fontWeight:600,color:C.green,margin:'0 0 8px'}}>Cum sa incepi — plan in 3 pasi</p>
-          {[
-            '1. Quick wins (saptamana 1): Optimizeaza paginile existente pentru long-tail — /vreau, /cereri, /scor-cumparator. Adauga H1 cu query-ul exact, 200 cuvinte de continut relevant, meta description cu CTA.',
-            '2. Pagini noi (luna 1-2): Creeaza /agenti-imobiliari-bucuresti si /cum-functioneaza cu continut de 800+ cuvinte. Acestea targeteaza si AI Search — ChatGPT si Perplexity le vor cita in raspunsuri.',
-            '3. Continut long-form (luna 2-3): Ghid "Cum sa cumperi apartament in Romania 2025" — articol de 2000+ cuvinte care rankeaza pentru zeci de queries long-tail simultan.',
-          ].map((s,i)=>(
-            <p key={i} style={{fontSize:12,color:C.muted,margin:'0 0 6px',lineHeight:1.55}}>{s}</p>
-          ))}
-        </div>
+        )}
       </Sec>
     </div>
   )

@@ -3,12 +3,15 @@ import { pushGscToHomePitch } from '../../lib/gsc-push'
 
 export const maxDuration = 60
 
-const SYNC_PERIODS = [30, 7, 14, 60, 90]
+// Un singur backfill pe intervalul cel mai lung: 90 de zile + 90 anterioare acopera si
+// perioadele de 7/14/30/60 de zile, care se compun apoi din acelasi cache zilnic.
+// Inainte rulau 5 perioade la rand in aceeasi limita de 60 s si se opreau la timeout.
+const SYNC_BACKFILL_DAYS = 90
 
-async function syncPeriod(request, days) {
+async function syncBackfill(request) {
   const base = request.nextUrl?.origin || `${request.headers.get('x-forwarded-proto') || 'https'}://${request.headers.get('host')}`
   const authorization = request.headers.get('authorization')
-  const res = await fetch(`${base}/api/report?days=${days}&refresh=1&skipAmplitude=1`, {
+  const res = await fetch(`${base}/api/report?days=${SYNC_BACKFILL_DAYS}&refresh=1&skipAmplitude=1&backfillOnly=1`, {
     headers: {
       cookie: request.headers.get('cookie') || '',
       ...(authorization ? { authorization } : {}),
@@ -17,34 +20,24 @@ async function syncPeriod(request, days) {
   const text = await res.text()
   let data = null
   try { data = text ? JSON.parse(text) : null } catch {}
-  if (!res.ok) throw new Error(data?.error || `Report fetch failed for ${days}d: ${res.status}`)
-  if (!data || typeof data !== 'object') throw new Error(`Report fetch failed for ${days}d: invalid JSON response`)
+  if (!res.ok) throw new Error(data?.error || `Backfill failed: ${res.status}`)
+  if (!data || typeof data !== 'object') throw new Error('Backfill failed: invalid JSON response')
   if (data?.error) throw new Error(data.error)
-  return { days, source: data._source }
-}
-
-function syncSummary(results) {
-  const periods = results.map((r, i) => ({
-    days: SYNC_PERIODS[i],
-    status: r.status === 'fulfilled' ? 'ok' : 'error',
-    ...(r.status === 'fulfilled'
-      ? { source: r.value.source }
-      : { error: r.reason?.message || String(r.reason) }),
-  }))
-  const failed = periods.filter(p => p.status === 'error')
-  return { periods, failed }
-}
-
-async function syncPeriods(request) {
-  const results = []
-  for (const days of SYNC_PERIODS) {
-    try {
-      results.push({ status: 'fulfilled', value: await syncPeriod(request, days) })
-    } catch (reason) {
-      results.push({ status: 'rejected', reason })
-    }
+  return {
+    days: SYNC_BACKFILL_DAYS,
+    source: data._source,
+    fetchedRanges: data._fetchedRanges || [],
+    refreshedDates: data._refreshedDates || [],
+    pendingReferralBackfillDays: data._pendingReferralBackfillDays || 0,
   }
-  return results
+}
+
+async function runBackfill(request) {
+  try {
+    return { status: 'ok', ...(await syncBackfill(request)) }
+  } catch (e) {
+    return { status: 'error', days: SYNC_BACKFILL_DAYS, error: e?.message || String(e) }
+  }
 }
 
 // Push zilnic GSC -> HomePitch; erorile apar in raspuns, dar nu pica sincronizarea.
@@ -71,12 +64,12 @@ export async function GET(request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const results = await syncPeriods(request)
-    const { periods, failed } = syncSummary(results)
-    const gscPush = await runGscPush()
+    // Push-ul GSC nu depinde de cache, deci ruleaza in paralel si nu mai asteapta backfill-ul.
+    const [backfill, gscPush] = await Promise.all([runBackfill(request), runGscPush()])
+    const ok = backfill.status === 'ok'
     return NextResponse.json(
-      { ok: failed.length === 0, periods, gscPush, syncedAt: new Date().toISOString() },
-      { status: failed.length ? 500 : 200 }
+      { ok, backfill, gscPush, syncedAt: new Date().toISOString() },
+      { status: ok ? 200 : 500 }
     )
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 })
@@ -88,12 +81,11 @@ export async function POST(request) {
   if (!isAuthorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    // Sincronizeaza toate perioadele: 7, 14, 30, 60, 90 zile
-    const results = await syncPeriods(request)
-    const { periods, failed } = syncSummary(results)
+    const backfill = await runBackfill(request)
+    const ok = backfill.status === 'ok'
     return NextResponse.json(
-      { ok: failed.length === 0, periods, syncedAt: new Date().toISOString() },
-      { status: failed.length ? 500 : 200 }
+      { ok, backfill, syncedAt: new Date().toISOString() },
+      { status: ok ? 200 : 500 }
     )
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 })

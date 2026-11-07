@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { C, fmtN, KPI, Sec, Grid, Card, BarChart, LineChart } from './components'
+import { medianByCurrency, currencyMedianSummary } from '../lib/report-metrics'
 
 const SORTS = [
   { id:'created_desc', label:'Cele mai noi' },
@@ -244,6 +245,10 @@ function TabCereriPiata({ days, customFrom, customTo }) {
       byBudget: budget,
       byRentBudget: rentBudget,
       medianBudget: median(budgetValues),
+      // mediane separate pe moneda: EUR si RON nu se amesteca
+      budgetByCurrency: currencyMedianSummary(medianByCurrency(filtered, 'budget_max', 'currency'), fmtN),
+      rentByCurrency: currencyMedianSummary(medianByCurrency(filtered, 'rent_budget_max', 'rent_currency'), fmtN),
+      downPaymentByCurrency: currencyMedianSummary(medianByCurrency(filtered.map(row => ({ ...row, down_payment_currency: row.down_payment_currency || row.currency })), 'down_payment', 'down_payment_currency'), fmtN),
       avgBudget: budgetValues.length ? budgetValues.reduce((s, v) => s + v, 0) / budgetValues.length : null,
       medianRentBudget: median(rentBudgetValues),
       avgRentBudget: rentBudgetValues.length ? rentBudgetValues.reduce((s, v) => s + v, 0) / rentBudgetValues.length : null,
@@ -327,9 +332,9 @@ function TabCereriPiata({ days, customFrom, customTo }) {
         <KPI label="Cereri cu oferte" curr={charts.withOffers} sub={`${charts.offerRate.toFixed(1)}% din filtru`}/>
         <KPI label="Oferte totale" curr={charts.totalOffers} sub={`${charts.avgOffersPerRequest.toFixed(2)}/cerere`}/>
         <KPI label="Scor cumparator median" curr={charts.medianBuyerScore || 0} sub={`${charts.buyerScoreCoverage.toFixed(0)}% au scor`}/>
-        <KPI label="Buget cumparare median" curr={charts.medianBudget || 0} sub="EUR"/>
-        <KPI label="Buget chirie median" curr={charts.medianRentBudget || 0} sub="EUR/luna"/>
-        <KPI label="Avans median" curr={charts.medianDownPayment || 0} sub={charts.medianDownPaymentRatio ? `${charts.medianDownPaymentRatio.toFixed(1)}% din buget` : 'date rare'}/>
+        <KPI label={`Buget cumparare median${charts.budgetByCurrency.currency ? ` (${charts.budgetByCurrency.currency})` : ''}`} curr={charts.budgetByCurrency.value ?? 0} sub={charts.budgetByCurrency.sub}/>
+        <KPI label={`Buget chirie median${charts.rentByCurrency.currency ? ` (${charts.rentByCurrency.currency}/luna)` : ''}`} curr={charts.rentByCurrency.value ?? 0} sub={charts.rentByCurrency.sub}/>
+        <KPI label={`Avans median${charts.downPaymentByCurrency.currency ? ` (${charts.downPaymentByCurrency.currency})` : ''}`} curr={charts.downPaymentByCurrency.value ?? 0} sub={charts.medianDownPaymentRatio ? `${charts.medianDownPaymentRatio.toFixed(1)}% din buget (aceeasi moneda) · ${charts.downPaymentByCurrency.sub}` : charts.downPaymentByCurrency.sub}/>
         <KPI label="Pondere credit" curr={charts.creditShare} type="pctN" sub={`${charts.downPaymentCoverage.toFixed(0)}% au avans completat`}/>
       </Grid>
 
