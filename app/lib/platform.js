@@ -1,4 +1,16 @@
 import { getOptionalEnv } from './env'
+import {
+  REQUEST_SELECT_FALLBACKS,
+  REQUEST_ATTRIBUTION_COLUMNS,
+  buildRequestSelect,
+  fetchWithAttributionEmbed,
+  normalizePathLike,
+  requestAttribution,
+  requestFormVariantKey,
+  homepageVariantKey,
+  countRequestVariants,
+  computeBuyerRequestConversion,
+} from './request-attribution'
 
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_REQUESTS_TABLE = 'buyer_requests'
@@ -28,11 +40,11 @@ function platformSupabaseError(status, text, fallback = 'Supabase request failed
   return `Platform Supabase ${status}: ${raw}`
 }
 
-async function platformRest(config, params, extraHeaders = {}) {
+async function platformRest(config, params, extraHeaders = {}, table = config.requestsTable) {
   const qs = params instanceof URLSearchParams ? params.toString() : new URLSearchParams(params).toString()
   let lastAuthError = null
   for (const key of config.keys || [config.key]) {
-    const res = await fetch(`${config.url}/rest/v1/${config.requestsTable}?${qs}`, {
+    const res = await fetch(`${config.url}/rest/v1/${table}?${qs}`, {
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
@@ -60,7 +72,42 @@ async function platformRest(config, params, extraHeaders = {}) {
 
 function isMissingColumnError(error) {
   const message = String(error?.message || error)
-  return message.includes('PGRST204') || message.toLowerCase().includes('could not find') || message.toLowerCase().includes('schema cache')
+  // PGRST204 = coloana lipsa in schema cache; 42703 = column does not exist (Postgres)
+  return message.includes('PGRST204') || message.includes('42703') || /column .* does not exist/i.test(message) || message.toLowerCase().includes('could not find') || message.toLowerCase().includes('schema cache')
+}
+
+// Coloanele existente in buyer_requests, aflate cu select=*&limit=1 si tinute in cache
+// 10 minute, ca select-ul sa ceara doar ce exista (si sa preia automat coloanele noi
+// de atribuire cand HomePitch le adauga).
+const COLUMN_CACHE_TTL_MS = 10 * 60 * 1000
+const columnCache = new Map()
+
+async function getRequestTableColumns(config) {
+  const cacheKey = `${config.url}/${config.requestsTable}`
+  const cached = columnCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < COLUMN_CACHE_TTL_MS) return cached.columns
+  const params = new URLSearchParams()
+  params.set('select', '*')
+  params.set('order', 'created_at.desc')
+  params.set('limit', '1')
+  const { rows } = await platformRest(config, params)
+  const columns = rows[0] ? Object.keys(rows[0]) : null
+  if (columns) columnCache.set(cacheKey, { at: Date.now(), columns })
+  return columns
+}
+
+// Daca embed-ul buyer_request_attribution merge (relatie existenta + drepturi),
+// tinut in cache 10 minute, ca proba de coloane; dupa migratie embed-ul este
+// reincercat cel tarziu dupa TTL.
+const attributionEmbedCache = new Map()
+
+function getCachedEmbedAvailability(config) {
+  const cached = attributionEmbedCache.get(`${config.url}/${config.requestsTable}`)
+  return cached && Date.now() - cached.at < COLUMN_CACHE_TTL_MS ? cached.available : null
+}
+
+function setCachedEmbedAvailability(config, available) {
+  attributionEmbedCache.set(`${config.url}/${config.requestsTable}`, { at: Date.now(), available })
 }
 
 function addDaysIso(date, days) {
@@ -393,61 +440,6 @@ export async function fetchPlatformRequestStats({ start, end }) {
   }
 }
 
-function pickRequestLandingPath(row = {}) {
-  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-  return (
-    row.landing_path ||
-    row.page_path ||
-    row.source_path ||
-    row.created_from_path ||
-    row.created_from_url ||
-    metadata.landing_path ||
-    metadata.page_path ||
-    metadata.source_path ||
-    metadata.created_from_path ||
-    metadata.created_from_url ||
-    ''
-  )
-}
-
-function pickRequestReferrer(row = {}) {
-  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-  return (
-    row.referrer ||
-    row.page_referrer ||
-    row.initial_referrer ||
-    metadata.referrer ||
-    metadata.page_referrer ||
-    metadata.initial_referrer ||
-    '(direct)'
-  )
-}
-
-function pickRequestSource(row = {}) {
-  const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {}
-  const source = row.utm_source || metadata.utm_source || metadata.source || ''
-  const medium = row.utm_medium || metadata.utm_medium || metadata.medium || ''
-  const campaign = row.utm_campaign || metadata.utm_campaign || metadata.campaign || ''
-  const sourceMedium = [source, medium].filter(Boolean).join(' / ')
-  return {
-    source_medium: sourceMedium || '(not set)',
-    utm_source: source || '',
-    utm_medium: medium || '',
-    utm_campaign: campaign || '',
-  }
-}
-
-function normalizePathLike(value) {
-  const raw = String(value || '').trim()
-  if (!raw) return ''
-  try {
-    const url = raw.startsWith('http') ? new URL(raw) : null
-    return url ? (url.pathname || '/') : raw.split('?')[0].split('#')[0]
-  } catch {
-    return raw.split('?')[0].split('#')[0]
-  }
-}
-
 export async function fetchPlatformRequestSourceStats({ start, end }) {
   const config = getPlatformConfig()
   if (!config) return null
@@ -461,83 +453,141 @@ export async function fetchPlatformRequestSourceStats({ start, end }) {
     params.set('limit', '10000')
     return params
   }
-  const selects = [
-    'id,created_at,status,transaction_type,property_type,request_form_variant,request_form_path,landing_path,page_path,source_path,created_from_path,created_from_url,referrer,page_referrer,initial_referrer,utm_source,utm_medium,utm_campaign,metadata',
-    'id,created_at,status,transaction_type,property_type,landing_path,page_path,source_path,referrer,page_referrer,metadata',
-    'id,created_at,metadata',
-    'id,created_at',
-  ]
 
-  let rows = []
-  let sourceDetailsAvailable = true
-  for (const select of selects) {
+  let available = null
+  try {
+    available = await getRequestTableColumns(config)
+  } catch (error) {
+    console.warn('Platform request column probe failed:', error.message)
+  }
+
+  // Select construit din coloanele existente; daca proba nu a intors randuri,
+  // lantul de fallback pastreaza mereu variantele formularului.
+  const selects = available
+    ? [buildRequestSelect(available).select, ...REQUEST_SELECT_FALLBACKS]
+    : REQUEST_SELECT_FALLBACKS
+
+  const fetched = await fetchWithAttributionEmbed(selects, async select => {
     const params = baseParams()
     params.set('select', select)
-    try {
-      const result = await platformRest(config, params, { Prefer: 'count=exact' })
-      rows = result.rows
-      sourceDetailsAvailable = select !== 'id,created_at'
-      break
-    } catch (error) {
-      if (!isMissingColumnError(error)) throw error
-    }
-  }
+    const result = await platformRest(config, params, { Prefer: 'count=exact' })
+    return result.rows
+  }, {
+    embedAvailable: getCachedEmbedAvailability(config),
+    isRetryable: error => {
+      const retry = isMissingColumnError(error)
+      if (retry) columnCache.clear()
+      return retry
+    },
+  })
+  if (fetched.embedAvailable !== null) setCachedEmbedAvailability(config, fetched.embedAvailable)
+  const rows = fetched.rows
+  const usedSelect = fetched.select
+
+  const selectedColumns = new Set(String(usedSelect || '').split(',').filter(Boolean))
+  const inlineAttributionColumns = REQUEST_ATTRIBUTION_COLUMNS.filter(column => selectedColumns.has(column))
+  const attributionColumns = fetched.embedUsed ? [...REQUEST_ATTRIBUTION_COLUMNS] : inlineAttributionColumns
+  const attributionAvailable = fetched.embedUsed || inlineAttributionColumns.length > 0
 
   const groups = new Map()
   const sourceGroups = new Map()
+  let attributedRequests = 0
   const requestRows = rows.map(row => {
-    const source = pickRequestSource(row)
-    return {
-      created_at: row.created_at || null,
-      date: row.created_at ? localDateFromTimestamp(row.created_at) : null,
-      landing_path: normalizePathLike(pickRequestLandingPath(row)) || '(unknown)',
-      referrer_full: pickRequestReferrer(row),
-      source_medium: source.source_medium,
-      utm_source: source.utm_source,
-      utm_medium: source.utm_medium,
-      utm_campaign: source.utm_campaign,
-      status: cleanText(row.status, ''),
-      transaction_type: cleanText(row.transaction_type, ''),
-      property_type: cleanText(row.property_type, ''),
-      request_form_variant: cleanText(row.request_form_variant, ''),
-      request_form_path: normalizePathLike(row.request_form_path) || '',
-    }
-  }).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    const attribution = requestAttribution(row, attributionAvailable)
+    if (attribution.attributed) attributedRequests += 1
 
-  rows.forEach(row => {
-    const landingPath = normalizePathLike(pickRequestLandingPath(row)) || '(unknown)'
-    const referrer = pickRequestReferrer(row)
-    const source = pickRequestSource(row)
-    const key = `${landingPath}::${referrer}`
+    const key = `${attribution.landing_path}::${attribution.referrer_full}`
     if (!groups.has(key)) {
       groups.set(key, {
-        landing_path: landingPath,
-        referrer_full: referrer,
-        source_medium: source.source_medium,
+        landing_path: attribution.landing_path,
+        referrer_full: attribution.referrer_full,
+        source_medium: attribution.source_medium,
         requests_created: 0,
       })
     }
     groups.get(key).requests_created += 1
 
-    const sourceKey = source.source_medium || '(not set)'
+    const sourceKey = attribution.source_medium
     if (!sourceGroups.has(sourceKey)) {
       sourceGroups.set(sourceKey, {
         source_medium: sourceKey,
-        utm_source: source.utm_source,
-        utm_medium: source.utm_medium,
+        utm_source: attribution.utm_source,
+        utm_medium: attribution.utm_medium,
         requests_created: 0,
       })
     }
     sourceGroups.get(sourceKey).requests_created += 1
-  })
+
+    return {
+      created_at: row.created_at || null,
+      date: row.created_at ? localDateFromTimestamp(row.created_at) : null,
+      attributed: attribution.attributed,
+      landing_path: attribution.landing_path,
+      referrer_full: attribution.referrer_full,
+      source_medium: attribution.source_medium,
+      utm_source: attribution.utm_source,
+      utm_medium: attribution.utm_medium,
+      utm_campaign: attribution.utm_campaign,
+      status: cleanText(row.status, ''),
+      transaction_type: cleanText(row.transaction_type, ''),
+      property_type: cleanText(row.property_type, ''),
+      request_form_variant: cleanText(row.request_form_variant, ''),
+      request_form_path: normalizePathLike(row.request_form_path) || '',
+      request_form_key: requestFormVariantKey(row),
+      homepage_variant: homepageVariantKey(row),
+    }
+  }).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+
+  const variants = countRequestVariants(rows)
 
   return {
     count: rows.length,
     source: config.requestsTable,
-    sourceDetailsAvailable,
+    // compatibilitate: true doar cand exista coloane reale de atribuire
+    sourceDetailsAvailable: attributionAvailable,
+    attributionAvailable,
+    attributionColumns,
+    attributionSource: fetched.embedUsed ? 'buyer_request_attribution' : inlineAttributionColumns.length ? 'buyer_requests' : null,
+    attributedRequests,
+    unattributedRequests: rows.length - attributedRequests,
+    formVariantAvailable: selectedColumns.has('request_form_variant') || selectedColumns.has('request_form_path'),
+    homepageVariantAvailable: selectedColumns.has('homepage_variant'),
+    byFormVariant: variants.form,
+    byHomepageVariant: variants.homepage,
     rows: Array.from(groups.values()).sort((a, b) => b.requests_created - a.requests_created),
     requestRows,
     topSources: Array.from(sourceGroups.values()).sort((a, b) => b.requests_created - a.requests_created),
+    start,
+    end,
+  }
+}
+
+// Cumparatori inregistrati in perioada (profiles_public.user_type = buyer) care au creat
+// cel putin o cerere in aceeasi perioada. Useri distincti, deci rata e intre 0 si 100%.
+// user_id-urile nu sunt returnate catre dashboard, doar numerele agregate.
+export async function fetchPlatformBuyerRequestConversion({ start, end }) {
+  const config = getPlatformConfig()
+  if (!config) return null
+
+  const exclusiveEnd = addDaysIso(end, 1)
+  const rangeParams = select => {
+    const params = new URLSearchParams()
+    params.set('select', select)
+    params.append('created_at', `gte.${localDateStart(start)}`)
+    params.append('created_at', `lt.${localDateStart(exclusiveEnd)}`)
+    params.set('limit', '10000')
+    return params
+  }
+
+  const buyerParams = rangeParams('user_id,created_at')
+  buyerParams.set('user_type', 'eq.buyer')
+  const { rows: buyers } = await platformRest(config, buyerParams, {}, 'profiles_public')
+  const { rows: requests } = await platformRest(config, rangeParams('user_id'))
+
+  const result = computeBuyerRequestConversion(buyers, requests)
+  return {
+    ...result,
+    source: 'profiles_public + buyer_requests',
     start,
     end,
   }

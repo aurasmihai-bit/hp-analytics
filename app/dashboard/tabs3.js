@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { C, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Sec, Grid, Card, LineChart, BarChart, PageLink } from './components'
 import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
+import { requestFormEventTotals, requestsPerGa4Signup, countRequestVariants } from '../lib/request-attribution'
 
 const BACKLOG_STORE_KEY = 'hp_recommendation_backlog_v1'
 const BACKLOG_STATUSES = [
@@ -614,7 +615,7 @@ function TabRecomandari({ data, onRegenerate, regenerating }) {
             {[
               {l:"Social conv rate", v:s.socialConvR+"%", highlight: s.socialConvR > 25},
               {l:"/vreau conv rate",  v:s.vreauR+"%",     highlight: s.vreauR > 3},
-              {l:"Buyer → cerere",    v:(s.cereriConvRate || 0)+"%", highlight: Number(s.cereriConvRate || 0) >= (s.buyerRequestTargetRate || 90)},
+              {l:"Buyer → cerere",    v:s.cereriConvRate !== null && s.cereriConvRate !== undefined ? s.cereriConvRate+"%" : "—", highlight: Number(s.cereriConvRate || 0) >= (s.buyerRequestTargetRate || 90)},
               {l:"Cereri / zi",       v:(s.dailyRequestRate || 0), highlight: Number(s.dailyRequestRate || 0) >= (s.requestDailyTarget || 2)},
               {l:"Homepage rate",    v:s.hpr+"%",         highlight: false},
               {l:"Funnel /cereri",   v:s.funnelRate+"%",  highlight: s.funnelRate > 15},
@@ -1116,13 +1117,14 @@ export function TabCerereTracking({ data }) {
   const allDates = data.cerereTracking || []
   const requestEvents = data.requestFormEvents || {}
   const formEvents = requestEvents.events || []
-  const formEventCount = name => Number(formEvents.find(row => row.event_name === name)?.event_count || 0)
-  const formStarted = formEventCount('[Amplitude] Form Started')
-  const formSubmitted = formEventCount('[Amplitude] Form Submitted')
-  const formSteps = formEventCount('Form Step Completed')
-  const formErrors = formEventCount('Form Validation Error')
-  const formAbandoned = formEventCount('Form Abandoned')
-  const requestCreated = formEventCount('Request Created')
+  // Accepta numele Title Case si snake_case (form_step_completed ...) trimise in GA4.
+  const formEventTotals = requestFormEventTotals(formEvents)
+  const formStarted = formEventTotals.form_started
+  const formSubmitted = formEventTotals.form_submitted
+  const formSteps = formEventTotals.form_step_completed
+  const formErrors = formEventTotals.form_validation_error
+  const formAbandoned = formEventTotals.form_abandoned
+  const requestCreated = formEventTotals.request_created
 
   const ga4Cereri     = allDates.reduce((s,d) => s+(d.conversions_bravo_cerere_noua||0), 0)
   const platformCereri = Number(data.platformRequests?.count || 0)
@@ -1139,8 +1141,13 @@ export function TabCerereTracking({ data }) {
   const totalDays     = data.days || allDates.length || 1
   const avgPerDay     = (totalCereri / totalDays).toFixed(2)
 
-  // Conversion rate: cereri / inregistrari cumparatori
-  const convRate = totalCump > 0 ? (totalCereri / totalCump * 100).toFixed(0) : null
+  // Rata cumparator -> cerere: doar din platforma (useri distincti inregistrati in perioada
+  // care au creat cel putin o cerere). Fara date de platforma: cereri / inregistrare GA4.
+  const buyerConversion = data.platformBuyerConversion || null
+  const convRate = buyerConversion && buyerConversion.buyersRegistered > 0 && buyerConversion.rate !== null
+    ? Math.min(100, buyerConversion.rate).toFixed(0)
+    : null
+  const requestsPerSignup = convRate === null ? requestsPerGa4Signup(totalCereri, totalCump) : null
 
   // Find first day with data
   const firstDay = allDates.find(d => (d.conversions_bravo_cerere_noua||0) > 0)
@@ -1151,11 +1158,12 @@ export function TabCerereTracking({ data }) {
   const requestSourceRows = requestSources.rows || []
   const requestTopSources = requestSources.topSources || []
   const requestListing = requestSources.requestRows || []
-  const requestFormVariants = requestListing.reduce((acc, row) => {
-    const key = row.request_form_variant === 'VH' ? 'VH' : row.request_form_variant === 'V' ? 'V' : 'Istoric'
-    acc[key] = (acc[key] || 0) + 1
-    return acc
-  }, { V:0, VH:0, Istoric:0 })
+  // Numaratoarea vine din API (byFormVariant); fallback local pe requestRows.
+  const localVariants = countRequestVariants(requestListing)
+  const requestFormVariants = requestSources.byFormVariant || localVariants.form
+  const homepageVariants = requestSources.byHomepageVariant || localVariants.homepage
+  const attributionAvailable = Boolean(requestSources.attributionAvailable)
+  const unattributedRequests = Number(requestSources.unattributedRequests ?? requestListing.length)
 
   return (
     <div>
@@ -1164,7 +1172,7 @@ export function TabCerereTracking({ data }) {
         <KPI label={cereriSource === 'platform' ? 'Cereri reale' : 'Cereri GA4'} curr={totalCereri}
           sub={cereriSource === 'platform' ? 'din buyer_requests' : activeDays > 0 ? `${activeDays} zile cu activitate` : 'tracking GA4'}/>
         <KPI label="Cereri GA4" curr={ga4Cereri}
-          sub={trackingGap > 0 ? `${trackingGap} lipsa vs platforma` : daysSinceFirst ? `de acum ${daysSinceFirst} zile` : '—'}/>
+          sub={trackingGap > 0 ? `${trackingGap} cereri fara eveniment GA4` : daysSinceFirst ? `de acum ${daysSinceFirst} zile` : '—'}/>
         <KPI label="Medie / zi" curr={parseFloat(avgPerDay)} type="dec1"
           sub={`${totalDays} zile analizate`}/>
         <KPI label="Inregistrari cumparatori" curr={totalCump}/>
@@ -1175,7 +1183,7 @@ export function TabCerereTracking({ data }) {
           <Signal
             type="neutral"
             title="Evenimentele intermediare nu apar inca in raport"
-            body="Dashboard-ul citeste GA4/HomePitch Analytics si asteapta Form Step Completed, Form Validation Error, Form Abandoned si Request Created. Daca evenimentele sunt doar in Amplitude, trebuie export/mirror catre sursa citita de analytics."
+            body="Dashboard-ul citeste din GA4 form_step_completed, form_validation_error, form_abandoned si request_created (accepta si numele Title Case: Form Step Completed, Form Validation Error, Form Abandoned, Request Created). HomePitch trimite aceste evenimente in GA4 incepand cu urmatoarea publicare; GA4 le proceseaza in pana la 24-48 h, apoi apar aici."
           />
         ) : (
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(135px,1fr))',gap:8}}>
@@ -1185,7 +1193,7 @@ export function TabCerereTracking({ data }) {
               ['Erori validare', formErrors, C.red],
               ['Abandon', formAbandoned, C.amber],
               ['Submit form', formSubmitted, C.green],
-              ['Request Created', requestCreated, C.green],
+              ['Cerere creata', requestCreated, C.green],
             ].map(([label, value, col]) => (
               <div key={label} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'12px 14px'}}>
                 <p style={{fontSize:11,color:C.hint,margin:'0 0 5px'}}>{label}</p>
@@ -1211,36 +1219,63 @@ export function TabCerereTracking({ data }) {
         />
       )}
 
-      {convRate && (
+      {convRate !== null && (
         <Signal
           type={parseInt(convRate) > 50 ? 'positive' : parseInt(convRate) > 20 ? 'neutral' : 'negative'}
-          title={`${convRate}% din cumparatorii inregistrati adauga si o cerere`}
-          body={`${totalCereri} cereri (${cereriSource === 'platform' ? 'platforma' : 'GA4'}) din ${totalCump} inregistrari cumparatori GA4. ${parseInt(convRate) < 50 ? 'Potential de crestere: dupa inregistrare, redirecteaza userul direct catre formularul de cerere.' : 'Rata buna — mai mult de jumatate din cumparatori adauga cerere.'}`}
+          title={`${convRate}% din cumparatorii inregistrati in perioada au creat cel putin o cerere`}
+          body={`${buyerConversion.buyersWithRequest} din ${buyerConversion.buyersRegistered} cumparatori inregistrati in HomePitch in perioada selectata au creat cel putin o cerere (useri distincti, din profiles + buyer_requests). Totalul de ${totalCereri} cereri include si cumparatori inregistrati inainte de perioada sau cu mai multe cereri. ${parseInt(convRate) < 50 ? 'Potential de crestere: dupa inregistrare, redirecteaza userul direct catre formularul de cerere.' : 'Rata buna — mai mult de jumatate din cumparatorii noi adauga cerere.'}`}
+        />
+      )}
+      {convRate === null && requestsPerSignup !== null && (
+        <Signal
+          type="neutral"
+          title={`${requestsPerSignup.toFixed(1)} cereri / inregistrare cumparator GA4`}
+          body={`${totalCereri} cereri (${cereriSource === 'platform' ? 'platforma' : 'GA4'}) raportate la ${totalCump} inregistrari cumparatori din GA4. Sunt surse diferite si o persoana poate crea mai multe cereri, deci acesta nu este procentul de cumparatori care adauga o cerere. Rata reala apare cand analytics poate citi profilurile HomePitch.`}
         />
       )}
 
       <Sec title="Cereri create pe varianta formularului">
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10}}>
           {[
             ['V', '/vreau', requestFormVariants.V, C.blue],
             ['VH', '/new', requestFormVariants.VH, C.green],
-            ['Istoric', 'fara atribuire', requestFormVariants.Istoric, C.hint],
+            ['Istoric', 'fara varianta', requestFormVariants.Istoric, C.hint],
           ].map(([label, path, value, color]) => (
             <Card key={label} style={{padding:'12px 14px'}}>
               <p style={{fontSize:11,color:C.hint,margin:'0 0 4px'}}>{label} · {path}</p>
-              <p style={{fontSize:24,fontWeight:600,color,margin:0}}>{fmtN(value)}</p>
+              <p style={{fontSize:24,fontWeight:600,color,margin:0}}>{fmtN(value || 0)}</p>
               <p style={{fontSize:11,color:C.muted,margin:'4px 0 0'}}>cereri create din buyer_requests</p>
             </Card>
+          ))}
+        </div>
+        <h4 style={{fontSize:12,margin:'14px 0 8px',color:C.hint,textTransform:'uppercase',letterSpacing:'.04em'}}>Pe varianta homepage</h4>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:8}}>
+          {[
+            ['control', homepageVariants.control, C.blue],
+            ['simplu', homepageVariants.simplu, C.purple],
+            ['variant_c', homepageVariants.variant_c, C.green],
+            ['necunoscut', homepageVariants.necunoscut, C.hint],
+          ].map(([label, value, color]) => (
+            <div key={label} style={{background:C.card,border:`0.5px solid ${C.border}`,borderRadius:10,padding:'10px 12px'}}>
+              <p style={{fontSize:11,color:C.hint,margin:'0 0 4px'}}>{label}</p>
+              <p style={{fontSize:20,fontWeight:600,color:value>0?color:C.hint,margin:0}}>{fmtN(value || 0)}</p>
+            </div>
           ))}
         </div>
       </Sec>
 
       <Sec title="Surse / referrers cereri reale">
-        {!requestSources.sourceDetailsAvailable && (
+        {!attributionAvailable ? (
           <Signal
             type="neutral"
-            title="Sursa cererilor nu este complet disponibila in export"
-            body="Analytics poate numara cererile reale din buyer_requests, dar pentru referrer complet sunt necesare campuri de tip landing_path/referrer/utm in HomePitch."
+            title="Atribuirea cererilor incepe cu urmatoarea publicare HomePitch"
+            body="Analytics nu poate citi inca tabelul privat buyer_request_attribution (landing_path, referrer, utm_source, utm_medium, utm_campaign, utm_content, utm_term, gclid, fbclid). HomePitch il completeaza pentru cererile noi incepand cu urmatoarea publicare; cererile mai vechi raman „fara atribuire”. Citirea cere cheia service_role in analytics."
+          />
+        ) : unattributedRequests > 0 && (
+          <Signal
+            type="neutral"
+            title={`${unattributedRequests} cereri fara atribuire`}
+            body="Cererile fara rand in buyer_request_attribution (create inainte ca HomePitch sa salveze landing_path / referrer / utm) raman fara atribuire. Cererile noi au sursa completata."
           />
         )}
         <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:12}}>
@@ -1282,8 +1317,8 @@ export function TabCerereTracking({ data }) {
           {(requestListing.length ? requestListing.slice(0, 30) : []).map((row, index) => (
             <div key={`${row.created_at}-${index}`} style={{display:'grid',gridTemplateColumns:'90px 70px minmax(120px,1fr) minmax(150px,1.2fr) minmax(110px,.8fr) 80px',borderTop:index?`0.5px solid ${C.border}`:'none',fontSize:12,color:C.text}}>
               <div style={{padding:'9px 10px',fontFamily:'monospace',color:C.muted}}>{row.date || '—'}</div>
-              <div style={{padding:'9px 10px',fontWeight:600,color:row.request_form_variant==='VH'?C.green:C.blue}} title={row.request_form_path || ''}>
-                {row.request_form_variant || '—'}
+              <div style={{padding:'9px 10px',fontWeight:600,color:(row.request_form_key || row.request_form_variant)==='VH'?C.green:C.blue}} title={[row.request_form_path, row.homepage_variant && row.homepage_variant !== 'necunoscut' ? `homepage: ${row.homepage_variant}` : ''].filter(Boolean).join(' · ')}>
+                {row.request_form_variant || (row.request_form_key && row.request_form_key !== 'Istoric' ? row.request_form_key : '—')}
               </div>
               <div style={{padding:'9px 10px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={row.landing_path}>
                 {row.landing_path && row.landing_path.startsWith('/') ? <PageLink path={row.landing_path}>{row.landing_path}</PageLink> : (row.landing_path || '—')}

@@ -1,4 +1,5 @@
 import { getGoogleAccessToken } from './google-auth'
+import { isRequestFormEventName as isKnownRequestFormEventName } from './request-attribution'
 
 const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
 const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 2
@@ -127,16 +128,9 @@ function isExitIntentEventName(value) {
   return /(exit|intent|abandon|leave|beforeunload|page_close|close_page|dropoff|drop_off)/.test(name)
 }
 
+// Title Case (istoric) si snake_case (form_step_completed ... trimise de HomePitch in GA4)
 function isRequestFormEventName(value) {
-  const name = String(value || '').toLowerCase()
-  return [
-    'form step completed',
-    'form validation error',
-    'form abandoned',
-    'request created',
-    '[amplitude] form started',
-    '[amplitude] form submitted',
-  ].includes(name)
+  return isKnownRequestFormEventName(value)
 }
 
 function isConciergePath(value) {
