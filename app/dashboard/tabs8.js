@@ -221,7 +221,7 @@ function InteractionTable({ rows }) {
         <div style={{display:'grid',gridTemplateColumns:'1fr 72px 74px',gap:10,marginTop:8,paddingTop:8,borderTop:`0.5px solid ${C.border}`}}>
           <span style={{fontSize:10,color:C.hint,textTransform:'uppercase'}}>Target / event</span>
           <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Click-uri</span>
-          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}}>Useri</span>
+          <span style={{fontSize:10,color:C.hint,textAlign:'right',textTransform:'uppercase'}} title="activeUsers adunat pe zile, nu useri unici">Useri (sumă)</span>
         </div>
       </Card>
     </Sec>
@@ -376,17 +376,17 @@ export function TabReferrals({ data }) {
     <div>
       <Grid>
         <KPI label="Referrers + landing" curr={summary.referrers || rows.length || 0}/>
-        <KPI label="Views din referrers" curr={summary.views || 0} prev={summary.previous_views}/>
-        <KPI label="Conversii" curr={summary.conversions || 0} prev={summary.previous_conversions}/>
-        <KPI label="Rata conversie" curr={summary.conversion_rate || 0} prev={summary.previous_conversion_rate} type="pctN"/>
+        <KPI label="Views din referrers externi" curr={summary.views || 0} prev={summary.previous_views} sub={summary.internal_views_excluded ? `fara ${fmtN(summary.internal_views_excluded)} views din navigarea interna homepitch.ro` : undefined}/>
+        <KPI label="Evenimente-cheie" curr={summary.conversions || 0} prev={summary.previous_conversions}/>
+        <KPI label="Ev. cheie / 100 views" curr={summary.conversion_rate || 0} prev={summary.previous_conversion_rate} type="dec1"/>
       </Grid>
       <Sec title="Referrers cu URL complet + landing path + conversii">
         <Card style={{padding:'10px 14px',overflowX:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:760}}>
             <thead>
               <tr style={{borderBottom:`0.5px solid ${C.border}`}}>
-                {['Full referrer URL','Landing path','Sursa / medium','Views','Conversii','Conv rate'].map(h => (
-                  <th key={h} style={{textAlign:h === 'Views' || h === 'Conversii' || h === 'Conv rate' ? 'right' : 'left',padding:'7px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>
+                {['Full referrer URL','Pagina','Sursa / medium','Views','Ev. cheie','Ev. cheie / 100 views'].map(h => (
+                  <th key={h} style={{textAlign:h === 'Views' || h === 'Ev. cheie' || h === 'Ev. cheie / 100 views' ? 'right' : 'left',padding:'7px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -400,7 +400,7 @@ export function TabReferrals({ data }) {
                   <td style={{padding:'8px',color:C.muted}}>{row.session_source_medium || '(not set)'}</td>
                   <td style={{padding:'8px',textAlign:'right',color:C.muted}}>{fmtN(row.screen_page_views)}</td>
                   <td style={{padding:'8px',textAlign:'right',color:Number(row.conversions || 0) > 0 ? C.green : C.muted,fontWeight:600}}>{fmtN(row.conversions)}</td>
-                  <td style={{padding:'8px',textAlign:'right',color:Number(row.conversion_rate || 0) > 0 ? C.green : C.hint,fontWeight:600}}>{pct(row.conversion_rate)}</td>
+                  <td style={{padding:'8px',textAlign:'right',color:Number(row.conversion_rate || 0) > 0 ? C.green : C.hint,fontWeight:600}}>{Number(row.conversion_rate || 0).toFixed(1)}</td>
                 </tr>
               ))}
             </tbody>

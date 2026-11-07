@@ -247,3 +247,17 @@ test('fallback: erorile care nu tin de coloane sunt aruncate', async () => {
     /500/
   )
 })
+
+test('funnelul formularului aduna snake_case si Title Case pe acelasi pas', () => {
+  const totals = requestFormEventTotals([
+    { event_name: 'form_step_completed', event_count: 7 },
+    { event_name: 'Form Step Completed', event_count: 3 },
+    { event_name: 'request_created', event_count: 2 },
+    { event_name: '[Amplitude] Form Started', event_count: 5 },
+    { event_name: 'page_view', event_count: 999 },
+  ])
+  assert.equal(totals.form_step_completed, 10)
+  assert.equal(totals.request_created, 2)
+  assert.equal(totals.form_started, 5)
+  assert.equal(totals.form_abandoned, 0)
+})

@@ -11,6 +11,7 @@ import { TabExitIntent } from './tabs6'
 import { TabHomepageConversions, TabConciergeTraffic, TabHeaderMenuAB, TabPayments, TabReferrals, TabAmplitude } from './tabs8'
 import { TabSeoReport, TabGeoAi } from './tabs9'
 import { DARK_THEME, LIGHT_THEME, THEME_STORAGE_KEY, ThemeSwitch } from './theme'
+import { activeFormViews } from '../lib/report-metrics'
 
 /* ─── PERIOD SELECTOR ──────────────────────────────────────────────── */
 const PERIODS = [
@@ -148,7 +149,7 @@ function TabActiuni({ data }) {
           <Grid>
             <KPI label="Conversii" curr={s.totalConv || 0} prev={s.totalConvPrev}/>
             <KPI label={cereriLabel} curr={s.totalCereriNoi || 0} sub={s.cereriSource === 'platform' ? 'din buyer_requests' : 'din GA4'}/>
-            <KPI label="/vreau rate" curr={s.vreauR || 0} type="pctN"/>
+            <KPI label="/vreau ev. cheie / 100 views" curr={s.vreauR || 0} type="dec1"/>
             <KPI label="/ homepage rate" curr={s.hpr || 0} type="pctN"/>
           </Grid>
         </Sec>
@@ -177,7 +178,8 @@ function TabActiuni({ data }) {
   const lowCtr=queries.filter(q=>(q.organic_google_search_impressions||0)>50&&(q.organic_google_search_click_through_rate||0)<0.03).sort((a,b)=>(b.organic_google_search_impressions||0)-(a.organic_google_search_impressions||0))[0]
   const nearTop=queries.filter(q=>(q.organic_google_search_average_position||0)>=4&&(q.organic_google_search_average_position||0)<=8).sort((a,b)=>(b.organic_google_search_clicks||0)-(a.organic_google_search_clicks||0))[0]
   const cereriViews=cereri?.screen_page_views||0
-  const totalFormViews=vreau?.screen_page_views||0
+  // formularele active: /vreau (V) + /new (VH)
+  const totalFormViews=activeFormViews(pages)
   const legacyFormViews=(ceNou?.screen_page_views||0)+(cereriNou?.screen_page_views||0)
   const funnelRate=cereriViews>0?totalFormViews/cereriViews*100:0
 
@@ -192,10 +194,10 @@ function TabActiuni({ data }) {
   }
 
   // 2. CTA pe /cereri — inca neluat
-  if(funnelRate<15) {
+  if(cereriViews>0&&funnelRate<15) {
     actions.push({urgency:'urgent',
       title:`Funnel /cereri → formulare: ${funnelRate.toFixed(0)}% — CTA inline inca lipseste`,
-      body:`${fmtN(cereriViews)} vizite pe /cereri dar doar ${fmtN(totalFormViews)} (${funnelRate.toFixed(0)}%) ajung la formulare. Un card CTA dupa al 4-lea rezultat din grid poate dubla aceasta rata.`,
+      body:`${fmtN(cereriViews)} vizite pe /cereri si ${fmtN(totalFormViews)} views pe formularele /vreau + /new (${funnelRate.toFixed(0)}%). Un card CTA dupa al 4-lea rezultat din grid poate dubla aceasta rata.`,
       fix:"Insereaza un card dark-navy dupa pozitia 4 din gridul de cereri cu textul: 'Nu gasesti ce cauti? Descrie ce vrei — agentii activi iti trimit oferte in 24h'. Ascunde pentru agentii logati. Efort: 30 minute."})
   }
 
@@ -211,7 +213,7 @@ function TabActiuni({ data }) {
   if(vreauR>0&&legacyFormViews>20) {
     actions.push({urgency:'important',
       title:`/vreau este formularul activ pentru cereri`,
-      body:`/vreau are ${vreauR.toFixed(1)}% conv rate GA4 pe interval. Rutele vechi se pastreaza doar pentru audit de trafic ratacit.`,
+      body:`/vreau are ${vreauR.toFixed(1)} evenimente-cheie GA4 / 100 views pe interval. Rutele vechi se pastreaza doar pentru audit de trafic ratacit.`,
       fix:'Pastreaza toate CTA-urile de creare cerere spre /vreau si foloseste /cerere-noua + /cereri/nou doar ca redirect.'})
   }
 
@@ -280,8 +282,8 @@ function TabActiuni({ data }) {
         <Grid>
           <KPI label="Conversii" curr={cc} prev={cp}/>
           <KPI label="Cereri noi (tracking)" curr={totalCereriNoi}/>
-          <KPI label="/vreau rate" curr={vreauR} type="pctN"/>
-          <KPI label="/ homepage rate" curr={hpr} type="pctN"/>
+          <KPI label="/vreau ev. cheie / 100 views" curr={vreauR} type="dec1"/>
+          <KPI label="/ homepage ev. cheie / 100 views" curr={hpr} type="dec1"/>
         </Grid>
       </Sec>
     </div>

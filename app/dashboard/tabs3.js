@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { C, sum, avg, dlt, fmt, fmtN, Delta, KPI, Signal, Sec, Grid, Card, LineChart, BarChart, PageLink } from './components'
 import { CONV_DEFINITIONS, CATEGORIES, CERERE_PAGES } from './conversions_config'
 import { requestFormEventTotals, requestsPerGa4Signup, countRequestVariants } from '../lib/request-attribution'
+import { keyEventsPer100, activeUsersLabel } from '../lib/report-metrics'
 
 const BACKLOG_STORE_KEY = 'hp_recommendation_backlog_v1'
 const BACKLOG_STATUSES = [
@@ -304,13 +305,13 @@ function verifyBacklogItem(item, summary) {
       return {
         ok: true,
         title: 'Confirmat: /vreau ramane fluxul activ masurabil',
-        detail: `/vreau are ${vreauR.toFixed(1)}% conv rate. Rutele vechi se folosesc doar ca audit/redirect.`,
+        detail: `/vreau are ${vreauR.toFixed(1)} evenimente-cheie / 100 views. Rutele vechi se folosesc doar ca audit/redirect.`,
       }
     }
     return {
       ok: false,
       title: 'Nu e confirmat: performanta /vreau nu a ajuns la prag',
-      detail: `/vreau are ${vreauR.toFixed(1)}% conv rate. Pragul pentru confirmare este /vreau >= 3%.`,
+      detail: `/vreau are ${vreauR.toFixed(1)} evenimente-cheie / 100 views. Pragul pentru confirmare este /vreau >= 3.`,
       suggestions: ['Verifica daca butoanele principale trimit spre /vreau.', 'Pastreaza masurarea 14 zile sau pana ai minim 100 views pe ruta activa.'],
     }
   }
@@ -587,7 +588,7 @@ function TabRecomandari({ data, onRegenerate, regenerating }) {
             <p style={{fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"rgba(255,255,255,.55)",margin:"0 0 4px"}}>Actualizate la incarcare si la sync</p>
             <h2 style={{fontSize:17,fontWeight:500,margin:"0 0 4px"}}>Recomandari bazate pe date reale</h2>
             <p style={{fontSize:12,color:"rgba(255,255,255,.65)",margin:0}}>
-              {fmtN(s.totalSess)} sesiuni · Conv rate: {s.totalSess>0?(s.totalConv/s.totalSess*100).toFixed(1):"0"}%
+              {fmtN(s.totalSess)} sesiuni · {s.totalSess>0?keyEventsPer100(s.totalConv,s.totalSess).toFixed(1):"0"} ev. cheie / 100 sesiuni
               {s.totalCereriNoi > 0 && " · " + s.totalCereriNoi + " " + cereriLabel}
             </p>
           </div>
@@ -613,12 +614,12 @@ function TabRecomandari({ data, onRegenerate, regenerating }) {
         {s.totalSess > 0 && (
           <div style={{display:"flex",gap:16,marginTop:14,paddingTop:12,borderTop:"0.5px solid rgba(255,255,255,.15)",flexWrap:"wrap"}}>
             {[
-              {l:"Social conv rate", v:s.socialConvR+"%", highlight: s.socialConvR > 25},
-              {l:"/vreau conv rate",  v:s.vreauR+"%",     highlight: s.vreauR > 3},
+              {l:"Social ev. cheie/100 ses.", v:s.socialConvR, highlight: s.socialConvR > 25},
+              {l:"/vreau ev. cheie/100 views",  v:s.vreauR,     highlight: s.vreauR > 3},
               {l:"Buyer → cerere",    v:s.cereriConvRate !== null && s.cereriConvRate !== undefined ? s.cereriConvRate+"%" : "—", highlight: Number(s.cereriConvRate || 0) >= (s.buyerRequestTargetRate || 90)},
               {l:"Cereri / zi",       v:(s.dailyRequestRate || 0), highlight: Number(s.dailyRequestRate || 0) >= (s.requestDailyTarget || 2)},
-              {l:"Homepage rate",    v:s.hpr+"%",         highlight: false},
-              {l:"Funnel /cereri",   v:s.funnelRate+"%",  highlight: s.funnelRate > 15},
+              {l:"Homepage ev. cheie/100 views",    v:s.hpr,         highlight: false},
+              {l:"Formulare V+VH / views /cereri",   v:s.funnelRate+"%",  highlight: s.funnelRate > 15},
             ].map(i=>(
               <div key={i.l} style={{minWidth:80}}>
                 <p style={{fontSize:10,color:"rgba(255,255,255,.45)",margin:"0 0 1px"}}>{i.l}</p>
@@ -699,51 +700,47 @@ function TabCerereNoua({ data }) {
   const cp = data.cererePages || {}
   const daily = cp.daily || {}
   const byCh  = cp.byChannel || {}
+  const usersLabel = activeUsersLabel(data.activeUsersMode, true)
+  const platformForms = data.platformRequestSources?.byFormVariant || null
 
-  // Aggregate totals for each path
+  // Totaluri pe fiecare ruta (V = /vreau, VH = /new, plus rutele vechi)
   const paths = CERERE_PAGES.map(p => {
     const pg = pages.find(x => x.page_path === p.path)
-    const d  = {
-      cerereNoua: daily.cerereNoua || [],
-      cereriNou:  daily.cereriNou  || [],
-      vreau:      daily.vreau      || [],
-    }[p.path === '/cerere-noua' ? 'cerereNoua' : p.path === '/cereri/nou' ? 'cereriNou' : 'vreau']
-    const ch = {
-      cerereNoua: byCh.cerereNoua || [],
-      cereriNou:  byCh.cereriNou  || [],
-      vreau:      byCh.vreau      || [],
-    }[p.path === '/cerere-noua' ? 'cerereNoua' : p.path === '/cereri/nou' ? 'cereriNou' : 'vreau']
+    const d  = daily[p.key] || []
+    const ch = byCh[p.key] || []
     const views = pg?.screen_page_views || sum(d,'screen_page_views')
     const conv  = pg?.conversions       || sum(d,'conversions')
     const eng   = pg?.engagement_rate   || 0
     const dur   = pg?.average_session_duration || 0
     const users = pg?.active_users || 0
-    const convRate = views > 0 ? conv/views*100 : 0
-    return { ...p, views, conv, eng, dur, users, convRate, daily: d, byChannel: ch }
+    const convRate = keyEventsPer100(conv, views)
+    const variant = p.path === '/vreau' ? 'V' : p.path === '/new' ? 'VH' : null
+    const requests = variant && platformForms ? Number(platformForms[variant] || 0) : null
+    return { ...p, views, conv, eng, dur, users, convRate, requests, daily: d, byChannel: ch }
   })
 
   const maxViews = Math.max(...paths.map(p=>p.views), 1)
   const totalViews = paths.reduce((s,p)=>s+p.views, 0)
   const totalConv  = paths.reduce((s,p)=>s+p.conv, 0)
-  const activePath = paths.find(p => p.path === '/vreau') || paths[2]
-  const legacyPaths = paths.filter(p => p.path !== '/vreau')
+  const activePaths = paths.filter(p => p.status === 'active')
+  const legacyPaths = paths.filter(p => p.status !== 'active')
   const legacyViews = legacyPaths.reduce((s, p) => s + p.views, 0)
-  const activeConvRate = activePath.views > 0 ? activePath.conv / activePath.views * 100 : 0
+  const activeViews = activePaths.reduce((s, p) => s + p.views, 0)
+  const activeConv = activePaths.reduce((s, p) => s + p.conv, 0)
+  const activeConvRate = keyEventsPer100(activeConv, activeViews)
+  const activeRequests = platformForms ? Number(platformForms.V || 0) + Number(platformForms.VH || 0) : null
+  // compatibilitate cu textul de mai jos
+  const activePath = { views: activeViews, conv: activeConv }
 
-  // Build unified daily chart — align dates
-  const allDates = [...new Set([
-    ...paths[0].daily.map(d=>d.date),
-    ...paths[1].daily.map(d=>d.date),
-    ...paths[2].daily.map(d=>d.date),
-  ])].sort()
+  // Grafic zilnic — aliniem datele
+  const allDates = [...new Set(paths.flatMap(p => p.daily.map(d=>d.date)))].sort()
 
   const chartData = allDates.map(date => {
     const row = { date }
     paths.forEach((p,i) => {
-      const key = ['cerereNoua','cereriNou','vreau'][i]
-      const found = p.daily.find(d=>d.date===date)
-      row[`views_${i}`]  = found?.screen_page_views || 0
-      row[`conv_${i}`]   = found?.conversions       || 0
+      const found = p.daily.filter(d=>d.date===date)
+      row[`views_${i}`]  = sum(found,'screen_page_views')
+      row[`conv_${i}`]   = sum(found,'conversions')
     })
     return row
   })
@@ -755,15 +752,15 @@ function TabCerereNoua({ data }) {
       {/* Intro */}
       <div style={{background:'linear-gradient(135deg,#1A2B4A,#2d4a7a)',borderRadius:12,padding:'16px 20px',marginBottom:20,color:'#fff'}}>
         <p style={{fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'rgba(255,255,255,.5)',margin:'0 0 4px'}}>Flux activ + trafic legacy</p>
-        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>Analiza formular cereri — /vreau este ruta activa</h2>
+        <h2 style={{fontSize:16,fontWeight:500,margin:'0 0 4px'}}>Analiza formular cereri — /vreau (V) si /new (VH) sunt active</h2>
         <p style={{fontSize:13,color:'rgba(255,255,255,.65)',margin:0}}>
-          /vreau: {fmtN(activePath.views)} vizite · {fmtN(activePath.conv)} conversii GA4 · conv rate {activeConvRate.toFixed(1)}%.
+          V + VH: {fmtN(activeViews)} views · {activeRequests !== null ? `${fmtN(activeRequests)} cereri reale (HomePitch) · ` : ''}{activeConvRate.toFixed(1)} evenimente-cheie GA4 / 100 views.
           {legacyViews > 0 ? ` Rute vechi monitorizate separat: ${fmtN(legacyViews)} vizite.` : ' Rutele vechi nu au trafic pe interval.'}
         </p>
       </div>
 
       {/* KPI cards per path */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:20}}>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:10,marginBottom:20}}>
         {paths.map((p,i) => (
           <div key={p.path} style={{
             background:C.card,border:`2px solid ${p.color}22`,borderRadius:12,
@@ -792,9 +789,9 @@ function TabCerereNoua({ data }) {
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
               {[
                 {l:'Views',v:fmtN(p.views)},
-                {l:'Useri unici',v:fmtN(p.users)},
-                {l:'Conversii GA4',v:fmtN(p.conv),bold:true,col:p.conv>0?C.green:C.hint},
-                {l:'Conv rate',v:p.convRate.toFixed(2)+'%',bold:true,col:p.convRate>2?C.green:p.convRate>0?C.amber:C.red},
+                {l:usersLabel,v:fmtN(p.users)},
+                {l:'Cereri reale',v:p.requests===null?'—':fmtN(p.requests),bold:true,col:p.requests>0?C.green:C.hint},
+                {l:'Ev. cheie / 100 views',v:p.convRate.toFixed(1),bold:true,col:p.convRate>2?C.green:p.convRate>0?C.amber:C.red},
                 {l:'Engagement',v:Math.round(p.eng*100)+'%',col:p.eng>0.9?C.green:p.eng>0.7?C.amber:C.red},
                 {l:'Durata medie',v:Math.round(p.dur)+'s'},
               ].map(m=>(
@@ -822,7 +819,7 @@ function TabCerereNoua({ data }) {
                   <span style={{fontSize:11,color:C.hint}}>{share.toFixed(0)}% din trafic</span>
                   <div style={{flex:1}}/>
                   <span style={{fontSize:12,fontWeight:500,color:p.convRate>2?C.green:p.convRate>0?C.amber:C.red}}>
-                    {p.convRate.toFixed(2)}% conv rate
+                    {p.convRate.toFixed(1)} ev. cheie / 100 views
                   </span>
                 </div>
                 {/* Views bar */}
@@ -835,7 +832,7 @@ function TabCerereNoua({ data }) {
                 </div>
                 {/* Conv bar (scaled to 10% max) */}
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <span style={{fontSize:10,color:C.hint,width:56,flexShrink:0}}>Conv GA4</span>
+                  <span style={{fontSize:10,color:C.hint,width:56,flexShrink:0}}>Ev. cheie</span>
                   <div style={{flex:1,background:C.softPanel,borderRadius:99,height:8,overflow:'hidden'}}>
                     <div style={{width:`${Math.min(p.convRate*5,100)}%`,height:8,background:p.conv>0?C.green:C.border,borderRadius:99}}/>
                   </div>
@@ -876,7 +873,7 @@ function TabCerereNoua({ data }) {
 
       {/* By channel */}
       <Sec title="Trafic per canal — de unde vin userii pe fiecare pagina">
-        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:10}}>
           {paths.map((p,i) => (
             <div key={p.path}>
               <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
@@ -888,7 +885,7 @@ function TabCerereNoua({ data }) {
               ) : (
                 [...p.byChannel].sort((a,b)=>(b.screen_page_views||0)-(a.screen_page_views||0)).map(ch=>{
                   const pct = p.views>0?ch.screen_page_views/p.views*100:0
-                  const chConvRate = ch.screen_page_views>0?ch.conversions/ch.screen_page_views*100:0
+                  const chConvRate = keyEventsPer100(ch.conversions, ch.screen_page_views)
                   return (
                     <div key={ch.session_default_channel_group} style={{marginBottom:8}}>
                       <div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}>
@@ -899,7 +896,7 @@ function TabCerereNoua({ data }) {
                         <div style={{width:`${pct}%`,height:5,background:p.color,borderRadius:99,opacity:.7}}/>
                       </div>
                       {ch.conversions > 0 && (
-                        <p style={{fontSize:10,color:C.green,margin:0,fontWeight:500}}>{ch.conversions} conv · {chConvRate.toFixed(1)}% rate</p>
+                        <p style={{fontSize:10,color:C.green,margin:0,fontWeight:500}}>{ch.conversions} ev. cheie · {chConvRate.toFixed(1)} / 100 views</p>
                       )}
                     </div>
                   )
@@ -913,18 +910,18 @@ function TabCerereNoua({ data }) {
       {/* Insights */}
       <Sec title="Observatii si recomandari">
         <Signal type={activeConvRate > 0 ? 'positive' : 'neutral'}
-          title={`/vreau este fluxul activ — ${activeConvRate.toFixed(2)}% conv rate`}
-          body={`Cu ${fmtN(activePath.views)} views si ${activePath.conv} conversii GA4, acesta este singurul flux folosit pentru analiza formularului curent. Cererile reale se valideaza separat din buyer_requests, nu din traficul pe rutele legacy.`}
+          title={`Formularele active /vreau (V) si /new (VH): ${fmtN(activeViews)} views`}
+          body={`${activeRequests !== null ? `Cereri reale din HomePitch: V ${fmtN(platformForms.V || 0)}, VH ${fmtN(platformForms.VH || 0)}. ` : ''}Evenimentele-cheie GA4 (${fmtN(activeConv)}) includ toate evenimentele marcate in GA4 (signup, cerere, oferta), deci cererile se citesc din buyer_requests.`}
         />
         {legacyViews > 0 && (
           <Signal type="info"
             title={`Trafic legacy ramas: ${fmtN(legacyViews)} vizite pe rute vechi`}
-            body="Aceste vizite pot veni din istoric GA4, linkuri vechi, bookmark-uri, indexari sau redirecturi fara 301. Nu inseamna ca userii mai trimit cereri prin pagina veche; inseamna ca merita verificat ca rutele vechi duc spre /vreau."
+            body="Aceste vizite pot veni din istoric GA4, linkuri vechi, bookmark-uri, indexari sau redirecturi fara 301. Nu inseamna ca userii mai trimit cereri prin pagina veche; inseamna ca merita verificat ca rutele vechi duc spre /vreau sau /new."
           />
         )}
         <Signal type="info"
           title="Interpretare corecta"
-          body="In acest tab, /vreau este formularul activ. /cerere-noua si /cereri/nou raman in raport doar ca audit pentru trafic ratacit, ca sa nu pierdem vizite venite din linkuri vechi sau rezultate indexate."
+          body="In acest tab, /vreau (V) si /new (VH) sunt formularele active. /cerere-noua si /cereri/nou raman in raport doar ca audit pentru trafic ratacit, ca sa nu pierdem vizite venite din linkuri vechi sau rezultate indexate."
         />
       </Sec>
     </div>
@@ -1178,7 +1175,7 @@ export function TabCerereTracking({ data }) {
         <KPI label="Inregistrari cumparatori" curr={totalCump}/>
       </Grid>
 
-      <Sec title="Evenimente formular /vreau">
+      <Sec title="Evenimente formular /vreau + /new">
         {(requestEvents.totalEvents || 0) === 0 ? (
           <Signal
             type="neutral"

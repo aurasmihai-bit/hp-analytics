@@ -1,6 +1,8 @@
 'use client'
 import { useState } from 'react'
 import { C, sum, dlt, fmt, fmtN, Delta, KPI, Signal, Sec, Card, BarChart, PageLink } from './components'
+import { buildPreviousMap, keyEventsPer100 } from '../lib/report-metrics'
+import { requestFormEventTotals } from '../lib/request-attribution'
 
 function TabPagini({ data }) {
   const curr=data.pages.current
@@ -8,15 +10,8 @@ function TabPagini({ data }) {
   const [sortBy,setSortBy]=useState('views')
   const [section,setSection]=useState('all')
 
-  // Build prev map for deltas
-  const prevMap={}
-  for(const p of prev){
-    if(!prevMap[p.page_path]) prevMap[p.page_path]={...p}
-    else Object.keys(p).forEach(f=>{if(f!=='page_path'&&typeof p[f]==='number') prevMap[p.page_path][f]=(prevMap[p.page_path][f]||0)+p[f]})
-  }
-  for(const p of curr){
-    if(prevMap[p.page_path]) Object.keys(p).forEach(f=>{if(f!=='page_path'&&typeof p[f]==='number') prevMap[p.page_path][f]=Math.max(0,(prevMap[p.page_path][f]||0)-p[f])})
-  }
+  // pages.previous este deja perioada anterioara reala: comparam direct, fara scaderi.
+  const prevMap=buildPreviousMap(prev)
 
   const HL=['/home3','/invers','/simplu','/platforma','/']
   const MIN_VIEWS=20
@@ -62,7 +57,7 @@ function TabPagini({ data }) {
   const maxBounce = Math.max(...exitPages.map(p=>p.bounce_rate||0), 0.01)
 
   function PageRow({ p, extra }) {
-    const conv=p.screen_page_views>0?p.conversions/p.screen_page_views*100:0
+    const conv=keyEventsPer100(p.conversions,p.screen_page_views)
     const isHL=HL.includes(p.page_path)
     const pp=prevMap[p.page_path]
     const realRequests = p.requests_created
@@ -77,7 +72,7 @@ function TabPagini({ data }) {
         <td style={{padding:'7px 8px',color:realRequests === null || realRequests === undefined ? C.hint : C.green,fontWeight:realRequests > 0 ? 600 : 400}} title={p.requests_created_source === 'buyer_requests' ? 'Numarat din buyer_requests HomePitch' : 'Sursa landing path nu este disponibila in exportul HomePitch'}>
           {realRequests === null || realRequests === undefined ? '—' : fmtN(realRequests)}
         </td>
-        <td style={{padding:'7px 8px',color:conv>5?C.green:conv>2?C.blue:C.muted,fontWeight:conv>5?500:400}}>{conv.toFixed(1)}%</td>
+        <td style={{padding:'7px 8px',color:conv>5?C.green:conv>2?C.blue:C.muted,fontWeight:conv>5?500:400}} title="Evenimente-cheie GA4 la 100 de views (nu procent: un view poate avea mai multe evenimente)">{conv.toFixed(1)}</td>
         {extra}
       </tr>
     )
@@ -106,7 +101,7 @@ function TabPagini({ data }) {
           <>
             <div style={{width:1,height:20,background:C.border,margin:'0 4px'}}/>
             <span style={{fontSize:12,color:C.hint}}>Sorteaza:</span>
-            {[['views','Views'],['bounce','Bounce'],['dur','Durata'],['conv','Conv%'],['eng','Eng%']].map(([v,l])=>(
+            {[['views','Views'],['bounce','Bounce'],['dur','Durata'],['conv','Ev. cheie/100 views'],['eng','Eng%']].map(([v,l])=>(
               <button key={v} onClick={()=>setSortBy(v)} style={{padding:'4px 10px',fontSize:11,borderRadius:6,cursor:'pointer',border:`0.5px solid ${sortBy===v?C.navy:C.border}`,background:sortBy===v?C.navy:'transparent',color:sortBy===v?'#fff':C.muted,fontWeight:sortBy===v?500:400}}>{l}</button>
             ))}
           </>
@@ -119,7 +114,7 @@ function TabPagini({ data }) {
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
               <thead><tr style={{borderBottom:`0.5px solid ${C.border}`}}>
-                {['Pagina','Views','Delta','Eng%','Cereri create','Conv%','Bounce','Durata (avg)'].map(h=><th key={h} style={{textAlign:'left',padding:'6px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>)}
+                {['Pagina','Views','Delta','Eng%','Cereri create','Ev. cheie/100 views','Bounce','Durata (avg)'].map(h=><th key={h} style={{textAlign:'left',padding:'6px 8px',color:C.hint,fontWeight:500,fontSize:10,textTransform:'uppercase'}}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {sorted.map(p=><PageRow key={p.page_path} p={p} extra={<>
@@ -180,7 +175,7 @@ function TabPagini({ data }) {
                     <span>{fmtN(p.screen_page_views)} views</span>
                     <span>eng: {Math.round((p.engagement_rate||0)*100)}%</span>
                     <span>dur: {Math.round(p.average_session_duration||0)}s</span>
-                    <span>conv: {(p.screen_page_views>0?p.conversions/p.screen_page_views*100:0).toFixed(1)}%</span>
+                    <span>ev. cheie/100 views: {keyEventsPer100(p.conversions,p.screen_page_views).toFixed(1)}</span>
                   </div>
                   <p style={{fontSize:12,color:annotation.col,margin:0,fontWeight:500}}>{annotation.text}</p>
                 </div>
@@ -208,7 +203,7 @@ function TabPagini({ data }) {
                 if(path==='/cereri/nou')        return {col:C.amber,  text:'Ruta legacy pentru cerere noua — verifica redirectul catre /vreau.'}
                 if(path==='/vreau') {
                   const convRate = p.screen_page_views > 0 ? p.conversions / p.screen_page_views * 100 : 0
-                  return {col:C.green, text:`${Math.round(dur)}s si ${convRate.toFixed(1)}% conv rate — pagina de intent, merita scalata daca mentine performanta.`}
+                  return {col:C.green, text:`${Math.round(dur)}s si ${convRate.toFixed(1)} evenimente-cheie / 100 views — pagina de intent, merita scalata daca mentine performanta.`}
                 }
                 if(path==='/beneficii-vip')     return {col:C.green,  text:'Pagina beneficii abonament — durata mare indica interes activ in upgrade.'}
                 if(path==='/dashboard/vip')     return {col:C.green,  text:'Dashboard VIP — userii activi exploreaza beneficiile.'}
@@ -236,7 +231,7 @@ function TabPagini({ data }) {
                     <span>{fmtN(p.screen_page_views)} views</span>
                     <span>eng time: <strong style={{color:C.text}}>{Math.round(engT)}s</strong></span>
                     <span>bounce: {((p.bounce_rate||0)*100).toFixed(0)}%</span>
-                    <span>conv: {(p.screen_page_views>0?p.conversions/p.screen_page_views*100:0).toFixed(1)}%</span>
+                    <span>ev. cheie/100 views: {keyEventsPer100(p.conversions,p.screen_page_views).toFixed(1)}</span>
                   </div>
                   {note.text&&<p style={{fontSize:12,color:note.col,margin:0,fontWeight:500}}>{note.text}</p>}
                 </div>
@@ -282,7 +277,7 @@ function TabPagini({ data }) {
                     <span>{fmtN(p.screen_page_views)} views</span>
                     <span>eng: {Math.round((p.engagement_rate||0)*100)}%</span>
                     <span>bounce: {((p.bounce_rate||0)*100).toFixed(0)}%</span>
-                    <span>conv: {(p.screen_page_views>0?p.conversions/p.screen_page_views*100:0).toFixed(1)}%</span>
+                    <span>ev. cheie/100 views: {keyEventsPer100(p.conversions,p.screen_page_views).toFixed(1)}</span>
                   </div>
                   {note.text&&<p style={{fontSize:12,color:note.col,margin:0,fontWeight:500}}>{note.text}</p>}
                 </div>
@@ -315,7 +310,7 @@ function TabPagini({ data }) {
                     {l:'Views',v:fmtN(p.screen_page_views)},
                     {l:'Bounce',v:((p.bounce_rate||0)*100).toFixed(0)+'%',col:(p.bounce_rate||0)>0.15?C.red:C.muted},
                     {l:'Durata',v:Math.round(p.average_session_duration||0)+'s'},
-                    {l:'Conv rate',v:(p.screen_page_views>0?p.conversions/p.screen_page_views*100:0).toFixed(1)+'%'},
+                    {l:'Ev. cheie/100 views',v:keyEventsPer100(p.conversions,p.screen_page_views).toFixed(1)},
                   ].map(m=>(
                     <div key={m.l} style={{background:C.softPanel,borderRadius:6,padding:'6px 8px'}}>
                       <p style={{fontSize:10,color:C.hint,margin:'0 0 2px'}}>{m.l}</p>
@@ -342,7 +337,7 @@ function TabFunnel({ data }) {
   const signup=sum(convs,'conversions_signup'), offers=sum(convs,'conversions_offer_accepted'), cer=sum(convs,'conversions_bravo_cerere_noua')
   const ag=sum(convs,'conversions_bun_venit_agent'), cum=sum(convs,'conversions_bun_venit_cumparator'), prop=sum(convs,'conversions_bun_venit_proprietar')
   const custTotal=signup+offers+cer+ag+cum+prop
-  const rate=p=>p&&p.screen_page_views>0?p.conversions/p.screen_page_views*100:0
+  const rate=p=>p?keyEventsPer100(p.conversions,p.screen_page_views):0
   const hpr=rate(hp), h3r=rate(h3), inversR=rate(invers), simpr=rate(simp), platformaR=rate(platforma)
   const landingViews=(h3?.screen_page_views||0)+(invers?.screen_page_views||0)+(simp?.screen_page_views||0)+(platforma?.screen_page_views||0)+(hp?.screen_page_views||0)
   const cereriViews=cereri?.screen_page_views||0
@@ -352,13 +347,14 @@ function TabFunnel({ data }) {
   const loginViews=login?.screen_page_views||0
   const funnelDrop=cereriViews>0?(activeFormViews/cereriViews*100):null
   const requestEvents=data.requestFormEvents||{}
-  const eventCounts=(requestEvents.events||[]).reduce((acc,row)=>{acc[row.event_name]=row.event_count||0;return acc},{})
+  // Title Case (istoric) si snake_case (form_step_completed ...) adunate pe acelasi pas.
+  const eventCounts=requestFormEventTotals(requestEvents.events||[])
   const requestEventSteps=[
-    {label:'Form Started',event:'[Amplitude] Form Started',v:eventCounts['[Amplitude] Form Started']||0,col:C.blue},
-    {label:'Step Completed',event:'Form Step Completed',v:eventCounts['Form Step Completed']||0,col:C.purple},
-    {label:'Validation Error',event:'Form Validation Error',v:eventCounts['Form Validation Error']||0,col:C.red},
-    {label:'Form Abandoned',event:'Form Abandoned',v:eventCounts['Form Abandoned']||0,col:C.amber},
-    {label:'Request Created',event:'Request Created',v:eventCounts['Request Created']||0,col:C.green},
+    {label:'Form Started',event:'form_started',v:eventCounts.form_started||0,col:C.blue},
+    {label:'Step Completed',event:'form_step_completed',v:eventCounts.form_step_completed||0,col:C.purple},
+    {label:'Validation Error',event:'form_validation_error',v:eventCounts.form_validation_error||0,col:C.red},
+    {label:'Form Abandoned',event:'form_abandoned',v:eventCounts.form_abandoned||0,col:C.amber},
+    {label:'Request Created',event:'request_created',v:eventCounts.request_created||0,col:C.green},
   ]
   const requestEventTotal=requestEventSteps.reduce((s,row)=>s+Number(row.v||0),0)
   const steps=[
@@ -368,7 +364,7 @@ function TabFunnel({ data }) {
     {label:'/vreau — varianta V',path:'/vreau',v:vreauViews,pct:totalSess>0?vreauViews/totalSess*100:0,col:'#D97706'},
     {label:'/new — varianta VH',path:'/new',v:vreauHomeViews,pct:totalSess>0?vreauHomeViews/totalSess*100:0,col:'#16A34A'},
     {label:'/login',path:'/login',v:loginViews,pct:totalSess>0?loginViews/totalSess*100:0,col:'#D97706'},
-    {label:'Conversii GA4 totale',path:null,v:totalConv,pct:totalSess>0?totalConv/totalSess*100:0,col:'#16A34A'},
+    {label:'Evenimente-cheie GA4 (toate)',path:null,v:totalConv,pct:totalSess>0?Math.min(100,totalConv/totalSess*100):0,col:'#16A34A'},
   ]
   return (
     <div>
@@ -411,11 +407,11 @@ function TabFunnel({ data }) {
           </div>
         )}
       </Sec>
-      <Sec title="Conv rate landing pages">
+      <Sec title="Evenimente-cheie la 100 views — landing pages">
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:10}}>
           {[{label:'/home3',r:h3r,views:h3?.screen_page_views||0,hl:true,path:'/home3'},{label:'/invers',r:inversR,views:invers?.screen_page_views||0,hl:true,path:'/invers'},{label:'/simplu',r:simpr,views:simp?.screen_page_views||0,hl:true,path:'/simplu'},{label:'/platforma',r:platformaR,views:platforma?.screen_page_views||0,hl:true,path:'/platforma'},{label:'/ homepage',r:hpr,views:hp?.screen_page_views||0,hl:false,path:'/'}].map(p=>(
             <div key={p.label} style={{background:p.hl&&p.r>hpr?C.softGreen:C.card,border:`0.5px solid ${p.hl&&p.r>hpr?C.green:C.border}`,borderRadius:10,padding:'14px 16px',textAlign:'center'}}>
-              <p style={{fontSize:24,fontWeight:500,color:p.r>5?C.green:C.text,margin:'0 0 4px'}}>{p.r.toFixed(1)}%</p>
+              <p style={{fontSize:24,fontWeight:500,color:p.r>5?C.green:C.text,margin:'0 0 4px'}}>{p.r.toFixed(1)}</p>
               <p style={{fontSize:11,color:C.hint,margin:0}}><PageLink path={p.path}>{p.label}</PageLink></p>
               <p style={{fontSize:11,color:C.hint,margin:'2px 0 0'}}>{fmtN(p.views)} views</p>
             </div>
