@@ -3,6 +3,8 @@ import { isRequestFormEventName as isKnownRequestFormEventName } from './request
 
 const GA4_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
 const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 2
+// Aceeași versiune ca în app/api/report/route.js: altfel zilele salvate par mereu vechi și se recitesc.
+export const REQUEST_FORM_EVENTS_SCHEMA_VERSION = 2
 
 function numberValue(value) {
   const n = Number(value)
@@ -559,7 +561,7 @@ export async function fetchReportGa4Data({ propertyId, currFrom, currTo, prevFro
       },
     },
     requestFormEvents: {
-      schemaVersion: 1,
+      schemaVersion: REQUEST_FORM_EVENTS_SCHEMA_VERSION,
       rows: requestFormEventRows,
     },
     conciergeTraffic: {
@@ -591,7 +593,7 @@ function emptyDailyPayload(date) {
       exitIntent: { rows: [] },
     },
     requestFormEvents: {
-      schemaVersion: 1,
+      schemaVersion: REQUEST_FORM_EVENTS_SCHEMA_VERSION,
       rows: [],
     },
     conciergeTraffic: {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getLatestSnapshot, upsertSnapshot, isFresh, logSync, getTabDailyRows, upsertTabDailyRows } from '../../lib/supabase'
 import { getOptionalEnv, requireEnv } from '../../lib/env'
-import { fetchReportGa4Data, fetchReportGa4DailyData } from '../../lib/ga4'
+import { fetchReportGa4Data, fetchReportGa4DailyData, REQUEST_FORM_EVENTS_SCHEMA_VERSION } from '../../lib/ga4'
 import { fetchGscData, fetchGscDailyData } from '../../lib/gsc'
 import { fetchPlatformRequestStats, fetchPlatformRequestDailyStats, fetchPlatformRequestSourceStats, fetchPlatformBuyerRequestConversion } from '../../lib/platform'
 import { requestFormEventTotals, requestsPerGa4Signup } from '../../lib/request-attribution'
@@ -13,7 +13,6 @@ const DEFAULT_GA4_ACCOUNT = '521779420'
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_HP_ANALYTICS_EXPORT_URL = `${DEFAULT_PLATFORM_SUPABASE_URL}/functions/v1/hp-analytics-export`
 const EXIT_ANALYSIS_SCHEMA_VERSION = 1
-const REQUEST_FORM_EVENTS_SCHEMA_VERSION = 2
 const CONCIERGE_TRAFFIC_SCHEMA_VERSION = 2
 const HEADER_MENU_TEST_NAME = 'Header main menu'
 const HOMEPAGE_VARIANTS = [
