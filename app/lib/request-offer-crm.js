@@ -1,5 +1,6 @@
 import { getOptionalEnv } from './env'
 import { sbFetch } from './supabase'
+import { requestOfferCaseTiming, markResolvedInHomePitch, firstContactAt } from './crm-metrics'
 
 const DEFAULT_PLATFORM_SUPABASE_URL = 'https://bwfexvoapabfvkmmnxkg.supabase.co'
 const DEFAULT_HP_ANALYTICS_EXPORT_URL = `${DEFAULT_PLATFORM_SUPABASE_URL}/functions/v1/hp-analytics-export`
@@ -219,10 +220,9 @@ export function cleanRequestOfferCase(input) {
 
 function toClientCase(row, source = 'crm') {
   const receivedAt = row.source_received_at || row.source_created_at || row.created_at
-  const receivedTime = receivedAt ? new Date(receivedAt).getTime() : 0
-  const inactiveDays = Number.isFinite(receivedTime) && receivedTime > 0
-    ? Math.max(0, Math.floor((Date.now() - receivedTime) / 86400000))
-    : 0
+  // „Zile inactivitate” = de la ultima actiune (log, comentariu, reminder); varsta cazului separat.
+  const timing = requestOfferCaseTiming(row)
+  const inactiveDays = timing.inactiveDays
 
   return {
     id: row.id || `${row.source_type}:${row.source_id}`,
@@ -261,6 +261,10 @@ function toClientCase(row, source = 'crm') {
     sourceCreatedAt: row.source_created_at || '',
     sourceReceivedAt: receivedAt || '',
     inactiveDays,
+    ageDays: timing.ageDays,
+    lastActionAt: timing.lastActionAt,
+    firstContactAt: firstContactAt({ comments: row.comments, log: row.log, createdAt: receivedAt }) || '',
+    resolvedInHomePitch: false,
     sourceStatus: row.source_status || '',
     reminderCount: Number(row.reminder_count || 0),
     reminderChannels: Array.isArray(row.reminder_channels) ? row.reminder_channels : [],
@@ -284,7 +288,7 @@ function fromExportCase(row) {
   return toClientCase({ ...clean, _source: 'homepitch-export' }, 'homepitch-export')
 }
 
-function mergeCases(liveCases, storedCases) {
+function mergeCases(liveCases, storedCases, liveInfo = {}) {
   const storedByKey = new Map(storedCases.map(row => [`${row.sourceType}:${row.sourceId}`, row]))
   const merged = liveCases.map(live => {
     const stored = storedByKey.get(`${live.sourceType}:${live.sourceId}`)
@@ -315,7 +319,9 @@ function mergeCases(liveCases, storedCases) {
     }
   })
 
-  return [...merged, ...storedByKey.values()]
+  // Cazurile care nu mai vin din exportul live au fost rezolvate in HomePitch; nu mai sunt „nou”.
+  const storedOnly = markResolvedInHomePitch(Array.from(storedByKey.values()), liveInfo)
+  return [...merged, ...storedOnly]
     .sort((a, b) => String(b.sourceReceivedAt || b.updatedAt || '').localeCompare(String(a.sourceReceivedAt || a.updatedAt || '')))
 }
 
@@ -344,9 +350,11 @@ export async function getRequestOfferCrmCases({ limit = 500 } = {}) {
     setupRequired.crm = true
   }
 
+  let liveLoaded = false
   try {
     const rows = await fetchHomePitchExport('request_offer_cases', { limit })
     liveCases = (rows || []).map(fromExportCase)
+    liveLoaded = true
   } catch (error) {
     if (!isMissingExport(error)) throw error
     setupRequired.homePitchExport = true
@@ -354,7 +362,7 @@ export async function getRequestOfferCrmCases({ limit = 500 } = {}) {
   }
 
   return {
-    rows: mergeCases(liveCases, storedCases),
+    rows: mergeCases(liveCases, storedCases, { liveLoaded, liveCount: liveCases.length, liveLimit: Number(limit) || Infinity }),
     setupRequired,
     sourceIssue,
     checkedAt: new Date().toISOString(),

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { C, Card, KPI, fmtN } from './components'
+import { firstContactStats } from '../lib/crm-metrics'
 
 const STAGES = [
   ['nou', 'Nou'],
@@ -245,7 +246,7 @@ function RequestOfferRow({ row }) {
       <span style={{fontSize:13,color:C.text}}>{row.reminderCount}</span>
       <div style={{display:'flex',gap:6,alignItems:'center'}}>
         <span style={{width:7,height:7,borderRadius:'50%',background:stageColor(row.stage)}}/>
-        <span style={{fontSize:12,color:C.muted}}>{stageLabel(row.stage)}</span>
+        <span style={{fontSize:12,color:C.muted}}>{row.resolvedInHomePitch ? 'Rezolvat in HomePitch' : stageLabel(row.stage)}</span>
       </div>
       <a
         href={detailHref}
@@ -301,12 +302,16 @@ export function RequestOfferCrmPage() {
   const [sortDirection, setSortDirection] = useState('desc')
 
   const stats = useMemo(() => {
-    const active = rows.filter(row => !CLOSED_STAGES.has(row.stage))
+    // cazurile rezolvate in HomePitch (nu mai vin din export) nu intra in KPI
+    const active = rows.filter(row => !CLOSED_STAGES.has(row.stage) && !row.resolvedInHomePitch)
+    const contact = firstContactStats(rows.map(row => ({ createdAt: row.sourceReceivedAt || row.sourceCreatedAt || row.createdAt, firstContactAt: row.firstContactAt })))
     return {
       offers: active.filter(row => row.sourceType === 'offer_no_response' && row.stage === 'nou').length,
       recs: active.filter(row => row.sourceType === 'recommendation_no_offer' && row.stage === 'nou').length,
       overdue: active.filter(row => row.inactiveDays >= 7).length,
       reminders: active.reduce((sum, row) => sum + Number(row.reminderCount || 0), 0),
+      resolved: rows.filter(row => row.resolvedInHomePitch).length,
+      contact,
     }
   }, [rows])
 
@@ -315,9 +320,9 @@ export function RequestOfferCrmPage() {
   const filtered = useMemo(() => {
     let base = rows
     if (STAGE_TABS.has(tab)) {
-      base = base.filter(row => row.stage === tab)
+      base = base.filter(row => row.stage === tab && !(tab === 'nou' && row.resolvedInHomePitch))
     } else {
-      base = base.filter(row => row.sourceType === tab && row.stage === 'nou')
+      base = base.filter(row => row.sourceType === tab && row.stage === 'nou' && !row.resolvedInHomePitch)
     }
     if (stage !== 'all') base = base.filter(row => row.stage === stage)
     if (transaction !== 'all') base = base.filter(row => row.transactionType === transaction)
@@ -358,11 +363,12 @@ export function RequestOfferCrmPage() {
       <SourceIssue setupRequired={setupRequired} sourceIssue={sourceIssue}/>
       {error && <Card style={{borderColor:C.red,background:C.softRed,marginBottom:14}}><p style={{color:C.red,margin:0,fontSize:13}}>{error}</p></Card>}
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:10,marginBottom:16}}>
-        <KPI label="Oferte fara raspuns" curr={stats.offers}/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(170px,1fr))',gap:10,marginBottom:16}}>
+        <KPI label="Oferte fara raspuns" curr={stats.offers} sub={stats.resolved ? `${stats.resolved} rezolvate in HomePitch, excluse` : undefined}/>
         <KPI label="Recomandari fara oferta" curr={stats.recs}/>
-        <KPI label="7+ zile inactivitate" curr={stats.overdue}/>
+        <KPI label="7+ zile fara actiune" curr={stats.overdue} sub="de la ultima actiune (log, nota, reminder)"/>
         <KPI label="Remindere trimise" curr={stats.reminders}/>
+        <KPI label="Timp pana la primul contact" curr={stats.contact.medianHours} type="dec1" sub={stats.contact.medianHours === null ? 'fara contacte inregistrate' : `ore (mediana) · ${stats.contact.contacted} contactate · ${stats.contact.uncontacted} fara contact`}/>
       </div>
 
       <Card style={{padding:12,marginBottom:14}}>
@@ -370,7 +376,7 @@ export function RequestOfferCrmPage() {
           {[
             ['offer_no_response', `Oferte fara raspuns (${stats.offers})`],
             ['recommendation_no_offer', `Recomandari netrimise (${stats.recs})`],
-            ...STAGES.map(([id, label]) => [id, `${label} (${rows.filter(row => row.stage === id).length})`]),
+            ...STAGES.map(([id, label]) => [id, `${label} (${rows.filter(row => row.stage === id && !(id === 'nou' && row.resolvedInHomePitch)).length})`]),
           ].map(([id, label]) => (
             <button key={id} onClick={() => selectTab(id)} style={{border:`0.5px solid ${tab === id ? C.blue : C.border}`,background:tab === id ? C.softBlue : 'transparent',color:tab === id ? C.blue : C.muted,borderRadius:8,padding:'8px 10px',fontSize:12,fontWeight:700,cursor:'pointer'}}>{label}</button>
           ))}
@@ -745,7 +751,8 @@ export function RequestOfferCrmDetail({ caseId }) {
             <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:10}}>
               <InfoRow label="Creat" value={safeDate(draft.sourceCreatedAt, true)}/>
               <InfoRow label="Primit oferta/recomandare" value={safeDate(draft.sourceReceivedAt, true)}/>
-              <InfoRow label="Zile inactivitate" value={`${draft.inactiveDays} zile`}/>
+              <InfoRow label="Zile fara actiune" value={`${draft.inactiveDays} zile`}/>
+              <InfoRow label="Varsta cazului" value={`${draft.ageDays ?? 0} zile de la primire`}/>
               <InfoRow label="Remindere" value={`${draft.reminderCount} · ${(draft.reminderChannels || []).join(', ') || 'canal necunoscut'}`}/>
             </div>
           </Card>
